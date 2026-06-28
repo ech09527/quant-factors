@@ -26,7 +26,6 @@ jobs:
     timeout-minutes: 30
     env:
       GITHUB_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
-      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
 
     steps:
       - name: Checkout
@@ -72,6 +71,11 @@ jobs:
         run: |
           curl https://cursor.com/install -fsS | bash
           echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Cursor auth
+        env:
+          CURSOR_AUTH_JSON: ${{ secrets.CURSOR_AUTH_JSON }}
+        run: bash scripts/setup_cursor_auth.sh
 
       - name: Run Cursor agent
         run: |
