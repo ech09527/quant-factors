@@ -1,0 +1,77 @@
+# 工作流 A：遍历 datasets.yaml 中 enabled 的数据集，在 Kaggle 探索并更新 datasets/ 目录。
+# 不使用 push paths 触发，避免 commit datasets/ 后再次触发形成循环。
+
+name: Dataset Catalog Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_slug:
+        description: "可选：仅探索指定 slug（owner/dataset-name）"
+        required: false
+        type: string
+  # 每周日 UTC 03:00 自动运行；首次启用前请确认 Kaggle 凭证与 datasets.yaml 已配置。
+  # schedule:
+  #   - cron: "0 3 * * 0"
+
+concurrency:
+  group: dataset-catalog
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  KAGGLE_KERNEL_SLUG: explore-dataset
+
+jobs:
+  update-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install kaggle pyyaml
+
+      - name: Configure Kaggle credentials
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          if [ -n "${KAGGLE_API_TOKEN}" ]; then
+            echo "使用 KAGGLE_API_TOKEN 认证"
+          elif [ -n "${KAGGLE_USERNAME}" ] && [ -n "${KAGGLE_KEY}" ]; then
+            mkdir -p ~/.kaggle
+            echo "{\"username\":\"${KAGGLE_USERNAME}\",\"key\":\"${KAGGLE_KEY}\"}" > ~/.kaggle/kaggle.json
+            chmod 600 ~/.kaggle/kaggle.json
+          else
+            echo "::error::需要配置 KAGGLE_API_TOKEN 或 KAGGLE_USERNAME + KAGGLE_KEY"
+            exit 1
+          fi
+
+      - name: Update dataset catalog
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KERNEL_LOG_TIMEOUT_SECONDS: "5400"
+        run: |
+          ARGS=()
+          if [ -n "${{ inputs.dataset_slug }}" ]; then
+            ARGS+=(--slug "${{ inputs.dataset_slug }}")
+          fi
+          python scripts/update_dataset_catalog.py "${ARGS[@]}"
