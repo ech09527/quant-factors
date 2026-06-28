@@ -1,12 +1,23 @@
 {
   "slug": "yhydev97/quant-data",
-  "explored_at": "2026-06-28T12:37:32+00:00",
+  "explored_at": "2026-06-28T13:00:13+00:00",
   "kaggle_version": null,
+  "input_path": "/kaggle/input/datasets",
+  "expected_input_path": "/kaggle/input/yhydev97-quant-data",
+  "catalog_summary": {
+    "file_tree": [
+      "yhydev97/quant-data/futures/um/klines/1h.parquet"
+    ],
+    "data_file_count": 1,
+    "inferred_kind": "加密货币永续合约 1 小时 K 线（Binance UM 格式）",
+    "symbol_count_in_sample": 1
+  },
   "files": [
     {
       "name": "yhydev97/quant-data/futures/um/klines/1h.parquet",
       "size_bytes": 620488492,
       "row_count": 5000,
+      "sample_rows": 5000,
       "columns": [
         {
           "name": "open_time",
@@ -18,7 +29,8 @@
             1758128400000.0,
             1758132000000.0,
             1758135600000.0
-          ]
+          ],
+          "unique": 4992
         },
         {
           "name": "open",
@@ -30,7 +42,8 @@
             1.7244,
             1.5837,
             1.619
-          ]
+          ],
+          "unique": 4010
         },
         {
           "name": "high",
@@ -42,7 +55,8 @@
             1.7366,
             1.6875,
             1.869
-          ]
+          ],
+          "unique": 3990
         },
         {
           "name": "low",
@@ -54,7 +68,8 @@
             1.472,
             1.522,
             1.591
-          ]
+          ],
+          "unique": 3954
         },
         {
           "name": "close",
@@ -66,7 +81,8 @@
             1.5837,
             1.618,
             1.8545
-          ]
+          ],
+          "unique": 3980
         },
         {
           "name": "volume",
@@ -78,7 +94,8 @@
             11393202.0,
             6368675.0,
             8588966.0
-          ]
+          ],
+          "unique": 4986
         },
         {
           "name": "close_time",
@@ -90,7 +107,8 @@
             1758131999999.0,
             1758135599999.0,
             1758139199999.0
-          ]
+          ],
+          "unique": 4992
         },
         {
           "name": "quote_volume",
@@ -102,7 +120,8 @@
             18127404.8256,
             10345108.9536,
             14975008.5607
-          ]
+          ],
+          "unique": 4992
         },
         {
           "name": "count",
@@ -114,7 +133,8 @@
             188515.0,
             126207.0,
             183281.0
-          ]
+          ],
+          "unique": 4702
         },
         {
           "name": "taker_buy_volume",
@@ -126,7 +146,8 @@
             5664996.0,
             3241561.0,
             4515106.0
-          ]
+          ],
+          "unique": 4985
         },
         {
           "name": "taker_buy_quote_volume",
@@ -138,7 +159,8 @@
             9020864.8285,
             5270309.3939,
             7879989.3145
-          ]
+          ],
+          "unique": 4992
         },
         {
           "name": "ignore",
@@ -146,7 +168,8 @@
           "null_rate": 0.0016,
           "sample_values": [
             0.0
-          ]
+          ],
+          "unique": 1
         },
         {
           "name": "symbol",
@@ -154,33 +177,37 @@
           "null_rate": 0.0,
           "sample_values": [
             "0GUSDT"
-          ]
+          ],
+          "unique": 1
         }
-      ]
+      ],
+      "symbol_count_in_sample": 1
     }
   ],
   "date_range": {
     "column": "open_time",
-    "start": "1970-01-01",
-    "end": "1970-01-01"
+    "start": "2025-09-17",
+    "end": "2026-04-13",
+    "unit": "epoch_ms"
   },
   "primary_keys": [
     "symbol",
     "open_time"
   ],
   "factor_field_candidates": [
-    "open_time",
     "open",
     "high",
     "low",
     "close",
     "volume",
-    "close_time",
     "quote_volume",
     "count",
     "taker_buy_volume",
-    "taker_buy_quote_volume",
-    "ignore"
+    "taker_buy_quote_volume"
   ],
-  "warnings": []
+  "warnings": [
+    "Kaggle 挂载路径非标准：实际 `/kaggle/input/datasets`，期望 `/kaggle/input/yhydev97-quant-data`",
+    "统计基于每文件最多 5000 行 head 抽样；row_count 为抽样行数，不代表全量。",
+    "yhydev97/quant-data/futures/um/klines/1h.parquet 抽样中仅见 1 个 symbol，横截面多样性可能被低估。"
+  ]
 }

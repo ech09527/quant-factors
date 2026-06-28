@@ -1,17 +1,24 @@
 # quant-data
 
-> 自动探索于 2026-06-28T12:37:32+00:00，Kaggle slug: `yhydev97/quant-data`
+> 自动探索于 2026-06-28T13:00:13+00:00，Kaggle slug: `yhydev97/quant-data`
 
 ## 概述
 
+- 数据类型（推断）: 加密货币永续合约 1 小时 K 线（Binance UM 格式）
 - 输入路径: `/kaggle/input/datasets`
-- 文件数: 1
+- 期望路径: `/kaggle/input/yhydev97-quant-data`
+- 数据文件数: 1
 - 抽样说明: 基于每个文件最多 5000 行抽样统计；row_count 为抽样行数而非全量。
+- 抽样内 symbol 数: 1
+
+## 文件树
+
+- `yhydev97/quant-data/futures/um/klines/1h.parquet`
 
 ## 时间范围
 
-- 时间列: `open_time`
-- 起止: 1970-01-01 ~ 1970-01-01
+- 时间列: `open_time`（Unix 毫秒解析）
+- 起止: 2025-09-17 ~ 2026-04-13
 
 ## 建议主键 / Join 键
 
@@ -19,7 +26,7 @@
 
 ## 因子字段候选
 
-`open_time`, `open`, `high`, `low`, `close`, `volume`, `close_time`, `quote_volume`, `count`, `taker_buy_volume`, `taker_buy_quote_volume`, `ignore`
+`open`, `high`, `low`, `close`, `volume`, `quote_volume`, `count`, `taker_buy_volume`, `taker_buy_quote_volume`
 
 ## 文件与字段
 
@@ -44,19 +51,26 @@
 | ignore | float64 | 0.16% | 0.0 |
 | symbol | object | 0.00% | 0GUSDT |
 
-## 因子潜力（模板）
+## 已知限制 / 警告
 
-以下说明需结合业务语义人工补充：
+- Kaggle 挂载路径非标准：实际 `/kaggle/input/datasets`，期望 `/kaggle/input/yhydev97-quant-data`
+- 统计基于每文件最多 5000 行 head 抽样；row_count 为抽样行数，不代表全量。
+- yhydev97/quant-data/futures/um/klines/1h.parquet 抽样中仅见 1 个 symbol，横截面多样性可能被低估。
+
+## 字段说明
 
 | 列名 | 类型 | 说明 | 因子潜力 |
 |------|------|------|----------|
-| open_time | numeric | （待补充） | 动量、反转、波动等 |
-| open | numeric | （待补充） | 动量、反转、波动等 |
-| high | numeric | （待补充） | 动量、反转、波动等 |
-| low | numeric | （待补充） | 动量、反转、波动等 |
-| close | numeric | （待补充） | 动量、反转、波动等 |
-| volume | numeric | （待补充） | 动量、反转、波动等 |
-| close_time | numeric | （待补充） | 动量、反转、波动等 |
-| quote_volume | numeric | （待补充） | 动量、反转、波动等 |
-| count | numeric | （待补充） | 动量、反转、波动等 |
-| taker_buy_volume | numeric | （待补充） | 动量、反转、波动等 |
+| open_time | float64 | K 线开盘时间（Unix 毫秒） | 时间轴 / 分组排序 |
+| open | float64 | 开盘价 | 动量、反转、波动 |
+| high | float64 | 最高价 | 波动、突破 |
+| low | float64 | 最低价 | 波动、支撑阻力 |
+| close | float64 | 收盘价 | 动量、反转、均线 |
+| volume | float64 | 成交量（基础资产） | 量价、流动性 |
+| close_time | float64 | K 线收盘时间（Unix 毫秒） | 时间轴 |
+| quote_volume | float64 | 成交额（计价货币） | 流动性、冲击 |
+| count | float64 | 成交笔数 | 微观结构、单笔规模 |
+| taker_buy_volume | float64 | 主动买入成交量 | 订单流、冲击 |
+| taker_buy_quote_volume | float64 | 主动买入成交额 | 订单流 |
+| ignore | float64 | （待补充） | — |
+| symbol | object | 交易对代码 | 分组键 |
