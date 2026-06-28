@@ -421,14 +421,20 @@ def git_commit_and_push(
         cwd=repo,
     ).stdout.strip()
 
-    # 使用一次性 push URL，避免污染 origin remote（防止重复注入 token）
+    # 使用一次性 auth URL，避免污染 origin remote（防止重复注入 token）
     if remote_url.startswith("https://github.com/"):
-        push_url = remote_url.replace(
+        auth_url = remote_url.replace(
             "https://github.com/",
             f"https://x-access-token:{token}@github.com/",
             1,
         )
-        run_command(["git", "push", push_url, f"HEAD:{branch}"], cwd=repo)
+        # 并发 workflow 可能已推送其他 commit，push 前先 rebase
+        run_command(
+            ["git", "pull", "--rebase", auth_url, branch],
+            cwd=repo,
+            check=False,
+        )
+        run_command(["git", "push", auth_url, f"HEAD:{branch}"], cwd=repo)
     elif remote_url.startswith("git@"):
         env = os.environ.copy()
         env["GIT_ASKPASS"] = "echo"

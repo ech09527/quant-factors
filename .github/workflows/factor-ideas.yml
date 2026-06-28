@@ -106,4 +106,5 @@ jobs:
             exit 0
           fi
           git commit -m "chore(ideas): backup factor ideas ${DATE}"
+          git pull --rebase origin main
           git push
