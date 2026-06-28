@@ -61,17 +61,71 @@ kaggle kernels output <用户名>/<kernel-slug> -p <输出目录>
 
 所有与数据、计算相关的操作均应在 Kaggle 环境中完成，以保证环境一致性与结果可复现。
 
+### GitHub Actions 工作流
+
+| 工作流 | 文件 | 作用 |
+|--------|------|------|
+| **A — 数据集目录** | `dataset-catalog.yml` | 探索 Kaggle 数据集，写入 `datasets/<slug>/schema.json` 与 README |
+| **B — 因子想法** | `factor-ideas.yml` | 拉取已有 Project 想法，调用 Cursor CLI 生成新想法并写入 GitHub Project |
+
+**手动触发**（需已配置 Secrets）：
+
+```bash
+# 工作流 A：更新数据集说明
+gh workflow run dataset-catalog.yml
+
+# 工作流 B：生成因子想法（可选 max_ideas，默认 3）
+gh workflow run factor-ideas.yml
+gh workflow run factor-ideas.yml -f max_ideas=5
+```
+
+工作流 B 启动前会检查 `datasets/` 下是否至少有一个 `schema.json`；若无，请先运行工作流 A。
+
+**所需 Secrets**（在仓库 Settings → Secrets and variables → Actions 中配置）：
+
+| Secret | 用途 |
+|--------|------|
+| `KAGGLE_API_TOKEN` | 工作流 A：Kaggle API（推荐） |
+| `KAGGLE_USERNAME` | 工作流 A：Kernel 所有者（与 token 联用） |
+| `KAGGLE_KEY` | 工作流 A：旧版 Kaggle Key（可选） |
+| `PROJECT_PAT` | 工作流 B：Project GraphQL 读写（推荐） |
+| `CURSOR_AUTH_JSON` | 工作流 B：Cursor CLI 认证（完整 `auth.json` 内容，写入 `~/.config/cursor/auth.json`） |
+| `AI_WORKFLOW_DISPATCH_TOKEN` | Issue 事件转发（`relay-forward.yml`） |
+
+GitHub Project ID 见 `config/github-project.json`（非 Secret）。
+
+环境变量说明见 `config/project.env.example`；GitHub Project 元数据见 `config/github-project.json`。
+
 ## 仓库结构
 
 ```
 quant-factors/
 ├── README.md
+├── config/
+│   └── project.env.example     # 环境变量示例（Project ID、Kaggle Kernel 等）
+├── datasets/
+│   ├── datasets.yaml           # 数据集注册表（slug、enabled 开关）
+│   └── <slug>/                 # 工作流 A 产出：schema.json、README.md
+├── explorations/
+│   └── explore-dataset/        # Kaggle 探索 Kernel（工作流 A 调用）
+├── ideas/                      # 因子想法 JSON 备份（工作流 B 可选写入）
+├── schemas/
+│   ├── dataset-schema.json     # datasets/<slug>/schema.json 格式定义
+│   └── idea-schema.json        # 因子想法 JSON 格式定义
+├── scripts/                    # 确定性脚本（去重、校验、写入 Project 等）
 └── .github/
     └── workflows/
-        └── relay-forward.yml   # AI Workflow 事件转发
+        ├── relay-forward.yml   # AI Workflow 事件转发
+        ├── dataset-catalog.yml # 工作流 A：定时更新 datasets/ 说明
+        └── factor-ideas.yml    # 工作流 B：定时生成因子想法
 ```
 
-后续可在此仓库中补充 notebook、脚本、因子定义与文档；投研任务按目录组织，各目录附带对应的 `kernel-metadata.json`。
+- **datasets/**：Kaggle 数据集目录；`datasets.yaml` 注册 slug，探索结果写入各 `<slug>/` 子目录。
+- **explorations/**：通用 Kaggle Kernel，由 Actions 通过 CLI 提交并拉取产出。
+- **scripts/**：去重、Schema 校验、Project 写入等非 LLM 逻辑。
+- **schemas/**：JSON Schema，约束探索产出与因子想法的结构化格式。
+- **ideas/**：可选的版本化想法备份，便于 diff 与去重。
+- 投研任务按目录组织，各 Kernel 目录附带 `kernel-metadata.json`。
 
 ## 相关链接
 

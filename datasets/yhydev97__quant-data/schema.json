@@ -1,0 +1,186 @@
+{
+  "slug": "yhydev97/quant-data",
+  "explored_at": "2026-06-28T12:13:19+00:00",
+  "kaggle_version": null,
+  "files": [
+    {
+      "name": "yhydev97/quant-data/futures/um/klines/1h.parquet",
+      "size_bytes": 620488492,
+      "row_count": 5000,
+      "columns": [
+        {
+          "name": "open_time",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            1758121200000.0,
+            1758124800000.0,
+            1758128400000.0,
+            1758132000000.0,
+            1758135600000.0
+          ]
+        },
+        {
+          "name": "open",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            1.1,
+            1.5795,
+            1.7244,
+            1.5837,
+            1.619
+          ]
+        },
+        {
+          "name": "high",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            1.6625,
+            2.0175,
+            1.7366,
+            1.6875,
+            1.869
+          ]
+        },
+        {
+          "name": "low",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            1.1,
+            1.5643,
+            1.472,
+            1.522,
+            1.591
+          ]
+        },
+        {
+          "name": "close",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            1.5811,
+            1.725,
+            1.5837,
+            1.618,
+            1.8545
+          ]
+        },
+        {
+          "name": "volume",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            7399769.0,
+            19513328.0,
+            11393202.0,
+            6368675.0,
+            8588966.0
+          ]
+        },
+        {
+          "name": "close_time",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            1758124799999.0,
+            1758128399999.0,
+            1758131999999.0,
+            1758135599999.0,
+            1758139199999.0
+          ]
+        },
+        {
+          "name": "quote_volume",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            11144900.7004,
+            33687993.1474,
+            18127404.8256,
+            10345108.9536,
+            14975008.5607
+          ]
+        },
+        {
+          "name": "count",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            84732.0,
+            363154.0,
+            188515.0,
+            126207.0,
+            183281.0
+          ]
+        },
+        {
+          "name": "taker_buy_volume",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            3756057.0,
+            9918900.0,
+            5664996.0,
+            3241561.0,
+            4515106.0
+          ]
+        },
+        {
+          "name": "taker_buy_quote_volume",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            5672513.4148,
+            17142293.0178,
+            9020864.8285,
+            5270309.3939,
+            7879989.3145
+          ]
+        },
+        {
+          "name": "ignore",
+          "dtype": "float64",
+          "null_rate": 0.0016,
+          "sample_values": [
+            0.0
+          ]
+        },
+        {
+          "name": "symbol",
+          "dtype": "object",
+          "null_rate": 0.0,
+          "sample_values": [
+            "0GUSDT"
+          ]
+        }
+      ]
+    }
+  ],
+  "date_range": {
+    "column": "open_time",
+    "start": "1970-01-01",
+    "end": "1970-01-01"
+  },
+  "primary_keys": [
+    "symbol",
+    "open_time"
+  ],
+  "factor_field_candidates": [
+    "open_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "close_time",
+    "quote_volume",
+    "count",
+    "taker_buy_volume",
+    "taker_buy_quote_volume",
+    "ignore"
+  ],
+  "warnings": []
+}

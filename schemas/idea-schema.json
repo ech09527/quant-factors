@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ech09527/quant-factors/schemas/idea-schema.json",
+  "title": "FactorIdea",
+  "description": "量化因子想法的结构化格式，供 Cursor CLI 输出与工作流 B 校验",
+  "type": "object",
+  "required": [
+    "title",
+    "hypothesis",
+    "data_sources",
+    "formula_sketch",
+    "expected_signal",
+    "risks"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "因子名称或简短标题"
+    },
+    "hypothesis": {
+      "type": "string",
+      "minLength": 1,
+      "description": "经济或行为金融学假设，说明因子为何可能有效"
+    },
+    "data_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[^/]+/[^/]+$"
+      },
+      "description": "依赖的 Kaggle 数据集 slug 列表，须与 datasets/datasets.yaml 中已注册条目对应"
+    },
+    "formula_sketch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "因子计算逻辑草稿（伪代码、公式或步骤说明）"
+    },
+    "expected_signal": {
+      "type": "string",
+      "minLength": 1,
+      "description": "预期信号方向与适用场景（如横截面排序、行业中性等）"
+    },
+    "risks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "潜在风险（lookahead、幸存者偏差、过拟合、数据频率不匹配等）"
+    }
+  }
+}

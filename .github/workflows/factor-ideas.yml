@@ -1,0 +1,109 @@
+# 工作流 B：基于 datasets/ 说明与已有 Project 想法，调用 Cursor CLI 生成新因子想法并写入 GitHub Project。
+
+name: Factor Ideas
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_ideas:
+        description: 生成想法数量
+        required: false
+        default: "3"
+        type: string
+  # schedule:
+  #   - cron: "0 2 * * 1"
+
+concurrency:
+  group: factor-ideas
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GITHUB_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify dataset schemas exist
+        run: |
+          count=$(find datasets -name 'schema.json' -type f 2>/dev/null | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "::error::datasets/ 下未找到 schema.json，请先运行 dataset-catalog 工作流完成数据探索。"
+            exit 1
+          fi
+          echo "找到 ${count} 个数据集 schema.json"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Fetch existing ideas
+        run: |
+          export GITHUB_PROJECT_ID=$(jq -r .id config/github-project.json)
+          python scripts/fetch_existing_ideas.py -o /tmp/existing.json
+
+      - name: Build idea prompt
+        env:
+          MAX_IDEAS: ${{ inputs.max_ideas || '3' }}
+        run: |
+          python scripts/build_idea_prompt.py \
+            --existing /tmp/existing.json \
+            -o /tmp/prompt.txt \
+            2>/tmp/prompt-warnings.txt
+          if [ -s /tmp/prompt-warnings.txt ]; then
+            echo "::warning::build_idea_prompt 产生警告:"
+            cat /tmp/prompt-warnings.txt
+          fi
+          sed -i "s/3～5 条/${MAX_IDEAS} 条/g" /tmp/prompt.txt
+
+      - name: Install Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Cursor auth
+        env:
+          CURSOR_AUTH_JSON: ${{ secrets.CURSOR_AUTH_JSON }}
+        run: bash scripts/setup_cursor_auth.sh
+
+      - name: Run Cursor agent
+        run: |
+          timeout 600 agent -p --force --output-format text "$(cat /tmp/prompt.txt)" \
+            | tee /tmp/cursor-output.txt
+
+      - name: Parse Cursor output
+        run: python scripts/parse_cursor_ideas.py /tmp/cursor-output.txt -o /tmp/parsed-ideas.json
+
+      - name: Write ideas to Project
+        run: |
+          export GITHUB_PROJECT_ID=$(jq -r .id config/github-project.json)
+          python scripts/write_to_project.py /tmp/parsed-ideas.json \
+            --existing /tmp/existing.json \
+            -o /tmp/write-result.json
+
+      - name: Backup ideas to repository
+        continue-on-error: true
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          mkdir -p ideas
+          cp /tmp/parsed-ideas.json "ideas/${DATE}.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "ideas/${DATE}.json"
+          if git diff --staged --quiet; then
+            echo "无新备份文件需要提交"
+            exit 0
+          fi
+          git commit -m "chore(ideas): backup factor ideas ${DATE}"
+          git push

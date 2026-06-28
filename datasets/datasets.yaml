@@ -1,0 +1,24 @@
+# 数据集注册表
+# 工作流 A 仅探索 enabled: true 的条目；新增 Kaggle 数据集时在此注册并启用。
+# 下方 slug 为常见 Kaggle 金融数据集占位示例，默认 disabled，启用前请确认可访问并替换为实际 slug。
+
+datasets:
+  - slug: jiashenliu/sp500-historical-data
+    name: 标普500历史数据
+    enabled: false  # 占位：启用前请确认 slug 有效且符合投研需求
+    description: S&P 500 成分股历史行情（占位条目，需用户替换或确认后启用）
+
+  - slug: borismarjanovic/price-volume-data-for-all-us-stocks-etfs
+    name: 美股价量
+    enabled: false  # 占位：启用前请确认 slug 有效且符合投研需求
+    description: 全美股票与 ETF 价量数据（占位条目，需用户替换或确认后启用）
+
+  - slug: yhydev97/quant-data
+    name: Quant Data（集成测试）
+    enabled: true
+    description: 仓库自有 Kaggle 数据集，用于工作流 A 集成测试
+
+  - slug: wmcginn/sp500-csv
+    name: SP500 CSV（可选）
+    enabled: false
+    description: 小型 SP500 公开数据集
