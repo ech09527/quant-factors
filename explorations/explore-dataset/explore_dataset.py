@@ -44,6 +44,43 @@ def slug_to_input_path(slug: str) -> Path:
     return Path("/kaggle/input") / folder
 
 
+def resolve_input_path(slug: str) -> Path:
+    """解析 Kaggle 挂载路径；若标准路径不存在则扫描 /kaggle/input。"""
+    expected = slug_to_input_path(slug)
+    if expected.is_dir():
+        return expected
+
+    input_root = Path("/kaggle/input")
+    if not input_root.is_dir():
+        raise ExplorationError(
+            f"Dataset mount path not found: {expected}. /kaggle/input is missing."
+        )
+
+    target = slug.strip().strip("/").replace("/", "-")
+    candidates: list[Path] = []
+    for child in sorted(input_root.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        if child.name == target or target in child.name:
+            candidates.append(child)
+
+    if not candidates:
+        for child in sorted(input_root.iterdir()):
+            if child.is_dir() and discover_data_files(child):
+                candidates.append(child)
+
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        return candidates[0]
+
+    raise ExplorationError(
+        f"Dataset mount path not found: {expected}. "
+        f"Ensure dataset_sources includes '{slug}' in kernel-metadata.json. "
+        f"Available mounts: {[p.name for p in input_root.iterdir() if p.is_dir()]}"
+    )
+
+
 def discover_data_files(root: Path) -> list[Path]:
     files: list[Path] = []
     for path in sorted(root.rglob("*")):
@@ -479,12 +516,7 @@ def main() -> int:
         return 1
 
     try:
-        input_path = slug_to_input_path(slug)
-        if not input_path.is_dir():
-            raise ExplorationError(
-                f"Dataset mount path not found: {input_path}. "
-                f"Ensure dataset_sources includes '{slug}' in kernel-metadata.json."
-            )
+        input_path = resolve_input_path(slug)
 
         data_files = discover_data_files(input_path)
         if not data_files:

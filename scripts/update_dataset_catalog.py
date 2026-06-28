@@ -275,6 +275,32 @@ def wait_for_kernel_logs(
         return None
 
 
+def wait_for_kernel_complete(
+    kernel: str, timeout_seconds: int, dry_run: bool, poll_interval: int = 20
+) -> str:
+    """轮询 kernels status 直至 complete / error 或超时。"""
+    if dry_run:
+        print(f"[dry-run] poll kaggle kernels status {kernel}")
+        return "complete"
+
+    import time
+
+    deadline = time.monotonic() + timeout_seconds
+    last_status = "unknown"
+    while time.monotonic() < deadline:
+        last_status = get_kernel_status(kernel, dry_run=False)
+        if "complete" in last_status:
+            return "complete"
+        if "error" in last_status or "failed" in last_status:
+            return last_status
+        if "running" in last_status or "queued" in last_status:
+            print(f"Kernel 状态: {last_status}，{poll_interval}s 后重试...")
+            time.sleep(poll_interval)
+            continue
+        time.sleep(poll_interval)
+    return last_status
+
+
 def get_kernel_status(kernel: str, dry_run: bool) -> str:
     if dry_run:
         print(f"[dry-run] kaggle kernels status {kernel}")
@@ -386,26 +412,30 @@ def git_commit_and_push(
 
     run_command(["git", "commit", "-m", message], cwd=repo)
 
+    branch = run_command(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=repo,
+    ).stdout.strip()
     remote_url = run_command(
         ["git", "remote", "get-url", "origin"],
         cwd=repo,
     ).stdout.strip()
-    if remote_url.startswith("https://"):
-        auth_url = re.sub(
-            r"^https://",
-            f"https://x-access-token:{token}@",
-            remote_url,
+
+    # 使用一次性 push URL，避免污染 origin remote（防止重复注入 token）
+    if remote_url.startswith("https://github.com/"):
+        push_url = remote_url.replace(
+            "https://github.com/",
+            f"https://x-access-token:{token}@github.com/",
+            1,
         )
-        run_command(["git", "remote", "set-url", "origin", auth_url], cwd=repo)
-        try:
-            run_command(["git", "push"], cwd=repo)
-        finally:
-            run_command(["git", "remote", "set-url", "origin", remote_url], cwd=repo)
-    else:
+        run_command(["git", "push", push_url, f"HEAD:{branch}"], cwd=repo)
+    elif remote_url.startswith("git@"):
         env = os.environ.copy()
         env["GIT_ASKPASS"] = "echo"
         env["GIT_TERMINAL_PROMPT"] = "0"
-        run_command(["git", "push"], cwd=repo, env=env)
+        run_command(["git", "push", "-u", "origin", branch], cwd=repo, env=env)
+    else:
+        run_command(["git", "push", "-u", "origin", branch], cwd=repo)
 
     return True
 
@@ -451,7 +481,7 @@ def process_slug(
 
         wait_for_kernel_logs(kernel, log_timeout, dry_run=False)
 
-        status = get_kernel_status(kernel, dry_run=False)
+        status = wait_for_kernel_complete(kernel, log_timeout, dry_run=False)
         if status != "complete":
             return RunResult(
                 slug=slug,

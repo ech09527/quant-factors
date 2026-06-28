@@ -1,6 +1,6 @@
 {
   "id": "PLACEHOLDER_USERNAME/explore-dataset",
-  "title": "Dataset Format Explorer",
+  "title": "explore-dataset",
   "code_file": "explore_dataset.py",
   "language": "python",
   "kernel_type": "script",

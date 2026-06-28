@@ -88,9 +88,10 @@ gh workflow run factor-ideas.yml -f max_ideas=5
 | `KAGGLE_API_TOKEN` | 工作流 A：Kaggle API（推荐） |
 | `KAGGLE_USERNAME` | 工作流 A：Kernel 所有者（与 token 联用） |
 | `KAGGLE_KEY` | 工作流 A：旧版 Kaggle Key（可选） |
+| `PROJECT_PAT` | 工作流 B：Project GraphQL 读写（推荐） |
 | `CURSOR_API_KEY` | 工作流 B：Cursor CLI |
-| `GITHUB_PROJECT_ID` | 工作流 B：GitHub Project node ID |
-| `PROJECT_PAT` | 工作流 B：Project GraphQL 读写（推荐；权限不足时可改用 `GITHUB_TOKEN`） |
+
+GitHub Project ID 见 `config/github-project.json`（非 Secret）。
 | `AI_WORKFLOW_DISPATCH_TOKEN` | Issue 事件转发（`relay-forward.yml`） |
 
 环境变量说明见 `config/project.env.example`；GitHub Project 元数据见 `config/github-project.json`。
