@@ -21,6 +21,39 @@
       "type": ["string", "null"],
       "description": "Kaggle 数据集版本号，便于追踪列或格式变更"
     },
+    "input_path": {
+      "type": "string",
+      "description": "Kaggle Kernel 中实际数据集挂载路径"
+    },
+    "expected_input_path": {
+      "type": "string",
+      "description": "按 slug 约定的标准挂载路径（owner-name）"
+    },
+    "catalog_summary": {
+      "type": "object",
+      "description": "数据集目录级摘要",
+      "additionalProperties": false,
+      "properties": {
+        "file_tree": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "数据文件相对路径列表"
+        },
+        "data_file_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inferred_kind": {
+          "type": "string",
+          "description": "根据路径推断的数据类型说明"
+        },
+        "symbol_count_in_sample": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "抽样中的 symbol 唯一数"
+        }
+      }
+    },
     "files": {
       "type": "array",
       "minItems": 1,
@@ -43,6 +76,16 @@
             "type": ["integer", "null"],
             "minimum": 0,
             "description": "抽样或全量行数"
+          },
+          "sample_rows": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "与 row_count 相同，明确为抽样行数"
+          },
+          "symbol_count_in_sample": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "抽样中 symbol 列唯一值数量"
           },
           "columns": {
             "type": "array",
@@ -85,6 +128,10 @@
         "end": {
           "type": "string",
           "description": "结束日期（ISO 8601 或 YYYY-MM-DD）"
+        },
+        "unit": {
+          "type": "string",
+          "description": "时间列解析单位，如 epoch_ms、epoch_s、datetime"
         }
       }
     },

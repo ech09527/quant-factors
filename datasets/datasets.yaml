@@ -14,9 +14,9 @@ datasets:
     description: 全美股票与 ETF 价量数据（占位条目，需用户替换或确认后启用）
 
   - slug: yhydev97/quant-data
-    name: Quant Data（集成测试）
+    name: Quant Data
     enabled: true
-    description: 仓库自有 Kaggle 数据集，用于工作流 A 集成测试
+    description: Binance USDT 永续合约 1 小时 K 线（UM futures/um/klines/1h.parquet）
 
   - slug: wmcginn/sp500-csv
     name: SP500 CSV（可选）

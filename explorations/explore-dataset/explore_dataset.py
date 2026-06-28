@@ -28,6 +28,27 @@ DATE_NAME_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+FACTOR_EXCLUDE_PATTERNS = re.compile(
+    r"^(ignore|index)$|_time$|^time$|^timestamp$|^datetime$",
+    re.IGNORECASE,
+)
+
+# 常见列语义（探索脚本可自动填充 README）
+COLUMN_SEMANTICS: dict[str, tuple[str, str]] = {
+    "open_time": ("K 线开盘时间（Unix 毫秒）", "时间轴 / 分组排序"),
+    "close_time": ("K 线收盘时间（Unix 毫秒）", "时间轴"),
+    "open": ("开盘价", "动量、反转、波动"),
+    "high": ("最高价", "波动、突破"),
+    "low": ("最低价", "波动、支撑阻力"),
+    "close": ("收盘价", "动量、反转、均线"),
+    "volume": ("成交量（基础资产）", "量价、流动性"),
+    "quote_volume": ("成交额（计价货币）", "流动性、冲击"),
+    "count": ("成交笔数", "微观结构、单笔规模"),
+    "taker_buy_volume": ("主动买入成交量", "订单流、冲击"),
+    "taker_buy_quote_volume": ("主动买入成交额", "订单流"),
+    "symbol": ("交易对代码", "分组键"),
+}
+
 
 class ExplorationError(Exception):
     """Raised when exploration cannot proceed."""
@@ -44,11 +65,11 @@ def slug_to_input_path(slug: str) -> Path:
     return Path("/kaggle/input") / folder
 
 
-def resolve_input_path(slug: str) -> Path:
-    """解析 Kaggle 挂载路径；若标准路径不存在则扫描 /kaggle/input。"""
+def resolve_input_path(slug: str) -> tuple[Path, Path]:
+    """解析 Kaggle 挂载路径；返回 (实际路径, 期望路径)。"""
     expected = slug_to_input_path(slug)
     if expected.is_dir():
-        return expected
+        return expected, expected
 
     input_root = Path("/kaggle/input")
     if not input_root.is_dir():
@@ -70,9 +91,9 @@ def resolve_input_path(slug: str) -> Path:
                 candidates.append(child)
 
     if len(candidates) == 1:
-        return candidates[0]
+        return candidates[0], expected
     if len(candidates) > 1:
-        return candidates[0]
+        return candidates[0], expected
 
     raise ExplorationError(
         f"Dataset mount path not found: {expected}. "
@@ -178,6 +199,26 @@ def column_stats(name: str, series: pd.Series) -> dict[str, Any]:
     return stats
 
 
+def parse_datetime_series(series: pd.Series) -> tuple[pd.Series, str | None]:
+    """解析时间列；支持 Unix 毫秒/秒与普通 datetime 字符串。"""
+    numeric = pd.to_numeric(series, errors="coerce")
+    if numeric.notna().mean() >= 0.5:
+        median = float(numeric.dropna().median())
+        if median > 1e12:
+            parsed = pd.to_datetime(numeric, unit="ms", errors="coerce", utc=True)
+            if parsed.notna().mean() >= 0.5:
+                return parsed, "epoch_ms"
+        if median > 1e9:
+            parsed = pd.to_datetime(numeric, unit="s", errors="coerce", utc=True)
+            if parsed.notna().mean() >= 0.5:
+                return parsed, "epoch_s"
+
+    parsed = pd.to_datetime(series, errors="coerce", utc=True)
+    if parsed.notna().mean() >= 0.5:
+        return parsed, "datetime"
+    return parsed, None
+
+
 def detect_date_column(columns: list[dict[str, Any]], df: pd.DataFrame) -> str | None:
     candidates: list[str] = []
     for col in df.columns:
@@ -185,15 +226,14 @@ def detect_date_column(columns: list[dict[str, Any]], df: pd.DataFrame) -> str |
             candidates.append(str(col))
 
     for col in candidates:
-        parsed = pd.to_datetime(df[col], errors="coerce", utc=False)
-        valid_ratio = parsed.notna().mean()
-        if valid_ratio >= 0.5:
+        parsed, _ = parse_datetime_series(df[col])
+        if parsed.notna().mean() >= 0.5:
             return col
 
     for col in df.columns:
         if col in candidates:
             continue
-        parsed = pd.to_datetime(df[col], errors="coerce", utc=False)
+        parsed, _ = parse_datetime_series(df[col])
         if parsed.notna().mean() >= 0.8:
             return str(col)
 
@@ -201,16 +241,22 @@ def detect_date_column(columns: list[dict[str, Any]], df: pd.DataFrame) -> str |
 
 
 def date_range_for_column(df: pd.DataFrame, column: str) -> dict[str, str] | None:
-    parsed = pd.to_datetime(df[column], errors="coerce", utc=False)
+    parsed, unit = parse_datetime_series(df[column])
     valid = parsed.dropna()
-    if valid.empty:
+    if valid.empty or unit is None:
         return None
+
     start = valid.min()
     end = valid.max()
+    # 拒绝明显错误的 epoch 解析（全落在 1970 年且跨度极短）
+    if start.year <= 1971 and end.year <= 1971 and (end - start).days < 2:
+        return None
+
     return {
         "column": column,
-        "start": start.date().isoformat() if hasattr(start, "date") else str(start),
-        "end": end.date().isoformat() if hasattr(end, "date") else str(end),
+        "start": start.date().isoformat(),
+        "end": end.date().isoformat(),
+        "unit": unit,
     }
 
 
@@ -229,6 +275,14 @@ def infer_primary_keys(columns: list[str], file_date_col: str | None) -> list[st
     return keys
 
 
+def is_factor_excluded_column(name: str) -> bool:
+    if FACTOR_EXCLUDE_PATTERNS.search(name):
+        return True
+    if DATE_NAME_PATTERNS.search(name):
+        return True
+    return False
+
+
 def factor_field_candidates(all_columns: list[dict[str, Any]]) -> list[str]:
     candidates: list[str] = []
     seen: set[str] = set()
@@ -237,6 +291,8 @@ def factor_field_candidates(all_columns: list[dict[str, Any]]) -> list[str]:
         name = col["name"]
         dtype = col.get("dtype", "")
         if name in seen:
+            continue
+        if is_factor_excluded_column(name):
             continue
         if not is_numeric_dtype(dtype):
             continue
@@ -249,13 +305,60 @@ def factor_field_candidates(all_columns: list[dict[str, Any]]) -> list[str]:
     return candidates
 
 
-def build_warnings(files: list[dict[str, Any]], dataset_slug: str) -> list[str]:
+def build_file_tree(root: Path, data_files: list[Path]) -> list[str]:
+    """列出数据文件相对路径（用于 catalog 摘要）。"""
+    return sorted(str(p.relative_to(root)) for p in data_files)
+
+
+def infer_data_kind(file_paths: list[str]) -> str | None:
+    joined = " ".join(file_paths).lower()
+    if "futures" in joined and "klines" in joined:
+        if "1h" in joined:
+            return "加密货币永续合约 1 小时 K 线（Binance UM 格式）"
+        return "加密货币永续合约 K 线（Binance UM 格式）"
+    if "klines" in joined:
+        return "K 线行情数据"
+    if "spot" in joined:
+        return "现货行情数据"
+    return None
+
+
+def build_warnings(
+    files: list[dict[str, Any]],
+    dataset_slug: str,
+    *,
+    input_path: Path,
+    expected_path: Path,
+    all_data_files: list[Path],
+) -> list[str]:
     warnings: list[str] = []
     if not files:
         warnings.append(f"未在挂载路径中找到 csv/parquet 文件（slug: {dataset_slug}）")
         return warnings
 
+    if input_path != expected_path:
+        warnings.append(
+            f"Kaggle 挂载路径非标准：实际 `{input_path}`，期望 `{expected_path}`"
+        )
+
+    warnings.append(
+        f"统计基于每文件最多 {SAMPLE_ROWS} 行 head 抽样；"
+        "row_count 为抽样行数，不代表全量。"
+    )
+
+    if len(all_data_files) > len(files):
+        warnings.append(
+            f"共发现 {len(all_data_files)} 个数据文件，"
+            f"成功探索 {len(files)} 个（其余可能读取失败）。"
+        )
+
     for file_info in files:
+        sym_count = file_info.get("symbol_count_in_sample")
+        if sym_count == 1:
+            warnings.append(
+                f"{file_info['name']} 抽样中仅见 1 个 symbol，"
+                "横截面多样性可能被低估。"
+            )
         for col in file_info.get("columns", []):
             null_rate = col.get("null_rate")
             if null_rate is not None and null_rate > 0.15:
@@ -280,6 +383,10 @@ def explore_file(path: Path, root: Path) -> dict[str, Any]:
     date_col = detect_date_column(columns, df)
     file_date_range = date_range_for_column(df, date_col) if date_col else None
 
+    symbol_count: int | None = None
+    if "symbol" in df.columns:
+        symbol_count = int(df["symbol"].nunique(dropna=True))
+
     schema_columns = []
     for col in columns:
         schema_col = {
@@ -288,6 +395,8 @@ def explore_file(path: Path, root: Path) -> dict[str, Any]:
             "null_rate": col["null_rate"],
             "sample_values": col["sample_values"],
         }
+        if "unique" in col:
+            schema_col["unique"] = col["unique"]
         schema_columns.append(schema_col)
 
     return {
@@ -295,6 +404,7 @@ def explore_file(path: Path, root: Path) -> dict[str, Any]:
         "size_bytes": path.stat().st_size,
         "row_count": int(len(df)),
         "sample_rows": int(len(df)),
+        "symbol_count_in_sample": symbol_count,
         "columns": columns,
         "schema_columns": schema_columns,
         "date_range": file_date_range,
@@ -308,9 +418,17 @@ def merge_date_ranges(ranges: list[dict[str, str] | None]) -> dict[str, str] | N
         return None
 
     column = valid[0]["column"]
+    unit = valid[0].get("unit")
     starts = [r["start"] for r in valid]
     ends = [r["end"] for r in valid]
-    return {"column": column, "start": min(starts), "end": max(ends)}
+    merged: dict[str, str] = {
+        "column": column,
+        "start": min(starts),
+        "end": max(ends),
+    }
+    if unit:
+        merged["unit"] = unit
+    return merged
 
 
 def build_schema(
@@ -318,17 +436,24 @@ def build_schema(
     files: list[dict[str, Any]],
     factor_candidates: list[str],
     warnings: list[str],
+    *,
+    input_path: Path,
+    expected_path: Path,
+    file_tree: list[str],
+    inferred_kind: str | None,
 ) -> dict[str, Any]:
     schema_files = []
     for file_info in files:
-        schema_files.append(
-            {
-                "name": file_info["name"],
-                "size_bytes": file_info.get("size_bytes"),
-                "row_count": file_info.get("row_count"),
-                "columns": file_info["schema_columns"],
-            }
-        )
+        entry: dict[str, Any] = {
+            "name": file_info["name"],
+            "size_bytes": file_info.get("size_bytes"),
+            "row_count": file_info.get("row_count"),
+            "sample_rows": file_info.get("sample_rows"),
+            "columns": file_info["schema_columns"],
+        }
+        if file_info.get("symbol_count_in_sample") is not None:
+            entry["symbol_count_in_sample"] = file_info["symbol_count_in_sample"]
+        schema_files.append(entry)
 
     date_range = merge_date_ranges([f.get("date_range") for f in files])
     primary_keys: list[str] = []
@@ -337,10 +462,28 @@ def build_schema(
             if key not in primary_keys:
                 primary_keys.append(key)
 
+    catalog_summary: dict[str, Any] = {
+        "file_tree": file_tree,
+        "data_file_count": len(file_tree),
+    }
+    if inferred_kind:
+        catalog_summary["inferred_kind"] = inferred_kind
+
+    symbol_counts = [
+        f["symbol_count_in_sample"]
+        for f in files
+        if f.get("symbol_count_in_sample") is not None
+    ]
+    if symbol_counts:
+        catalog_summary["symbol_count_in_sample"] = max(symbol_counts)
+
     return {
         "slug": slug,
         "explored_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "kaggle_version": os.environ.get("KAGGLE_DATASET_VERSION"),
+        "input_path": str(input_path),
+        "expected_input_path": str(expected_path),
+        "catalog_summary": catalog_summary,
         "files": schema_files,
         "date_range": date_range,
         "primary_keys": primary_keys,
@@ -377,6 +520,8 @@ def build_exploration_summary(
     return {
         "dataset": slug,
         "input_path": str(input_path),
+        "expected_input_path": schema.get("expected_input_path"),
+        "catalog_summary": schema.get("catalog_summary"),
         "explored_at": schema["explored_at"],
         "files": summary_files,
         "date_range": schema.get("date_range"),
@@ -393,6 +538,9 @@ def build_exploration_summary(
 def generate_readme(slug: str, schema: dict[str, Any], summary: dict[str, Any]) -> str:
     name_part = slug.split("/")[-1] if "/" in slug else slug
     explored_at = schema.get("explored_at", "")
+    catalog = schema.get("catalog_summary") or {}
+    inferred_kind = catalog.get("inferred_kind")
+
     lines = [
         f"# {name_part}",
         "",
@@ -400,19 +548,42 @@ def generate_readme(slug: str, schema: dict[str, Any], summary: dict[str, Any]) 
         "",
         "## 概述",
         "",
-        f"- 输入路径: `{summary.get('input_path', '')}`",
-        f"- 文件数: {len(schema.get('files', []))}",
-        f"- 抽样说明: {summary.get('notes', '')}",
-        "",
     ]
+
+    if inferred_kind:
+        lines.append(f"- 数据类型（推断）: {inferred_kind}")
+    lines.extend(
+        [
+            f"- 输入路径: `{summary.get('input_path', '')}`",
+            f"- 期望路径: `{schema.get('expected_input_path', '')}`",
+            f"- 数据文件数: {catalog.get('data_file_count', len(schema.get('files', [])))}",
+            f"- 抽样说明: {summary.get('notes', '')}",
+        ]
+    )
+    sym_count = catalog.get("symbol_count_in_sample")
+    if sym_count is not None:
+        lines.append(f"- 抽样内 symbol 数: {sym_count}")
+    lines.append("")
+
+    file_tree = catalog.get("file_tree") or []
+    if file_tree:
+        lines.extend(["## 文件树", ""])
+        for rel_path in file_tree[:20]:
+            lines.append(f"- `{rel_path}`")
+        if len(file_tree) > 20:
+            lines.append(f"- … 另有 {len(file_tree) - 20} 个文件")
+        lines.append("")
 
     date_range = schema.get("date_range")
     if date_range:
+        unit_note = ""
+        if date_range.get("unit") == "epoch_ms":
+            unit_note = "（Unix 毫秒解析）"
         lines.extend(
             [
                 "## 时间范围",
                 "",
-                f"- 时间列: `{date_range.get('column')}`",
+                f"- 时间列: `{date_range.get('column')}`{unit_note}",
                 f"- 起止: {date_range.get('start')} ~ {date_range.get('end')}",
                 "",
             ]
@@ -474,20 +645,30 @@ def generate_readme(slug: str, schema: dict[str, Any], summary: dict[str, Any]) 
 
     lines.extend(
         [
-            "## 因子潜力（模板）",
-            "",
-            "以下说明需结合业务语义人工补充：",
+            "## 字段说明",
             "",
             "| 列名 | 类型 | 说明 | 因子潜力 |",
             "|------|------|------|----------|",
         ]
     )
 
-    for candidate in schema.get("factor_field_candidates", [])[:10]:
-        lines.append(f"| {candidate} | numeric | （待补充） | 动量、反转、波动等 |")
+    shown: set[str] = set()
+    for file_info in schema.get("files", []):
+        for col in file_info.get("columns", []):
+            name = col["name"]
+            if name in shown:
+                continue
+            shown.add(name)
+            sem = COLUMN_SEMANTICS.get(name.lower())
+            desc = sem[0] if sem else "（待补充）"
+            potential = sem[1] if sem else (
+                "动量、反转、波动等" if name in schema.get("factor_field_candidates", []) else "—"
+            )
+            dtype = col.get("dtype", "-")
+            lines.append(f"| {name} | {dtype} | {desc} | {potential} |")
 
-    if not schema.get("factor_field_candidates"):
-        lines.append("| — | — | 未识别到数值型因子候选列 | — |")
+    if not shown:
+        lines.append("| — | — | 未识别到列 | — |")
 
     lines.append("")
     return "\n".join(lines)
@@ -516,7 +697,7 @@ def main() -> int:
         return 1
 
     try:
-        input_path = resolve_input_path(slug)
+        input_path, expected_path = resolve_input_path(slug)
 
         data_files = discover_data_files(input_path)
         if not data_files:
@@ -524,6 +705,9 @@ def main() -> int:
                 f"No csv/parquet files under {input_path}. "
                 "Check dataset contents and slug mapping (owner/name -> owner-name)."
             )
+
+        file_tree = build_file_tree(input_path, data_files)
+        inferred_kind = infer_data_kind(file_tree)
 
         explored_files: list[dict[str, Any]] = []
         errors: list[str] = []
@@ -544,11 +728,26 @@ def main() -> int:
             flat_columns.extend(file_info["columns"])
 
         factor_candidates = factor_field_candidates(flat_columns)
-        warnings = build_warnings(explored_files, slug)
+        warnings = build_warnings(
+            explored_files,
+            slug,
+            input_path=input_path,
+            expected_path=expected_path,
+            all_data_files=data_files,
+        )
         if errors:
             warnings.append("部分文件读取失败: " + "; ".join(errors))
 
-        schema = build_schema(slug, explored_files, factor_candidates, warnings)
+        schema = build_schema(
+            slug,
+            explored_files,
+            factor_candidates,
+            warnings,
+            input_path=input_path,
+            expected_path=expected_path,
+            file_tree=file_tree,
+            inferred_kind=inferred_kind,
+        )
         summary = build_exploration_summary(slug, input_path, explored_files, schema)
         readme = generate_readme(slug, schema, summary)
 

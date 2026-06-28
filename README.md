@@ -105,7 +105,7 @@ quant-factors/
 │   └── project.env.example     # 环境变量示例（Project ID、Kaggle Kernel 等）
 ├── datasets/
 │   ├── datasets.yaml           # 数据集注册表（slug、enabled 开关）
-│   └── <slug>/                 # 工作流 A 产出：schema.json、README.md
+│   └── <owner__dataset>/       # 工作流 A 产出（slug 中 / 替换为 __）
 ├── explorations/
 │   └── explore-dataset/        # Kaggle 探索 Kernel（工作流 A 调用）
 ├── ideas/                      # 因子想法 JSON 备份（工作流 B 可选写入）
@@ -120,7 +120,7 @@ quant-factors/
         └── factor-ideas.yml    # 工作流 B：定时生成因子想法
 ```
 
-- **datasets/**：Kaggle 数据集目录；`datasets.yaml` 注册 slug，探索结果写入各 `<slug>/` 子目录。
+- **datasets/**：Kaggle 数据集目录；`datasets.yaml` 注册 slug（`owner/name`），探索结果写入 `owner__name/` 子目录（斜杠替换为双下划线）。
 - **explorations/**：通用 Kaggle Kernel，由 Actions 通过 CLI 提交并拉取产出。
 - **scripts/**：去重、Schema 校验、Project 写入等非 LLM 逻辑。
 - **schemas/**：JSON Schema，约束探索产出与因子想法的结构化格式。
