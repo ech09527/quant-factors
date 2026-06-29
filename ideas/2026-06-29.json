@@ -1,17 +1,17 @@
 [
   {
-    "title": "横截面VWAP区间归一偏移轮动",
-    "hypothesis": "在同一1h bar内，若某标的成交重心（quote_volume/volume）相对K线几何中轴（(high+low)/2）显著偏向上沿，说明边际成交集中在相对高价区，反映买家愿意抬价承接的相对强度；横截面上这种偏移更高的标的，下一根1h bar可能相对强于universe内偏移更低的标的。",
+    "title": "横截面单位振幅报量深度轮动",
+    "hypothesis": "在相同1h时间窗口内，若某永续合约以较高 quote_volume 推动较小 intrabar 振幅（high-low），说明多空在该价格带内发生高密度换手而非无序漂移；相对 universe 内其他 symbol，这种「单位价格位移报量深度」更高者更可能承载知情或共识型资金，横截面上具有下一小时相对延续性。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 逐 bar 计算：vwap_bar = quote_volume / volume；mid = (high + low) / 2；range_hl = high - low + 1e-8；offset = (vwap_bar - mid) / range_hl。universe 过滤：同一 open_time 上保留 quote_volume 不低于截面20%分位的 symbol，且 symbol 累计历史 bar 数 >= 168（约7天）。在每个 open_time 上对 universe 内各 symbol 的 offset 做横截面 rank 或 z-score，得到因子值。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较 offset 的 rank/z-score，做多高分位（VWAP 偏 K 线区间上方）、做空低分位（VWAP 偏区间下方）；持有期为下一根 1h bar；适用于 Binance UM 永续多币种相对强弱轮动。",
+    "formula_sketch": "1) 按 symbol 逐 bar 计算：range = high - low；raw = quote_volume / (range + 1e-8)；可选 symbol 内 24 根 1h 滚动中位数归一：feat = raw / rolling_median(raw, 24)。2) universe 过滤：同一 open_time 仅保留 quote_volume 高于截面 20 分位、且 symbol 累计 bar 数 ≥ 72、且 range/close > 1e-4 的标的。3) 按 open_time 分组，对 feat 做组内横截面 rank 或 z-score，得 factor_cs。4) 信号在 bar 收盘后（close_time）生成，用于下一根 1h 收益，避免使用未来数据。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 对 factor_cs 排序，做多高分位（单位振幅报量深度最高）、做空低分位；等权或按 quote_volume 分层加权；持有期为下一根 1h（open_{t+1} 至 close_{t+1}）；适用于多币种永续相对强弱轮动与短周期多空组合。",
     "risks": [
-      "低 quote_volume symbol 的 VWAP 估计噪声大，横截面排序后可能流动性不足、难以执行",
-      "极窄振幅 bar 使 range_hl 过小，导致 offset 极端化、截面 rank 失真",
-      "新上市 symbol 历史 bar 不足，冷启动期因子值不稳定",
-      "极端单边行情下全市场 offset 同向偏移，横截面区分度下降、多空组合失效"
+      "低流动性 symbol 的 range 接近 0 会导致 raw 极端放大，需依赖 quote_volume 与最小振幅过滤",
+      "横截面在极端全网波动时（range 同步放大）因子区分度下降、截面信号失效",
+      "新上市 symbol 滚动中位数不稳定，存在冷启动与幸存者偏差",
+      "quote_volume 与 count 在不同 symbol 间口径受合约热度影响，可能引入流动性分层与不可交易标的"
     ]
   }
 ]
