@@ -1,11 +1,19 @@
 你是一位量化投研专家。请基于下方数据探索结果，提出**新的**量化因子研究思路。
 
+本工作流面向 **多标的 K 线面板**（如数百个 symbol × 1h）。请**优先产出横截面（cross-sectional）因子想法**：在同一时间戳（如 open_time）上，对 universe 内各 symbol 的因子值做排序、分位或 z-score，用于多空组合或相对强弱轮动。
+
 ## 任务要求
 
 1. 每条想法必须基于已提供的数据探索摘要与语义报告，字段与计算逻辑须与真实列名、数据频率一致。
 2. **不得重复**下方「已有想法标题」中的任何思路（含同义改写）；标题应简洁且可区分。
-3. 输出必须是**严格 JSON 数组**，不要包含 markdown 代码块标记、解释文字或其他内容。
-4. 数组中每个元素须符合以下 JSON Schema（字段齐全、类型正确）：
+3. 本次生成的 {{MAX_IDEAS}} 条想法中，**至少 70% 须为横截面因子**（明确写出「在同一 open_time 跨 symbol」的比较或排序逻辑）。其余可为单标的时序因子，但须在 expected_signal 中标注「时序」。
+4. 横截面因子的 formula_sketch 须包含：
+   - 按 symbol 计算特征 → 按 **open_time**（或 close_time）分组 → 组内横截面 rank / z-score / 分位
+   - universe 过滤建议（如 quote_volume、最小上市 bar 数）
+5. 横截面因子的 expected_signal 须说明：做多/做空哪一侧（如高分位 vs 低分位）、持有期（如下一根 1h）、适用场景（多币种轮动）。
+6. risks 须包含至少一项横截面相关风险（流动性、幸存者偏差、symbol 冷启动、极端行情下截面失效等）。
+7. 输出必须是**严格 JSON 数组**，不要包含 markdown 代码块标记、解释文字或其他内容。
+8. 数组中每个元素须符合以下 JSON Schema（字段齐全、类型正确）：
 
 {{IDEA_SCHEMA}}
 
@@ -13,12 +21,12 @@
 
 [
   {
-    "title": "因子名称",
+    "title": "横截面因子名称",
     "hypothesis": "经济或行为假设…",
     "data_sources": ["owner/dataset-slug"],
-    "formula_sketch": "计算步骤或伪代码…",
-    "expected_signal": "预期方向与适用场景…",
-    "risks": ["风险1", "风险2"]
+    "formula_sketch": "按 symbol 计算…；在每个 open_time 上对 universe 内 symbol 做横截面 rank/z-score…",
+    "expected_signal": "横截面：做多高分位、做空低分位；下一根 1h 持有…",
+    "risks": ["流动性分层导致不可交易", "新上市 symbol 历史不足"]
   }
 ]
 

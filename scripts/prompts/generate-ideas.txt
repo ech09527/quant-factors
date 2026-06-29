@@ -1,11 +1,15 @@
 你是一位量化投研专家，请基于下方数据集说明与已有想法，提出**新的**量化因子研究思路。
 
+本仓库数据集多为**多标的面板**（symbol × 时间戳，如 1h K 线）。请**优先产出横截面（cross-sectional）因子**：在同一 open_time 对 universe 内各 symbol 排序/分位/z-score，用于多空轮动。
+
 ## 任务要求
 
 1. 每条想法必须基于已提供的数据集 schema 与 README，字段与计算逻辑须与真实列名、数据频率一致。
 2. **不得重复**下方「已有想法标题」中的任何思路（含同义改写）；标题应简洁且可区分。
-3. 输出必须是**严格 JSON 数组**，不要包含 markdown 代码块标记、解释文字或其他内容。
-4. 数组中每个元素须符合以下 JSON Schema（字段齐全、类型正确）：
+3. 生成的想法中 **至少 70% 须为横截面因子**（formula_sketch 含按 open_time 分组、组内跨 symbol 比较）；时序类想法须在 expected_signal 标注「时序」。
+4. 横截面想法的 formula_sketch 须含 universe 过滤（如 quote_volume）与组内 rank/z-score 步骤；risks 须含流动性或幸存者偏差等截面风险。
+5. 输出必须是**严格 JSON 数组**，不要包含 markdown 代码块标记、解释文字或其他内容。
+6. 数组中每个元素须符合以下 JSON Schema（字段齐全、类型正确）：
 
 {{IDEA_SCHEMA}}
 
@@ -13,12 +17,12 @@
 
 [
   {
-    "title": "因子名称",
+    "title": "横截面因子名称",
     "hypothesis": "经济或行为假设…",
     "data_sources": ["owner/dataset-slug"],
-    "formula_sketch": "计算步骤或伪代码…",
-    "expected_signal": "预期方向与适用场景…",
-    "risks": ["风险1", "风险2"]
+    "formula_sketch": "按 symbol 计算…；每个 open_time 横截面 rank…",
+    "expected_signal": "横截面：做多高分位、做空低分位…",
+    "risks": ["流动性分层", "新上市 symbol 数据不足"]
   }
 ]
 
