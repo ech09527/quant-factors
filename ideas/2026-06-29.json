@@ -1,47 +1,47 @@
 [
   {
-    "title": "Bar内CLV多周期累积延续",
-    "hypothesis": "收盘在小时K线区间内的相对位置（CLV）反映该bar内多空博弈结果；若多个连续bar的CLV偏高，说明买方持续掌控日内定价权，短周期价格延续上涨的概率更高。",
+    "title": "横截面风险调整动量",
+    "hypothesis": "加密货币多币种市场中，单纯价格动量受高波动小币噪音干扰；经过去24小时实现波动率标准化后的收益更能反映“质量动量”，在同一时点相对更强的标的在下一小时仍具延续性。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "对每个(symbol, open_time)：CLV = (close - low) / (high - low + eps)；在1h面板上按symbol对CLV做滚动窗口（如6h、24h）求均值或求和得 CLV_cum；横截面对 CLV_cum 排序，可选对 quote_volume 滚动均值设流动性门槛后中性化。",
-    "expected_signal": "横截面做多 CLV_cum 较高合约、做空较低合约；适用于1h频率短中期延续策略，建议配合流动性过滤与上市时长分层。",
+    "formula_sketch": "按 symbol 在 1h 面板上计算：ret_24h = close / lag(close, 24) - 1；rv_24h = std(log(close/lag(close,1)), 窗口24, min_periods=20)；raw = ret_24h / (rv_24h + eps)。Universe：剔除 open/high/low/close 缺失行；symbol 有效 bar 数 >= 168；当前 bar quote_volume >= 该 open_time 截面 P20。在每个 open_time 上对 raw 做横截面 rank 或 z-score（组内 winsorize 1%/99%）。",
+    "expected_signal": "横截面：做多高分位（风险调整后动量强）、做空低分位；持有期下一根 1h bar（close(t+1)/close(t)-1）；适用于多币种 UM 永续相对强弱轮动组合。",
     "risks": [
-      "high-low 接近0时CLV不稳定，需加eps或剔除极窄bar",
-      "与纯价格动量因子相关性高，需检验增量IC",
-      "新上市合约历史窗口不足导致因子缺失或噪声大",
-      "1h聚合平滑了日内博弈细节，信号衰减较快"
+      "早期 open_time 截面仅数十个 symbol，分位稳定性差",
+      "小币 rv_24h 估计噪声大，极端行情下截面 rank 失效",
+      "quote_volume 分层导致低流动性端不可交易",
+      "新上市 symbol 冷启动窗口不足时因子缺失"
     ]
   },
   {
-    "title": "典型价VWAP偏离回归",
-    "hypothesis": "bar内典型成交价 quote_volume/volume 可近似VWAP；当 close 显著高于该典型价时，说明收盘价相对成交重心过度延伸，存在向成交均价回归的压力，反之亦然。",
+    "title": "横截面Amihud非流动性溢价",
+    "hypothesis": "单位成交额所需的价格冲击（非流动性）在 crypto 截面上存在风险补偿；同一时刻相对更“难交易”的合约，后续小时收益应系统性更高，体现流动性溢价。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "vwap_bar = quote_volume / (volume + eps)；dev = (close - vwap_bar) / (vwap_bar + eps)；可对dev取当期值或过去N根（如12h、24h）滚动均值/加权均值；横截面按 dev 降序排列（高偏离预期回落）。",
-    "expected_signal": "横截面做空 dev 偏高合约、做多 dev 偏低合约，预期为短周期均值回归信号；低流动性合约需剔除以降低报价噪声。",
+    "formula_sketch": "按 symbol 逐 bar 计算 amihud_1h = abs(log(close/lag(close,1))) / (quote_volume + eps)；amihud_24h = rolling_mean(amihud_1h, 24, min_periods=20)。Universe：symbol 历史 >= 168 bar；当前 open_time 的 quote_volume 截面 P25 以上；剔除 OHLCV 缺失。在每个 open_time 上对 amihud_24h 做横截面 rank 或 z-score（高值=更非流动）。",
+    "expected_signal": "横截面：做多高分位（非流动性高）、做空低分位（流动性好）；持有期 1h（下一根 bar）；适用于多币种流动性分层轮动，需配合成交额权重 cap。",
     "risks": [
-      "volume 极低时 vwap_bar 估计噪声大",
-      "强趋势行情中均值回归假设失效，需分regime检验",
-      "1000倍计价合约应统一使用 quote_volume/volume 比值而非 volume 横截面比较",
-      "缺失bar或OHLC空值行需删除而非填充"
+      "BTC/ETH 等 mega-cap 与非小币流动性不可比，截面两端受规模主导",
+      "极端放量小时 amihud 骤降造成因子跳变",
+      "幸存者偏差：已下架合约不在库中，高估流动性溢价",
+      "1h 频率换手高，低 quote_volume 分位滑点侵蚀收益"
     ]
   },
   {
-    "title": "笔数激增价平吸筹",
-    "hypothesis": "当 count 相对自身历史显著放大而 close 收益率接近零时，可能反映大量小额拆单或隐蔽换手，主力在窄价区累积/派发；后续突破方向可能沿累积方向展开。",
+    "title": "单标的量价背离衰竭",
+    "hypothesis": "当单合约价格沿时间轴创新高/新低而 quote_volume 相对自身过去均量萎缩时，趋势缺乏资金确认，短周期内更易出现方向修正或动能衰竭。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "ret_1h = close / lag(close,1) - 1；count_z = (count - rolling_mean(count,N)) / (rolling_std(count,N) + eps)；price_flat = 1 if abs(ret_1h) < q20(|ret_1h|) else 0；factor = count_z * price_flat * sign(taker_buy_volume/volume - 0.5)，N 可取24h或72h；横截面排序。",
-    "expected_signal": "横截面做多 factor 较高合约（笔数异常放大、价格横盘且主动买入占优）；适用于1h中低频、流动性尚可的合约池。",
+    "formula_sketch": "按 symbol 时序计算（不使用跨 symbol 比较）：ret_6h = close/lag(close,6)-1；vol_ratio = quote_volume / rolling_mean(quote_volume, 24)；divergence = sign(ret_6h) * (1 - vol_ratio)（涨但缩量为正背离，跌但缩量为负背离，可按方向调整符号使“衰竭”为正值）。可选：仅当 abs(ret_6h) > 自身过去 168h 收益 P80 时触发。信号在 open_time=t 生成，收益标签用 t→t+1 的 close 变化。",
+    "expected_signal": "时序：单 symbol 上 divergence 高时做空该币（上涨缩量）或做多（下跌缩量），持有下一根 1h；可用于单币择时或作为横截面复合信号的时序过滤层，非截面 rank 策略。",
     "risks": [
-      "1h频率下 count 信息已部分平滑，与 tick 级吸筹信号不等价",
-      "横盘阈值分位数选择敏感，存在过拟合风险",
-      "meme币 count 暴增可能仅为散户涌入而非有效吸筹",
-      "需 point-in-time universe 避免新币幸存者偏差"
+      "lookahead：须确保 vol_ratio 仅用 t 及之前已闭合 bar",
+      "Meme 币 quote_volume 尖刺导致 vol_ratio 失真",
+      "与横截面轮动混用时需逐 symbol 独立回测",
+      "1h 噪声大，背离信号频繁假突破"
     ]
   }
 ]
