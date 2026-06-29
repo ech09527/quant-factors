@@ -1,0 +1,52 @@
+{
+  "status": "success",
+  "title": "横截面成交重心-主动流背离轮动",
+  "title_hash": "dafe1dc75cff8cdb9ee264e3f545beaf896ceacce9ef35c37651ada61910e0fb",
+  "formula_hash": "455962f8da315c598869633682be189db1e01fd5de9988c88e0c04a1be5aa4c2",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T13:16:09.660887+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "AVG((taker_buy_volume / (volume + 1e-8)) - ((quote_volume / (volume + 1e-8) - low) / (high - low + 1e-8))) OVER (w ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "quote_volume",
+        "taker_buy_volume"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.0012873500567984974,
+    "ic_ir": -0.0149056922674465,
+    "mean_rank_ic": -0.006774411203010926,
+    "rank_ic_ir": -0.07616970877151963,
+    "n_periods": 29926,
+    "ic_positive_ratio": 0.4963910980418365
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
