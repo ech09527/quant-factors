@@ -1,0 +1,24 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "((count - AVG(count) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW)) / (STDDEV_SAMP(count) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8)) * CASE WHEN ABS(log_ret_1) < QUANTILE_CONT(ABS(log_ret_1), 0.2) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) THEN 1.0 ELSE 0.0 END * SIGN(taker_buy_volume / (volume + 1e-8) - 0.5)",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "volume",
+      "count",
+      "taker_buy_volume"
+    ],
+    "min_symbol_bars": 168,
+    "cs_quantile_gte": {
+      "col": "quote_volume",
+      "q": 0.2
+    }
+  }
+}
