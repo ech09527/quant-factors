@@ -1,0 +1,51 @@
+{
+  "status": "success",
+  "title": "横截面主动流-收盘位置错配轮动",
+  "title_hash": "72ace769a7793c4c87ab61493e2eabaeb7b0581f4dd9d9e242719dcf0766a127",
+  "formula_hash": "fbf537f90845d3c508f0f45bb2fcaf49db858e326f9da34cfcc390315c7492df",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T12:45:24.535406+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(taker_buy_volume / (volume + 1e-8)) - ((close - low) / (high - low + 1e-8))",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "taker_buy_volume"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.013763023549837801,
+    "ic_ir": 0.13364138353821073,
+    "mean_rank_ic": 0.030120591521547398,
+    "rank_ic_ir": 0.27781201924365817,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.5528822055137844
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
