@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "横截面风险调整动量",
+  "title_hash": "ab9342a4eaed37116b754c6eeb1459d77ac21f09bcb2b65d347eb137f1d99530",
+  "formula_hash": "9bd4f6dd32d0b42ac9c3ffef22653b41da9d5c7abeeb73eedbe5eb5cb3945038",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T09:59:10.952060+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "ret_24h / (vol_24h + 1e-8)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.0026797190935959787,
+    "ic_ir": -0.022273408651786893,
+    "mean_rank_ic": -0.020886065563001096,
+    "rank_ic_ir": -0.168707155277254,
+    "n_periods": 29902,
+    "ic_positive_ratio": 0.4929436158116514
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
