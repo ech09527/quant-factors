@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "K线实体占比极值反转",
+  "title_hash": "fee468a4d593a27350f7d427671a9dfe364e7e589c21a00278ce2dd3ffc774ea",
+  "formula_hash": "61dd69fec6226349e64456e921305d84bfa3c29eab06205b36f13429f692ad66",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T10:42:17.772335+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569206
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "-SIGN((close - open) / NULLIF(high - low, 0)) * ABS(((close - open) / NULLIF(high - low, 0) - AVG((close - open) / NULLIF(high - low, 0)) OVER (ROWS BETWEEN 47 PRECEDING AND CURRENT ROW)) / (STDDEV_SAMP((close - open) / NULLIF(high - low, 0)) OVER (ROWS BETWEEN 47 PRECEDING AND CURRENT ROW) + 1e-8))",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 48,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.011283932936008673,
+    "ic_ir": 0.1033568998662488,
+    "mean_rank_ic": 0.03130550187565783,
+    "rank_ic_ir": 0.2744486740353781,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.5394486215538847
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.49019280248604
+  }
+}
