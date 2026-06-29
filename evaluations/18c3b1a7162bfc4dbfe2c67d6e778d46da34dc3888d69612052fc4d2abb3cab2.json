@@ -1,0 +1,52 @@
+{
+  "status": "success",
+  "title": "横截面主动买入均价溢价轮动",
+  "title_hash": "18c3b1a7162bfc4dbfe2c67d6e778d46da34dc3888d69612052fc4d2abb3cab2",
+  "formula_hash": "9be829ef53d32c4ce5f5894cf81b45723796c69be446a78360b59c8d825a450d",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T13:05:18.019360+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "CASE WHEN taker_buy_volume > 0 AND count >= 100 THEN (0.5 * ((taker_buy_quote_volume / taker_buy_volume - close) / close) + 0.25 * LAG((taker_buy_quote_volume / taker_buy_volume - close) / close, 1) OVER w + 0.25 * LAG((taker_buy_quote_volume / taker_buy_volume - close) / close, 2) OVER w) ELSE NULL END",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "quote_volume",
+        "taker_buy_volume",
+        "taker_buy_quote_volume"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.01520107591121291,
+    "ic_ir": 0.11860159982176705,
+    "mean_rank_ic": 0.037389380829466856,
+    "rank_ic_ir": 0.27921529456002864,
+    "n_periods": 29921,
+    "ic_positive_ratio": 0.5440994619163798
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}

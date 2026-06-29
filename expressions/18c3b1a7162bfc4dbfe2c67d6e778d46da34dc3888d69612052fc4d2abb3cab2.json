@@ -1,0 +1,24 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "CASE WHEN taker_buy_volume > 0 AND count >= 100 THEN (0.5 * ((taker_buy_quote_volume / taker_buy_volume - close) / close) + 0.25 * LAG((taker_buy_quote_volume / taker_buy_volume - close) / close, 1) OVER w + 0.25 * LAG((taker_buy_quote_volume / taker_buy_volume - close) / close, 2) OVER w) ELSE NULL END",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "quote_volume",
+      "taker_buy_volume",
+      "taker_buy_quote_volume"
+    ],
+    "min_symbol_bars": 168,
+    "cs_quantile_gte": {
+      "col": "quote_volume",
+      "q": 0.2
+    }
+  }
+}
