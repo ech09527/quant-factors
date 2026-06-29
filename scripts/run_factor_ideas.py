@@ -24,9 +24,11 @@ from scripts.kaggle_kernel import (  # noqa: E402
     backup_file,
     download_kernel_output,
     inject_dataset_slug_default,
+    inject_kernel_inputs_inline,
     kernel_ref,
     push_kernel,
     remove_dataset_slug_inject,
+    remove_kernel_inputs_inline,
     replace_placeholder_username,
     resolve_kaggle_username,
     restore_file,
@@ -269,25 +271,16 @@ def run_kernel_once(
     kernel = kernel_ref(username, DEFAULT_KERNEL_SLUG)
     metadata_path = kernel_dir / "kernel-metadata.json"
     explore_py = kernel_dir / "explore_dataset.py"
-    inputs_path = kernel_dir / "kernel_inputs.json"
+    main_py = kernel_dir / "generate_factor_ideas.py"
 
     metadata_backup = backup_file(metadata_path)
     explore_backup = backup_file(explore_py) if explore_py.is_file() else ""
-    inputs_backup = backup_file(inputs_path) if inputs_path.is_file() else None
-    auth_injected_path = kernel_dir / ".cursor_auth_injected.json"
-    auth_backup: str | None = None
-    if auth_injected_path.is_file():
-        auth_backup = backup_file(auth_injected_path)
-
+    main_backup = backup_file(main_py)
     cursor_auth = os.environ.get("CURSOR_AUTH_JSON", "").strip()
-    if cursor_auth:
-        auth_injected_path.write_text(cursor_auth, encoding="utf-8")
-        auth_injected_path.chmod(0o600)
 
     try:
         bundle_kernel(kernel_dir, repo)
-        write_kernel_inputs(
-            kernel_dir,
+        inputs_payload = build_inputs(
             dataset_slug=dataset_slug,
             max_ideas=max_ideas,
             mode=mode,
@@ -296,6 +289,9 @@ def run_kernel_once(
             target_file=target_file,
             repo=repo,
         )
+        if cursor_auth:
+            inputs_payload["cursor_auth_json"] = cursor_auth
+        inject_kernel_inputs_inline(main_py, inputs_payload)
         update_kernel_metadata(
             metadata_path,
             username,
@@ -316,17 +312,12 @@ def run_kernel_once(
 
     finally:
         restore_file(metadata_path, metadata_backup)
+        restore_file(main_py, main_backup)
+        remove_kernel_inputs_inline(main_py)
         if explore_backup:
             restore_file(explore_py, explore_backup)
-        if inputs_backup is not None:
-            restore_file(inputs_path, inputs_backup)
-        elif inputs_path.is_file():
-            inputs_path.unlink()
-        if cursor_auth:
-            if auth_backup is not None:
-                restore_file(auth_injected_path, auth_backup)
-            elif auth_injected_path.is_file():
-                auth_injected_path.unlink()
+        else:
+            remove_dataset_slug_inject(kernel_dir / "explore_dataset.py")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

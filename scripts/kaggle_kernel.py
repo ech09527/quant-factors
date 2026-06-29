@@ -13,6 +13,7 @@ from typing import Any
 
 PLACEHOLDER_USERNAME = "PLACEHOLDER_USERNAME"
 DATASET_SLUG_MARKER = "# __DATASET_SLUG_DEFAULT__"
+KERNEL_INPUTS_MARKER = "# __KERNEL_INPUTS_INLINE__"
 
 
 def run_command(
@@ -138,6 +139,36 @@ def remove_dataset_slug_inject(py_path: Path) -> None:
     lines = py_path.read_text(encoding="utf-8").splitlines(keepends=True)
     filtered = [line for line in lines if DATASET_SLUG_MARKER not in line]
     py_path.write_text("".join(filtered), encoding="utf-8")
+
+
+def inject_kernel_inputs_inline(py_path: Path, payload: dict[str, Any]) -> None:
+    """将 kernel_inputs JSON 注入 generate_factor_ideas.py 常量。"""
+    remove_kernel_inputs_inline(py_path)
+    serialized = json.dumps(payload, ensure_ascii=False)
+    replacement = f"KERNEL_INPUTS_INLINE = {json.dumps(serialized)}  {KERNEL_INPUTS_MARKER}"
+    text = py_path.read_text(encoding="utf-8")
+    if "KERNEL_INPUTS_INLINE = None" not in text:
+        raise RuntimeError(f"无法在 {py_path} 中找到 KERNEL_INPUTS_INLINE 注入点")
+    text = text.replace("KERNEL_INPUTS_INLINE = None", replacement, 1)
+    py_path.write_text(text, encoding="utf-8")
+
+
+def remove_kernel_inputs_inline(py_path: Path) -> None:
+    text = py_path.read_text(encoding="utf-8")
+    if KERNEL_INPUTS_MARKER not in text:
+        return
+    lines = [line for line in text.splitlines(keepends=True) if KERNEL_INPUTS_MARKER not in line]
+    text = "".join(lines)
+    import re
+
+    text = re.sub(
+        r"^KERNEL_INPUTS_INLINE = .*$",
+        "KERNEL_INPUTS_INLINE = None",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    py_path.write_text(text, encoding="utf-8")
 
 
 def wait_for_kernel_logs(

@@ -15,24 +15,31 @@ from typing import Any
 WORKING = Path("/kaggle/working")
 SCRIPT_DIR = Path(__file__).resolve().parent
 KERNEL_INPUTS_PATH = SCRIPT_DIR / "kernel_inputs.json"
+KERNEL_INPUTS_INLINE = None  # __KERNEL_INPUTS_INLINE__
 CURSOR_TIMEOUT = int(os.environ.get("CURSOR_TIMEOUT_SECONDS", "600"))
 
 
 def load_kernel_inputs() -> dict[str, Any]:
-    if not KERNEL_INPUTS_PATH.is_file():
-        raise RuntimeError(f"缺少 kernel_inputs.json: {KERNEL_INPUTS_PATH}")
-    with KERNEL_INPUTS_PATH.open(encoding="utf-8") as handle:
-        return json.load(handle)
+    if KERNEL_INPUTS_INLINE is not None:
+        return json.loads(KERNEL_INPUTS_INLINE)
+    if KERNEL_INPUTS_PATH.is_file():
+        with KERNEL_INPUTS_PATH.open(encoding="utf-8") as handle:
+            return json.load(handle)
+    raise RuntimeError(
+        f"缺少 kernel_inputs：未注入 KERNEL_INPUTS_INLINE 且无 {KERNEL_INPUTS_PATH}"
+    )
 
 
-def setup_cursor_auth() -> bool:
+def setup_cursor_auth(inputs: dict[str, Any]) -> bool:
     auth = os.environ.get("CURSOR_AUTH_JSON", "").strip()
+    if not auth:
+        auth = str(inputs.get("cursor_auth_json") or "").strip()
     if not auth:
         injected = SCRIPT_DIR / ".cursor_auth_injected.json"
         if injected.is_file():
             auth = injected.read_text(encoding="utf-8").strip()
     if not auth:
-        print("警告: 未设置 CURSOR_AUTH_JSON（Kaggle Notebook Secret），跳过 Cursor 步骤")
+        print("警告: 未设置 CURSOR_AUTH_JSON，跳过 Cursor 步骤")
         return False
     config_dir = Path.home() / ".config" / "cursor"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -246,7 +253,7 @@ def main() -> int:
     summary = load_exploration_summary()
     summary_text = json.dumps(summary, ensure_ascii=False, indent=2)
 
-    if not setup_cursor_auth():
+    if not setup_cursor_auth(inputs):
         print("错误: Cursor 未配置，无法生成想法", file=sys.stderr)
         return 1
 
