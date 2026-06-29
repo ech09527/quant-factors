@@ -1,209 +1,199 @@
 # 数据探索报告
 
 **目标文件：** `futures/um/klines/1h.parquet`  
-**数据集：** `yhydev97/quant-data`（Binance USDT 永续合约 1 小时 K 线）  
+**数据集：** `yhydev97/quant-data`（Binance USDT 本位永续合约 1 小时 K 线）  
 **探索时间：** 2026-06-29  
-**全量规模（已验证）：** 约 1,005 万行 × 13 列，523 个交易对，时间跨度 2020-01-01 至 2026-05-31
+**全量规模：** 约 1,005 万行 · 523 个交易对 · 时间跨度 2020-01-01 ～ 2026-05-31
 
 ---
 
 ## 数据概述
 
-本文件为 Binance UM（U 本位永续）标准 1h K 线宽表，每行对应一个 `(symbol, open_time)` 小时 bar。主键为 `symbol` + `open_time`。
+本文件为 **Binance UM（U 本位）永续合约 1 小时 OHLCV K 线** 的聚合表，采用标准 Binance K 线字段布局，并附加 `symbol` 作为横截面标识。主键为 `(symbol, open_time)`，同一合约在同一开盘时刻仅对应一根 K 线。
 
-| 维度 | 全量统计 | 抽样统计（head 5000 行） |
+| 维度 | 全量统计 | 抽样说明（head 5000 行） |
 |------|----------|--------------------------|
 | 行数 | 10,051,729 | 5,000（非全量） |
-| 交易对数 | 523 | 1（`0GUSDT`） |
-| 时间范围 | 2020-01-01 ~ 2026-05-31 | 2025-09-17 ~ 2026-04-13 |
+| 合约数 | 523 | 仅见 `0GUSDT` 1 个 |
+| 时间范围 | 2020-01-01 ～ 2026-05-31 | 2025-09-17 ～ 2026-04-13 |
 | 文件大小 | ~591 MB | — |
+| Parquet 行组 | 82 | — |
 
-**数据形态：** 多 symbol 纵向堆叠；老牌主流币（如 BTCUSDT）约 56,232 条有效小时 bar，覆盖完整 6.4 年；新上市币（如 `0GUSDT`）仅约 6,162 条，自 2025-09-17 起。价格量级因品种差异大（抽样 min≈0.44，max≈7.15，对应小市值新币），全量横截面跨度更大。
+**业务定位：** 多合约、多时段的统一面板数据，适用于**横截面动量/反转、成交量/资金流、微观结构**等因子研究，以及 1h 频率的中低频策略回测。
 
 **字段分组：**
 
 - **时间与标识：** `open_time`, `close_time`, `symbol`
-- **OHLC 价格：** `open`, `high`, `low`, `close`
-- **成交与微观结构：** `volume`, `quote_volume`, `count`, `taker_buy_volume`, `taker_buy_quote_volume`
-- **占位：** `ignore`（恒为 0 或 NaN，无业务信息）
+- **价格：** `open`, `high`, `low`, `close`
+- **成交规模：** `volume`, `quote_volume`, `count`
+- **主动买入：** `taker_buy_volume`, `taker_buy_quote_volume`
+- **占位：** `ignore`（恒为 0，可忽略）
 
 ---
 
 ## 字段语义与因子潜力
 
-### open_time
+### open_time / close_time
 
-- **含义：** K 线开盘时刻（Unix 毫秒时间戳），bar 左边界。
-- **因子潜力：** 低（通常作索引/对齐）；可用于构造 session 因子（亚/欧/美时段）、周末效应、Funding 前后窗口（需外接 funding 数据）。
-- **统计：** 全量约 12.58% 缺失；有效行唯一性良好。抽样 4992/5000 unique 系 head 抽样落在单一 symbol 连续时段所致。
-
-### open / high / low / close
-
-- **含义：** 该小时开盘价、最高价、最低价、收盘价（USDT 计价）。
-- **因子潜力：** **核心价量因子源**
-  - 收益率：`close` 多周期动量/反转
-  - 波动：`high`−`low` 振幅、真实波幅（需前 bar `close`）
-  - 形态：上/下影线、实体占比、缺口（`open` vs 前 `close`）
-  - 横截面：相对 BTC/ETH 强弱、行业内排名
-- **统计：** 与 `open_time` 同步缺失；全量 OHLC 逻辑违规 0 条；`quote_volume ≈ volume × close` 中位数 ≈ 1.0，数据自洽。
-
-### volume
-
-- **含义：** 该小时基础资产成交量（如 BTC 张数/币数，非 USDT）。
-- **因子潜力：** **流动性与参与度**
-  - 放量突破、量价背离
-  - 相对历史均量（RVOL）
-  - 横截面：低流动性溢价/折价
-- **统计：** 抽样 67204 ~ 1.42e8，品种间不可直接横截面对比，需标准化。
-
-### close_time
-
-- **含义：** K 线收盘时刻（毫秒），通常为 `open_time + 3599999 ms`（1h bar 右闭边界）。
-- **因子潜力：** 极低；可用于校验 bar 完整性、检测异常截断。
-- **统计：** 有效行中 close−open 恒为 3,599,999 ms，格式规范。
-
-### quote_volume
-
-- **含义：** 该小时 USDT 名义成交额。
-- **因子潜力：** **美元流动性因子**
-  - 比 `volume` 更适合跨品种比较
-  - 与 `volume` 比值 → 隐含均价，可检测异常成交
-  - 横截面成交额排名、流动性分层
-- **统计：** 与 `volume` 高度相关；全量 p01~p99 相对 `volume×close` 在 0.98~1.02，质量良好。
-
-### count
-
-- **含义：** 该小时内成交笔数（trade count）。
-- **因子潜力：** **交易活跃度 / 订单碎片化**
-  - `quote_volume / count` → 平均每笔成交额（大单 vs 散户）
-  - 高 count + 低 volume → 碎片化成交
-  - 与 `volume` 背离 → 算法拆单或 HFT 活跃
-- **统计：** 抽样 1,169 ~ 2,537,128，跨品种差异极大，需 log 或分位数标准化。
-
-### taker_buy_volume
-
-- **含义：** 主动买入（taker buy）的基础资产成交量。
-- **因子潜力：** **订单流 / 微观结构（高价值）**
-  - `taker_buy_volume / volume` → 主动买入占比（全量中位数 ≈ 0.49）
-  - 持续 >0.5 → 买方主导；极端值 → 短期动量或反转信号
-  - 与价格变动交互 → 量价确认的 order flow
-- **统计：** 恒 ≤ `volume`，无违规；与 `taker_buy_quote_volume` 配套使用。
-
-### taker_buy_quote_volume
-
-- **含义：** 主动买入的 USDT 成交额。
-- **因子潜力：** 与 `taker_buy_volume` 类似，但跨品种可比性更好；可构造 `taker_buy_quote_volume / quote_volume` 作为美元维度订单流因子。
-
-### ignore
-
-- **含义：** Binance API 保留字段，本数据集恒为 0 或 NaN。
-- **因子潜力：** 无；因子构建时应排除。
+- **语义：** K 线开盘/收盘时刻（epoch 毫秒）。`close_time` 通常为 `open_time + 3,599,999 ms`（1 小时 bar 右闭区间）。
+- **因子潜力：** 时间对齐、日历效应（UTC 小时/星期）、bar 完整性校验、缺失 bar 检测。本身一般不作为 alpha 源，而是面板索引与回测时间轴。
 
 ### symbol
 
-- **含义：** 永续合约交易对标识（如 `BTCUSDT`）。
-- **因子潜力：** 分组键；可衍生 listing age（上市时长）、板块标签（需外接元数据）；新币（如 `0GUSDT`）与老币因子表现可能异质。
-- **统计：** 无缺失；523 个 symbol；每 symbol 有效 bar 数 median ≈ 12,775，min 88，max 56,285。
+- **语义：** 永续合约交易对（如 `BTCUSDT`、`1000PEPEUSDT`）。
+- **因子潜力：** 横截面分组、行业/主题聚类、上市时长分层。523 个合约覆盖主流币、meme、1000 倍计价等特殊品种，横截面广度较好。
+
+### open / high / low / close
+
+- **语义：** 1 小时内的开高低收价（USDT 计价）。
+- **因子潜力（高）：**
+  - **动量/反转：** 基于 `close` 的多周期收益率、相对强弱
+  - **波动：** `(high - low) / close`、True Range、Parkinson 波动率
+  - **K 线形态：** `(close - open) / open` 实体、上/下影线占比
+  - **极值位置：** `(close - low) / (high - low)` 收盘在 bar 内位置（CLV）
+- **抽样观察：** 非空样本中 OHLC 逻辑约束全部满足（high ≥ max(open,close,low)，low ≤ min(...)）。
+
+### volume
+
+- **语义：** 该小时内成交的**基础资产数量**（合约张数折算后的标的数量，非 USDT 名义）。
+- **因子潜力（高）：**
+  - 成交量异常（相对自身历史均值/标准差）
+  - 量价背离（价涨量缩 / 价跌量增）
+  - 横截面相对成交量排名
+- **注意：** 不同合约标的单位差异大（如 `1000PEPE` vs `BTC`），横截面比较宜配合 `quote_volume` 或做标准化。
+
+### quote_volume
+
+- **语义：** 该小时内成交的 **USDT 名义成交额**（价格 × 数量之和）。
+- **因子潜力（高）：**
+  - **流动性/关注度：** 横截面成交额排名、成交额变化率
+  - **换手率代理：** `quote_volume / close` 或相对市值（若有外部市值数据）
+  - 与 `volume` 联用可构造**典型成交价格** `quote_volume / volume`（VWAP 近似）
+- **横截面可比性优于 `volume`**，更适合多合约因子排序。
+
+### count
+
+- **语义：** 该小时内成交**笔数**（trade count）。
+- **因子潜力（中高）：**
+  - **微观结构：** 平均单笔规模 ≈ `volume / count` 或 `quote_volume / count`
+  - 高频参与者活跃度、拆单 vs 大单主导
+  - 笔数突增而价格不动 → 潜在吸筹/派发信号
+- **局限：** 1h 聚合后笔数信息部分平滑，更适合作为辅助特征而非单一 alpha。
+
+### taker_buy_volume / taker_buy_quote_volume
+
+- **语义：** 主动买入（taker buy）的基础资产数量 / USDT 名义成交额。
+- **因子潜力（很高）：**
+  - **订单流不平衡：** `taker_buy_volume / volume`（主动买入占比）
+  - **资金方向：** 主动买入额 vs 主动卖出额（`quote_volume - taker_buy_quote_volume`）
+  - 多周期累积订单流、与价格变化的 lead-lag 关系
+- **抽样观察：** `taker_buy_volume ≤ volume` 恒成立，字段一致性良好。
+- **这是本数据集相对纯 OHLCV 的核心增量信息**，适合构建 short-horizon 资金流类因子。
+
+### ignore
+
+- **语义：** Binance API 保留字段，抽样中恒为 0。
+- **因子潜力：** 无。建模与特征工程可直接剔除。
 
 ---
 
 ## 数据质量与限制
 
-### 1. 缺失值（约 12.58%）
+### 1. 抽样偏差（重要）
 
-- 12,644 行仅有 `symbol`，OHLCV 等字段全为 NaN；523 个 symbol 均受影响（多数约 52~53 条/symbol）。
-- 推测为写入时的**占位/填充行**，非真实缺失 bar。有效行 10,039,085 条，`(symbol, open_time)` **无重复**。
-- **建议：** 因子计算前 `dropna(subset=['open_time','close'])`；不要用 ffill 填充这些空行。
+- 统计摘要基于每文件 **head 5000 行**，抽样时间窗仅为 **2025-09-17 ～ 2026-04-13**，且**仅含 1 个 symbol（0GUSDT）**。
+- 全量实际覆盖 **523 合约、2020 ～ 2026**，横截面多样性、早期行情、长尾小币特征在抽样中**严重低估**。
+- **建议：** 因子研究前按 `symbol` 分层抽样或全量扫描，勿依赖 head 抽样结论。
 
-### 2. 抽样偏差（warnings 已提示）
+### 2. 缺失值
 
-- 探索摘要对每文件仅取 **head 5000 行**；Parquet 按 symbol 排序，`0GUSDT` 排在最前且含大量 NaN 占位行。
-- 导致抽样仅见 1 个 symbol、时间范围被压缩至 2025-09 ~ 2026-04，**严重低估横截面多样性**。
-- 全量验证：523 symbols，2020-01-01 ~ 2026-05-31；BTCUSDT 小时 bar **零缺口**。
+- 各数值列 null_rate ≈ **0.16%**（抽样）；对 50k head 复核约 **0.14%**。
+- 缺失表现为**整行多列同时缺失**（非单列 sporadic null），`symbol` 无缺失。
+- 全量约 1,600 行级别缺失（估算），比例低但需明确处理策略（删除 vs 前向填充——价格字段填充需谨慎）。
 
-### 3. 时间跨度与生存偏差
+### 3. 上市时间与 survivorship 偏差
 
-- 523 个 symbol 上市时间参差：新币历史 < 1 年，老币 ≈ 6.4 年。
-- 回测若用统一起始日，有效样本随时间扩大；横截面因子需考虑 **listing filter** 或动态 universe。
-- 数据截止 2026-05-31，不含之后行情；crypto  regime 变化大，2020–2022 与 2024–2026 因子表现可能分化。
+- 523 合约中，**213 个首次出现于 2025 年**，37 个在 2026 年；仅 58 个自 2020 年起即有数据。
+- 横截面回测若未做 **point-in-time  universe** 过滤，易引入**幸存者/新币偏差**（新上市 meme 币波动与流动性结构异于老币）。
 
-### 4. 数据类型
+### 4. 时间跨度与频率
 
-- `open_time`/`close_time` 为 float64 而非 datetime/int64，合并与排序时需显式转换；毫秒精度足够 1h 粒度。
+- 全量 6.4+ 年 1h 数据，覆盖 2020 加密牛市、2022 熊市、2024–2025 ETF/alt season 等 regime。
+- **1h 频率**适合中低频因子；微观结构类因子（如 `count`）的信息量低于 tick/1m 数据。
+- 需验证各 symbol 是否存在**缺失小时 bar**（网络/API 历史缺口），当前摘要未做完整性审计。
 
-### 5. 路径与环境
+### 5. 数据类型与工程细节
 
-- Kaggle 实际挂载 `/kaggle/input/datasets`，非期望的 `/kaggle/input/yhydev97-quant-data`；脚本需兼容路径探测。
+- `open_time`、`close_time` 等为 **float64** 而非 int64/datetime，合并与排序时需显式转换，避免浮点精度导致 join 失败。
+- Kaggle 挂载路径为 `/kaggle/input/datasets`，非期望的 `/kaggle/input/yhydev97-quant-data`；脚本中路径需兼容处理。
 
 ### 6. 横截面可比性
 
-- `volume`、`count` 等绝对量级跨品种不可比；因子应使用比率、z-score、分位数或 `quote_volume` 等美元维度。
+- 合约命名含 **1000 倍计价**（如 `1000PEPEUSDT`），`volume` 单位不统一；跨品种比较应优先 `quote_volume`、`taker_buy_quote_volume` 或收益率类因子。
+- 小币 `quote_volume` 极低时，因子噪声大，宜设流动性门槛（如 24h 成交额分位数过滤）。
 
-### 7. 未包含的扩展信息
+### 7. 全量 row_count 与抽样 row_count 混淆
 
-- 无 funding rate、持仓量（OI）、买卖盘深度、标记价格等；纯 K 线因子有天花板，微观结构因子仅限 taker 字段。
+- 摘要中 `row_count: 5000` 为抽样行数，**不是**全量 10,051,729；产能规划、内存估算须以全量为准。
 
 ---
 
 ## 推荐因子研究方向
 
-以下均基于真实列名，仅给出方向，不涉及完整公式。
+以下均为**方向性建议**，均基于真实列名，不涉及完整公式实现。
 
 1. **close 多周期动量 / 反转**  
-   基于 `close` 计算 6h、24h、72h、168h 收益率；crypto 1h 尺度上短周期反转与中周期动量并存，可分层测试。
+   利用 `close` 计算 6h、24h、72h 收益率或相对强弱，在 523 合约横截面上排序；可结合上市时长分层，缓解新币偏差。
 
-2. **high–low 已实现波动（振幅因子）**  
-   用 `(high - low) / close` 或 log(`high`/`low`) 度量小时内波动；低波动突破、波动率聚类（GARCH 型）均有研究空间。
+2. **high–low 区间波动（Realized Range）**  
+   基于 `high`、`low`、`close` 构造 bar 内波动率或 `(high - low) / close`，用于波动率因子、风险调整收益、以及“低波动突破”类信号。
 
-3. **taker_buy_volume / volume 订单流不平衡**  
-   主动买入占比；可 rolling 平滑后与 `close` 收益同向/背离，检验短期价格发现。
+3. **quote_volume 流动性异常**  
+   用 `quote_volume` 相对自身过去 N 根的 z-score 或横截面分位数，识别放量/缩量；可与 `close` 收益率交互，检验量价配合度。
 
-4. **quote_volume 流动性异常（RVOL 美元版）**  
-   当前 `quote_volume` 相对过去 N 小时均值的偏离；放量上涨 vs 放量下跌 asymmetry。
+4. **taker_buy_volume 主动买入占比（Order Flow Imbalance）**  
+   用 `taker_buy_volume / volume` 衡量主动买压；可做多周期累积，或与 contemporaneous `close` 收益做 divergence 检测。
 
-5. **count 与 quote_volume 的平均单笔规模**  
-   `quote_volume / count` 反映成交粒度；大单主导时该值上升，可与 `taker_buy_quote_volume` 结合区分主动大单。
+5. **taker_buy_quote_volume 资金侧不平衡**  
+   基于 `taker_buy_quote_volume` 与 `quote_volume` 的差值或比例，构造 USDT 维度的净主动流；横截面排序对 meme/小市值合约可能更有效。
 
-6. **OHLC 蜡烛形态（上影线压力）**  
-   `(high - max(open, close)) / (high - low)` 衡量上方抛压；横截面排名作反转或 continuation 信号。
+6. **volume / count 平均单笔规模（Trade Size Proxy）**  
+   用 `volume / count` 或 `quote_volume / count` 刻画大单 vs 散户主导；笔数高而单笔小可能对应 retail 涌入 regime。
 
-7. **taker_buy_quote_volume / quote_volume 美元订单流**  
-   跨品种可比性优于币本位 ratio；适合横截面多空排序。
+7. **open–close 实体动量（Intrabar Direction）**  
+   用 `open`、`close` 构造 bar 实体方向与幅度，可与 `(high - low)` 波动结合，区分“趋势 bar”与“震荡 bar”。
 
-8. **open 相对前 bar close 的跳空（gap）**  
-   需 lag(`close`)；1h 跳空在 crypto 连续交易里仍有信息，尤其重大事件前后。
+8. **close 在 bar 内极值位置（CLV）**  
+   用 `close`、`high`、`low` 构造收盘相对位置，衡量小时内多空博弈结果；适用于短周期反转/延续判断。
 
-9. **volume 与 quote_volume 隐含均价偏离**  
-   `quote_volume / volume` 与 `close` 的偏离检测异常成交或价格冲击。
+9. **quote_volume / volume 典型价偏离（VWAP Deviation）**  
+   用 `quote_volume / volume` 作为 bar VWAP 近似，与 `close` 偏离度结合，识别价格相对成交均价的 overextension。
 
-10. **symbol 上市时长 × close 动量（新币效应）**  
-    用每 symbol 首次有效 `open_time` 至当前 bar 的 bar 数作 age；新上市币高波动、高 `count`，因子需分 regime 或分层回测。
+10. **横截面 quote_volume 加权动量**  
+    对 `close` 收益率按 contemporaneous `quote_volume` 或 `taker_buy_quote_volume` 加权，强调“有资金参与的 move”，降低无流动性噪声合约权重。
 
 ---
 
 ## 因子设计注意事项
 
-**清洗流程**  
-先剔除 `open_time` 或 `close` 为 NaN 的占位行；按 `(symbol, open_time)` 排序；确认主键唯一后再 rolling / lag。
+**面板对齐：** 以 `(symbol, open_time)` 为主键做 wide/long 转换；多合约 join 时统一 `open_time` 时区（UTC）与 bar 边界。
 
-**避免前视偏差**  
-所有 rolling、rank 均在 symbol 内按时间因果计算；横截面 rank 仅用 contemporaneous 截面，不用未来 bar。
+**流动性过滤：** 回测前建议按 `quote_volume` 滚动均值设阈值，剔除长期低流动性合约，降低滑点与不可交易假设误差。
 
-**标准化**  
-横截面因子优先用 `quote_volume`、`taker_buy_quote_volume` 等 USDT 字段；价量因子用收益率、比率或 symbol 内 z-score，避免绝对价格/量级污染。
+**Point-in-time Universe：** 按各 symbol 首次出现 `open_time` 动态纳入，避免使用“当前 523 合约列表”回溯历史。
 
-**Universe 管理**  
-动态过滤：最低 `quote_volume`、最少上市 N 根 bar、排除极端低流动性 symbol（min 88 bar 的尾部品种）。
+**缺失处理：** 优先删除 OHLC 全空行；避免对价格列无脑 ffill 制造虚假收益率。可单独构造 `is_missing_bar` 标志作为风控特征。
 
-**频率与持仓**  
-1h bar 适合中短周期（4h~7d 持有）；与 funding（8h）、日线趋势因子结合时可降频或作 filter。
+**Regime 分层：** 2020–2026 市场结构变化大，因子 IC 建议分年度/分波动 regime 检验，防止过拟合单一市场阶段。
 
-**样本外划分**  
-建议按时间切分（如 2020–2024 训练，2025–2026 测试），并单独检验 2025 后新上市 symbol 子样本，避免生存偏差夸大 IC。
+**订单流因子衰减：** `taker_buy_volume`、`taker_buy_quote_volume` 在 1h 频率上预测力可能短于更高频数据，宜与较长周期 `close` 动量/filter 组合，并关注 turnover。
 
-**数据扩展**  
-若策略依赖 OI、funding、基差，需从同数据集其他路径或 API 补全；当前文件仅支撑价量 + 有限 order flow 因子族。
+**特殊合约单位：** 含 `1000` 前缀的合约在 `volume` 维度不可直接与 BTC/ETH 比较；横截面因子优先使用无量纲比率（如占比、收益率）或 `quote_volume` 名义维度。
+
+**ignore 字段：** 可直接 drop，不参与特征与存储。
+
+**路径与环境：** 在 Kaggle 上使用 `/kaggle/input/datasets/yhydev97/quant-data/futures/um/klines/1h.parquet`；本地或其他环境需对应调整，并验证 parquet 分 82 个 row group 的并行读取策略以控制内存（全量约 600MB，可全内存或按 symbol 分区加载）。
 
 ---
 
-**结论：** 该文件是质量较好的 Binance UM 1h K 线宽表，523 个 symbol、约 6.4 年覆盖，OHLC 逻辑与 taker/volume 约束均通过校验。主要风险来自 **~12.6% 占位 NaN 行**（清洗即可）以及 **head 抽样导致的 symbol/时间认知偏差**（全量分析已纠正）。因子研究应优先挖掘 `close` 价量、`quote_volume` 流动性、`taker_buy_volume` / `taker_buy_quote_volume` 订单流三类信号，并严格处理横截面标准化与上市时长异质性。
+*本报告基于确定性统计摘要及全量元数据（行数、合约数、时间范围）与 head 样本一致性校验；除已验证项外，bar 完整性、全量缺失分布、极端行情 outlier 仍需在全量 EDA 阶段进一步确认。*
