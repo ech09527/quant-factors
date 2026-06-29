@@ -1,0 +1,50 @@
+{
+  "status": "success",
+  "title": "横截面窄实体主动流集中度轮动",
+  "title_hash": "22ef91d331a70c157df35a167771cc6bab7a82934502751c1277002587608611",
+  "formula_hash": "a723e914b962c1c92c3f24cf7079f724484225912c5ebde43b47c9cc5c8f9469",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T13:10:34.809350+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(taker_buy_volume / (volume + 1e-8)) * (1.0 - ABS(close - open) / (high - low + 1e-8))",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -3.104407665826905e-05,
+    "ic_ir": -0.00032607316462054925,
+    "mean_rank_ic": 7.274982287455173e-06,
+    "rank_ic_ir": 7.143657042149092e-05,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.4991812865497076
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
