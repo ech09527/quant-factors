@@ -1,17 +1,18 @@
 [
   {
-    "title": "横截面波动调整换手异常",
-    "hypothesis": "在同一小时截面上，单位已实现波动对应的报价成交额（quote_volume）越高，往往意味着该 symbol 正在经历相对更强的信息流入或注意力聚集；在永续合约多币种轮动中，横截面相对更高的「波动调整换手」可能预示下一根 1h 的相对超额收益延续，而极低值则反映流动性枯竭或缺乏边际买家。",
+    "title": "横截面笔数密度偏离轮动",
+    "hypothesis": "在加密货币永续 1h 面板上，count/quote_volume 反映单位成交额对应的成交笔数（交易碎片化程度）。当某 symbol 当前笔数密度相对其自身近 24 根滚动中位数显著偏低时，往往对应单笔成交额抬升、可能隐含更大单或机构型成交；在同一 open_time 横截面上，相对更低笔数密度偏离的标的短期延续性可能更强，而高碎片化偏离标的更易出现噪声交易后的均值回归。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算：ret_1h = log(close / close.shift(1))；vol_24 = rolling_std(ret_1h, 24)；tv_ratio = quote_volume / (vol_24 + 1e-8)；可选 per-symbol 去均值：tv_z = (tv_ratio - rolling_mean(tv_ratio, 168)) / (rolling_std(tv_ratio, 168) + 1e-8)。Universe 过滤：quote_volume >= 该 open_time 截面中位数 × 0.2，且 symbol 累计有效 1h bar 数 >= 720，剔除 open/high/low/close/quote_volume 任一缺失行。在每个 open_time 上对 universe 内 symbol 的 tv_z（或 tv_ratio）做横截面 rank 或 z-score，得到 [0,1] 分位因子值。",
-    "expected_signal": "横截面：做多高分位（波动调整换手相对更高）、做空低分位；信号在 bar 收盘后生成，持有期为下一根 1h（open_time 对齐）；适用于多币种永续合约相对强弱轮动与多空配对。",
+    "formula_sketch": "1) 按 symbol 计算 density_t = count / quote_volume；2) 计算 density_dev_t = density_t / median(density, 窗口=24 根 1h) - 1（需 symbol 历史 bar 数 >= 168 且 quote_volume > 0）；3) universe 过滤：在每个 open_time 仅保留 quote_volume 不低于当日横截面 20 分位、且近 7 日 median(quote_volume) > 0 的 symbol；4) 按 open_time 分组，对 density_dev_t 做 winsorize 后计算横截面 rank 或 z-score，得到 cs_factor_t；5) 信号在 bar close 生成，用于下一根 1h 收益评估。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 排序，做多 cs_factor 低分位（笔数密度相对自身偏低、单笔成交额偏大），做空高分位（碎片化异常升高）；持有期为下一根 1h bar；适用于多币种永续相对强弱轮动与多空组合。",
     "risks": [
-      "quote_volume 分层导致低流动性 symbol 横截面排序噪声大、实际不可交易",
-      "新上市 symbol 的 vol_24 估计不稳定造成冷启动偏误",
-      "全市场极端行情下截面分化 collapse、因子短期失效",
-      "幸存者偏差：退市或长期停盘 symbol 未纳入历史截面"
+      "横截面：低 quote_volume symbol 的 count 噪声大，分位排序易受流动性分层扭曲",
+      "新上市或冷启动 symbol 的 24h 滚动中位数不稳定，需最小上市 bar 数过滤",
+      "极端行情下全市场 count 同步激增，截面分化收窄导致因子失效",
+      "幸存者偏差：universe 随上架/下架变化，历史回测需固定可交易集合",
+      "同 bar 内 count 与 quote_volume 高度相关，参数窗口过拟合风险"
     ]
   }
 ]
