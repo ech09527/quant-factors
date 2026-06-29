@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "横截面笔数密度偏离轮动",
+  "title_hash": "e68668511e52c7d6d82456f8e864217d92bc4a1b3dfd4735735e0e6659bdf4d2",
+  "formula_hash": "e60ee183fbe2f3a8e6f0cf213cd4262882ad8a9b5f60770709977cc0b650bb53",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T14:00:10.729077+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(count / NULLIF(quote_volume, 0)) / (QUANTILE_CONT(count / NULLIF(quote_volume, 0), 0.5) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8) - 1",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 8.27460314020951e-05,
+    "ic_ir": 0.0009250607989699778,
+    "mean_rank_ic": 0.005776047920440279,
+    "rank_ic_ir": 0.0649448727391201,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.501687552213868
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
