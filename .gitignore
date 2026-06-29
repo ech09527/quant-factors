@@ -3,3 +3,5 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 /tmp/
+.cursor_auth_injected.json
+**/kernel_inputs.json

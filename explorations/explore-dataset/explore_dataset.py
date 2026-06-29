@@ -112,6 +112,59 @@ def discover_data_files(root: Path) -> list[Path]:
     return files
 
 
+def compute_parquet_full_stats(path: Path) -> dict[str, Any]:
+    """对 parquet 做列投影全量聚合（行数、symbol 数、时间范围）。"""
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        return {}
+
+    if path.suffix.lower() not in {".parquet", ".pq"}:
+        return {}
+
+    try:
+        pf = pq.ParquetFile(path)
+    except Exception:
+        return {}
+
+    stats: dict[str, Any] = {"total_row_count": int(pf.metadata.num_rows)}
+    schema_names = set(pf.schema_arrow.names)
+    columns_to_read = [c for c in ("open_time", "close_time", "symbol") if c in schema_names]
+    if not columns_to_read:
+        return stats
+
+    try:
+        table = pf.read(columns=columns_to_read)
+    except Exception:
+        return stats
+
+    if "symbol" in columns_to_read:
+        sym_col = table.column("symbol")
+        stats["symbol_count_full"] = int(sym_col.unique().length())
+
+    time_col = None
+    for candidate in ("open_time", "close_time"):
+        if candidate in columns_to_read:
+            time_col = candidate
+            break
+
+    if time_col:
+        numeric = pd.to_numeric(
+            pd.Series(table.column(time_col).to_pylist()), errors="coerce"
+        )
+        parsed, unit = parse_datetime_series(numeric)
+        valid = parsed.dropna()
+        if not valid.empty and unit:
+            stats["date_range_full"] = {
+                "column": time_col,
+                "start": valid.min().date().isoformat(),
+                "end": valid.max().date().isoformat(),
+                "unit": unit,
+            }
+
+    return stats
+
+
 def read_sample(path: Path) -> pd.DataFrame:
     suffix = path.suffix.lower()
     try:
@@ -399,12 +452,15 @@ def explore_file(path: Path, root: Path) -> dict[str, Any]:
             schema_col["unique"] = col["unique"]
         schema_columns.append(schema_col)
 
+    full_stats = compute_parquet_full_stats(path)
+
     return {
         "name": rel_name,
         "size_bytes": path.stat().st_size,
         "row_count": int(len(df)),
         "sample_rows": int(len(df)),
         "symbol_count_in_sample": symbol_count,
+        "full_stats": full_stats,
         "columns": columns,
         "schema_columns": schema_columns,
         "date_range": file_date_range,
@@ -476,6 +532,26 @@ def build_schema(
     ]
     if symbol_counts:
         catalog_summary["symbol_count_in_sample"] = max(symbol_counts)
+
+    total_rows = 0
+    symbol_full_values: list[int] = []
+    full_date_ranges: list[dict[str, str]] = []
+    for file_info in files:
+        fs = file_info.get("full_stats") or {}
+        if fs.get("total_row_count"):
+            total_rows += int(fs["total_row_count"])
+        if fs.get("symbol_count_full") is not None:
+            symbol_full_values.append(int(fs["symbol_count_full"]))
+        if fs.get("date_range_full"):
+            full_date_ranges.append(fs["date_range_full"])
+
+    if total_rows:
+        catalog_summary["total_row_count"] = total_rows
+    if symbol_full_values:
+        catalog_summary["symbol_count_full"] = max(symbol_full_values)
+    merged_full_range = merge_date_ranges(full_date_ranges)
+    if merged_full_range:
+        catalog_summary["date_range_full"] = merged_full_range
 
     return {
         "slug": slug,
@@ -563,6 +639,16 @@ def generate_readme(slug: str, schema: dict[str, Any], summary: dict[str, Any]) 
     sym_count = catalog.get("symbol_count_in_sample")
     if sym_count is not None:
         lines.append(f"- 抽样内 symbol 数: {sym_count}")
+    if catalog.get("total_row_count"):
+        lines.append(f"- 全量行数: {catalog['total_row_count']}")
+    if catalog.get("symbol_count_full") is not None:
+        lines.append(f"- 全量 symbol 数: {catalog['symbol_count_full']}")
+    full_dr = catalog.get("date_range_full")
+    if full_dr:
+        unit_note = f"（{full_dr.get('unit')}）" if full_dr.get("unit") else ""
+        lines.append(
+            f"- 全量时间范围: {full_dr.get('start')} ~ {full_dr.get('end')}{unit_note}"
+        )
     lines.append("")
 
     file_tree = catalog.get("file_tree") or []
