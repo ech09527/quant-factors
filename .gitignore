@@ -5,3 +5,5 @@ __pycache__/
 /tmp/
 .cursor_auth_injected.json
 **/kernel_inputs.json
+workers/factor-ideas-cron/node_modules/
+workers/factor-ideas-cron/.wrangler/

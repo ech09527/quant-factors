@@ -80,6 +80,8 @@ gh workflow run factor-ideas.yml -f max_ideas=5
 gh workflow run factor-ideas.yml -f mode=generate_only
 ```
 
+**定时触发**：由 Cloudflare Worker（`workers/factor-ideas-cron/`）每 5 分钟调用 `workflow_dispatch`（`max_ideas=1`、`mode=generate_only`）。凭证从 HashiCorp Vault 读取，见 `workers/factor-ideas-cron/README.md`。
+
 工作流 B 在 Kaggle Kernel 内完成数据探索与想法生成；Runner 仅负责拉取已有 Project 想法、注入约束、拉取 Kernel 产出、去重重试与写入 Project。
 
 **Kaggle Notebook Secret**：工作流 B 使用的 `generate-factor-ideas` Kernel 需在 Kaggle Web UI 绑定 `CURSOR_AUTH_JSON`（与本地 `~/.config/cursor/auth.json` 相同内容）。`kernels push` 后若 Cursor 认证失败，请检查 Secret 是否仍绑定。
@@ -118,6 +120,8 @@ quant-factors/
 │   ├── dataset-schema.json     # datasets/<slug>/schema.json 格式定义
 │   └── idea-schema.json        # 因子想法 JSON 格式定义
 ├── scripts/                    # 确定性脚本（去重、校验、写入 Project 等）
+└── workers/
+    └── factor-ideas-cron/      # Cloudflare Worker：每 5 分钟触发 factor-ideas 工作流
 └── .github/
     └── workflows/
         ├── relay-forward.yml   # AI Workflow 事件转发
