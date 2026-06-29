@@ -74,6 +74,7 @@ signal AS (
     *,
     ({{ signal_sql }}) AS raw_signal
   FROM features
+  WINDOW w AS (PARTITION BY symbol ORDER BY open_time)
 ),
 
 postprocessed AS (
