@@ -143,27 +143,32 @@ def remove_dataset_slug_inject(py_path: Path) -> None:
 
 def inject_kernel_inputs_inline(py_path: Path, payload: dict[str, Any]) -> None:
     """将 kernel_inputs JSON 注入 generate_factor_ideas.py 常量。"""
-    remove_kernel_inputs_inline(py_path)
+    import re
+
     serialized = json.dumps(payload, ensure_ascii=False)
     replacement = f"KERNEL_INPUTS_INLINE = {json.dumps(serialized)}  {KERNEL_INPUTS_MARKER}"
     text = py_path.read_text(encoding="utf-8")
-    if "KERNEL_INPUTS_INLINE = None" not in text:
+    new_text, count = re.subn(
+        r"^KERNEL_INPUTS_INLINE = .*$",
+        replacement,
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if count == 0:
         raise RuntimeError(f"无法在 {py_path} 中找到 KERNEL_INPUTS_INLINE 注入点")
-    text = text.replace("KERNEL_INPUTS_INLINE = None", replacement, 1)
-    py_path.write_text(text, encoding="utf-8")
+    py_path.write_text(new_text, encoding="utf-8")
 
 
 def remove_kernel_inputs_inline(py_path: Path) -> None:
-    text = py_path.read_text(encoding="utf-8")
-    if KERNEL_INPUTS_MARKER not in text:
-        return
-    lines = [line for line in text.splitlines(keepends=True) if KERNEL_INPUTS_MARKER not in line]
-    text = "".join(lines)
     import re
 
+    text = py_path.read_text(encoding="utf-8")
+    if KERNEL_INPUTS_MARKER not in text and "KERNEL_INPUTS_INLINE = None" in text:
+        return
     text = re.sub(
         r"^KERNEL_INPUTS_INLINE = .*$",
-        "KERNEL_INPUTS_INLINE = None",
+        f"KERNEL_INPUTS_INLINE = None  {KERNEL_INPUTS_MARKER}",
         text,
         count=1,
         flags=re.MULTILINE,
