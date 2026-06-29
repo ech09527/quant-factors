@@ -1,18 +1,17 @@
 [
   {
-    "title": "横截面主动流-收盘位置错配轮动",
-    "hypothesis": "在同一1h bar内，若主动买入占比（taker_buy_volume/volume）显著高于 peers，但收盘价在高低区间内的相对位置（(close-low)/(high-low)）仍偏低，说明 aggressive demand 尚未完全体现在价格上；横截面上这种“买压先行、价格滞后”的错配更可能在下一根1h bar 出现相对补涨，而非已充分定价的同步上涨。",
+    "title": "横截面上影拒绝相对轮动",
+    "hypothesis": "在同一1h bar内，上影线占比反映卖压对日内高点的拒绝强度；横截面上该比值偏高的标的，相对 peers 更可能遭遇短期获利了结与追高风险，下一根 bar 相对收益偏弱，而低占比者延续性更好。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol、1h bar 计算：flow_pos = taker_buy_volume / volume；range_pos = (close - low) / (high - low + 1e-8)；raw_mismatch = flow_pos - range_pos（可选对 flow_pos、range_pos 先做 symbol 内 24h 滚动 z-score 再相减）。Universe 过滤：quote_volume 不低于该 open_time 横截面 20 分位；symbol 累计有效 bar 数 ≥ 168；剔除 high==low 的 bar。在每个 open_time 上对 universe 内 symbol 的 raw_mismatch 做横截面 rank 或 z-score，得到 cs_mismatch。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较 cs_mismatch，做多高分位（主动买压强但收盘位置相对偏低、错配最大），做空低分位（买压弱或价格已超前反映）；持有期为下一根 1h bar（open_time 对齐）；适用于多币种永续合约相对强弱轮动。",
+    "formula_sketch": "按 symbol 计算 upper_shadow_ratio = (high - max(open, close)) / (high - low)，当 high==low 时置 NaN；universe 过滤：同一 open_time 上 quote_volume 不低于截面 20 分位，且 symbol 累计有效 bar 数 >= 168；按 open_time 分组，对 universe 内 upper_shadow_ratio 做横截面 rank 或 z-score 得 factor_cs。",
+    "expected_signal": "横截面：做多低分位（上影拒绝弱、收盘靠近高点），做空高分位（上影拒绝强）；持有期为下一根 1h bar；适用于多币种永续合约相对强弱轮动与多空配对。",
     "risks": [
-      "quote_volume 偏低时 taker_buy_volume 与 range_pos 噪声大，横截面排序不稳定",
-      "新上市 symbol 历史 bar 不足导致 flow_pos 滚动标准化冷启动",
-      "极端单边行情下 universe 内 range_pos 同时饱和，截面区分度塌陷",
-      "全市场同步拉升时错配信号趋同，多空组合暴露下降",
-      "1h 聚合掩盖 bar 内先后顺序，可能存在轻微信息混叠"
+      "横截面流动性分层导致低 quote_volume 标的不可交易或滑点放大",
+      "high==low 的 flat bar 在部分 symbol 上缺失造成截面样本偏误",
+      "极端单边拉升行情中上影拒绝因子截面区分度下降",
+      "新上市 symbol 历史 bar 不足导致冷启动与幸存者偏差"
     ]
   }
 ]
