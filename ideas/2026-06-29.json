@@ -1,17 +1,17 @@
 [
   {
-    "title": "横截面上影拒绝相对轮动",
-    "hypothesis": "在同一1h bar内，上影线占比反映卖压对日内高点的拒绝强度；横截面上该比值偏高的标的，相对 peers 更可能遭遇短期获利了结与追高风险，下一根 bar 相对收益偏弱，而低占比者延续性更好。",
+    "title": "横截面空洞振幅轮动",
+    "hypothesis": "在1h K线上，若某标的区间振幅（high-low）相对其近期 quote_volume 异常放大，而横截面 peers 同期并未出现同等幅度的成交确认，则该波动更可能来自流动性稀薄或噪声交易，下一根 bar 相对收益倾向于弱于 universe；反之，振幅扩张伴随 quote_volume 同向放大，代表信息驱动的有效定价，横截面上应获得相对延续溢价。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 upper_shadow_ratio = (high - max(open, close)) / (high - low)，当 high==low 时置 NaN；universe 过滤：同一 open_time 上 quote_volume 不低于截面 20 分位，且 symbol 累计有效 bar 数 >= 168；按 open_time 分组，对 universe 内 upper_shadow_ratio 做横截面 rank 或 z-score 得 factor_cs。",
-    "expected_signal": "横截面：做多低分位（上影拒绝弱、收盘靠近高点），做空高分位（上影拒绝强）；持有期为下一根 1h bar；适用于多币种永续合约相对强弱轮动与多空配对。",
+    "formula_sketch": "对每个 symbol 按 open_time 排序：amp = (high - low) / close；rel_qv = quote_volume / rolling_mean(quote_volume, 24)；raw = amp / (rel_qv + 1e-8)。universe 过滤：quote_volume 不低于该 open_time 截面 20 分位；symbol 历史有效 bar 数 >= 48；剔除 open/high/low/close/quote_volume 任一缺失行。在每个 open_time 上对 universe 内 raw 做横截面 rank 或 z-score，得 factor_cs。可选 winsorize 截面 1%/99% 后再标准化。",
+    "expected_signal": "横截面：在每个 open_time 做多 factor_cs 低分位（振幅扩张有 quote_volume 确认、空洞振幅低），做空高分位（空洞振幅高、价量背离）；等权或 quote_volume 加权多空；持有期为下一根 1h bar（open_time 至下一 open_time）；适用于多币种永续合约 1h 相对强弱轮动与短期截面 alpha。",
     "risks": [
-      "横截面流动性分层导致低 quote_volume 标的不可交易或滑点放大",
-      "high==low 的 flat bar 在部分 symbol 上缺失造成截面样本偏误",
-      "极端单边拉升行情中上影拒绝因子截面区分度下降",
-      "新上市 symbol 历史 bar 不足导致冷启动与幸存者偏差"
+      "低 quote_volume symbol 分母 rel_qv 不稳定，横截面排序易受流动性分层扭曲",
+      "新上市 symbol 24h 滚动均值冷启动导致 factor 噪声大",
+      "极端行情下全 universe 同步放量，截面区分度塌陷",
+      "1h 面板存在 symbol 上下架幸存者偏差，历史回测高估可交易 universe"
     ]
   }
 ]
