@@ -14,6 +14,7 @@ from typing import Any
 PLACEHOLDER_USERNAME = "PLACEHOLDER_USERNAME"
 DATASET_SLUG_MARKER = "# __DATASET_SLUG_DEFAULT__"
 KERNEL_INPUTS_MARKER = "# __KERNEL_INPUTS_INLINE__"
+EXPLORE_DATASET_MARKER = "# __EXPLORE_DATASET_EMBEDDED__"
 
 
 def run_command(
@@ -163,6 +164,32 @@ def remove_kernel_inputs_inline(py_path: Path) -> None:
     if not match:
         return
     replacement = f"KERNEL_INPUTS_INLINE = None  {KERNEL_INPUTS_MARKER}"
+    text = text[: match.start()] + replacement + text[match.end() :]
+    py_path.write_text(text, encoding="utf-8")
+
+
+def inject_explore_dataset_embedded(py_path: Path, source_path: Path) -> None:
+    """将 explore_dataset.py 源码嵌入 generate_factor_ideas.py。"""
+    import re
+
+    source = source_path.read_text(encoding="utf-8")
+    replacement = f"EXPLORE_DATASET_EMBEDDED = {json.dumps(source)}  {EXPLORE_DATASET_MARKER}"
+    text = py_path.read_text(encoding="utf-8")
+    match = re.search(r"^EXPLORE_DATASET_EMBEDDED = .*$", text, flags=re.MULTILINE)
+    if not match:
+        raise RuntimeError(f"无法在 {py_path} 中找到 EXPLORE_DATASET_EMBEDDED 注入点")
+    text = text[: match.start()] + replacement + text[match.end() :]
+    py_path.write_text(text, encoding="utf-8")
+
+
+def remove_explore_dataset_embedded(py_path: Path) -> None:
+    import re
+
+    text = py_path.read_text(encoding="utf-8")
+    match = re.search(r"^EXPLORE_DATASET_EMBEDDED = .*$", text, flags=re.MULTILINE)
+    if not match:
+        return
+    replacement = f"EXPLORE_DATASET_EMBEDDED = None  {EXPLORE_DATASET_MARKER}"
     text = text[: match.start()] + replacement + text[match.end() :]
     py_path.write_text(text, encoding="utf-8")
 

@@ -24,10 +24,12 @@ from scripts.kaggle_kernel import (  # noqa: E402
     backup_file,
     download_kernel_output,
     inject_dataset_slug_default,
+    inject_explore_dataset_embedded,
     inject_kernel_inputs_inline,
     kernel_ref,
     push_kernel,
     remove_dataset_slug_inject,
+    remove_explore_dataset_embedded,
     remove_kernel_inputs_inline,
     replace_placeholder_username,
     resolve_kaggle_username,
@@ -291,6 +293,14 @@ def run_kernel_once(
         )
         if cursor_auth:
             inputs_payload["cursor_auth_json"] = cursor_auth
+        explore_src = repo / "explorations" / "explore-dataset" / "explore_dataset.py"
+        inputs_payload["explore_prompt_template"] = (
+            repo / "scripts" / "prompts" / "explore-dataset.txt"
+        ).read_text(encoding="utf-8")
+        inputs_payload["idea_prompt_template"] = (
+            repo / "scripts" / "prompts" / "generate-ideas-kaggle.txt"
+        ).read_text(encoding="utf-8")
+        inject_explore_dataset_embedded(main_py, explore_src)
         inject_kernel_inputs_inline(main_py, inputs_payload)
         update_kernel_metadata(
             metadata_path,
@@ -314,6 +324,7 @@ def run_kernel_once(
         restore_file(metadata_path, metadata_backup)
         restore_file(main_py, main_backup)
         remove_kernel_inputs_inline(main_py)
+        remove_explore_dataset_embedded(main_py)
         if explore_backup:
             restore_file(explore_py, explore_backup)
         else:

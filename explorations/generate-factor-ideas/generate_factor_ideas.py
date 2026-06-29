@@ -106,8 +106,22 @@ def format_titles(titles: list[str]) -> str:
     return "\n".join(f"- {title}" for title in titles) + "\n"
 
 
+EXPLORE_DATASET_EMBEDDED = None  # __EXPLORE_DATASET_EMBEDDED__
+
+
+def ensure_explore_dataset_module() -> None:
+    """Kaggle 仅上传主脚本时，从嵌入源码写出 explore_dataset.py。"""
+    target = SCRIPT_DIR / "explore_dataset.py"
+    if target.is_file():
+        return
+    if not EXPLORE_DATASET_EMBEDDED:
+        raise RuntimeError("缺少 explore_dataset.py 且未嵌入 EXPLORE_DATASET_EMBEDDED")
+    target.write_text(EXPLORE_DATASET_EMBEDDED, encoding="utf-8")
+
+
 def run_exploration(slug: str) -> int:
     os.environ["DATASET_SLUG"] = slug
+    ensure_explore_dataset_module()
     sys.path.insert(0, str(SCRIPT_DIR))
     import explore_dataset  # noqa: WPS433
 
@@ -235,6 +249,15 @@ def main() -> int:
     max_ideas = int(inputs.get("max_ideas", 3))
     existing_titles: list[str] = list(inputs.get("existing_titles") or [])
 
+    def load_prompt(name: str, key: str) -> str:
+        inline = inputs.get(key)
+        if isinstance(inline, str) and inline.strip():
+            return inline
+        path = SCRIPT_DIR / "prompts" / name
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+        raise FileNotFoundError(f"缺少 prompt: {key} / {path}")
+
     WORKING.mkdir(parents=True, exist_ok=True)
 
     if mode == "generate_only":
@@ -258,8 +281,8 @@ def main() -> int:
         return 1
 
     explore_template_path = SCRIPT_DIR / "prompts" / "explore-dataset.txt"
-    if explore_template_path.is_file() and mode != "generate_only":
-        explore_template = explore_template_path.read_text(encoding="utf-8")
+    if (inputs.get("explore_prompt_template") or explore_template_path.is_file()) and mode != "generate_only":
+        explore_template = load_prompt("explore-dataset.txt", "explore_prompt_template")
         explore_prompt = fill_template(
             explore_template,
             {
@@ -277,13 +300,15 @@ def main() -> int:
             narrative = cached_narrative.read_text(encoding="utf-8")
 
     idea_template_path = SCRIPT_DIR / "prompts" / "generate-ideas-kaggle.txt"
-    if not idea_template_path.is_file():
-        print(f"错误: 缺少 prompt 模板 {idea_template_path}", file=sys.stderr)
+    try:
+        idea_template = load_prompt("generate-ideas-kaggle.txt", "idea_prompt_template")
+    except FileNotFoundError as exc:
+        print(f"错误: {exc}", file=sys.stderr)
         return 1
 
     idea_schema = inputs.get("idea_schema") or {}
     idea_prompt = fill_template(
-        idea_template_path.read_text(encoding="utf-8"),
+        idea_template,
         {
             "{{IDEA_SCHEMA}}": json.dumps(idea_schema, ensure_ascii=False, indent=2),
             "{{MAX_IDEAS}}": str(max_ideas),
