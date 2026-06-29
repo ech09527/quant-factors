@@ -1,0 +1,52 @@
+{
+  "status": "success",
+  "title": "横截面成交量-笔数增速裂口轮动",
+  "title_hash": "da9323145dcaf9dc0956e3e887d1a5fea1a1c77a5c17280a0ad283196d568466",
+  "formula_hash": "81acd2a4f0f44e2cbd91f9d261abce3870520b2aeb439d13931c21f6489d376d",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T14:49:44.013235+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "LN((volume + 1e-8) / (LAG(volume, 1) OVER w + 1e-8)) - LN((count + 1e-8) / (LAG(count, 1) OVER w + 1e-8))",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "count",
+        "quote_volume"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.0010851831019975603,
+    "ic_ir": 0.013450051674999354,
+    "mean_rank_ic": -0.0009322535854290248,
+    "rank_ic_ir": -0.011209059748273489,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.5041938178780284
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
