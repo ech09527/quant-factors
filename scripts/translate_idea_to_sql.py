@@ -14,9 +14,11 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts.run_local_factor_evaluation import run_local_evaluation
 from scripts.validate_sql import validate_factor_sql
 
 CURSOR_TIMEOUT = int(os.environ.get("CURSOR_TIMEOUT_SECONDS", "600"))
+MAX_TRANSLATION_ATTEMPTS = int(os.environ.get("TRANSLATION_MAX_ATTEMPTS", "3"))
 
 
 def repo_root() -> Path:
@@ -57,32 +59,48 @@ def extract_json_object(text: str) -> dict[str, Any]:
     return json.loads(match.group(0))
 
 
-def build_prompt(idea: dict[str, Any], schema: dict[str, Any]) -> str:
+def build_prompt(
+    idea: dict[str, Any],
+    schema: dict[str, Any],
+    *,
+    validation_feedback: str = "",
+) -> str:
     template = (
         repo_root() / "scripts" / "prompts" / "translate-idea-to-sql.txt"
     ).read_text(encoding="utf-8")
-    return "\n".join(
-        [
-            template,
-            "",
-            "## factor-sql-schema.json",
-            json.dumps(schema, ensure_ascii=False, indent=2),
-            "",
-            "## 因子想法",
-            json.dumps(
-                {
-                    "title": idea["title"],
-                    "hypothesis": idea["hypothesis"],
-                    "formula_sketch": idea["formula_sketch"],
-                    "expected_signal": idea["expected_signal"],
-                    "evaluation_type_hint": idea.get("evaluation_type_hint"),
-                    "data_sources": idea["data_sources"],
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-        ]
-    )
+    parts = [
+        template,
+        "",
+        "## factor-sql-schema.json",
+        json.dumps(schema, ensure_ascii=False, indent=2),
+        "",
+        "## 因子想法",
+        json.dumps(
+            {
+                "title": idea["title"],
+                "hypothesis": idea["hypothesis"],
+                "formula_sketch": idea["formula_sketch"],
+                "expected_signal": idea["expected_signal"],
+                "evaluation_type_hint": idea.get("evaluation_type_hint"),
+                "data_sources": idea["data_sources"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    ]
+    if validation_feedback:
+        parts.extend(
+            [
+                "",
+                "## 上次校验/执行失败（必须修正 signal_sql）",
+                validation_feedback,
+                "",
+                "修正后须能通过：",
+                "1. `python scripts/validate_sql.py <factor_sql.json>`",
+                "2. `python scripts/run_local_factor_evaluation.py --idea <idea.json> --factor-sql <factor_sql.json>`",
+            ]
+        )
+    return "\n".join(parts)
 
 
 def run_cursor(prompt: str) -> str:
@@ -111,11 +129,15 @@ def translate_idea(
     *,
     use_cursor: bool = True,
     factor_sql_override: Path | None = None,
+    with_local_eval: bool = False,
+    sample_start: str = "2023-01-01",
 ) -> dict[str, Any]:
     if factor_sql_override is not None:
         with factor_sql_override.open(encoding="utf-8") as handle:
             factor_sql = json.load(handle)
         validate_factor_sql(factor_sql)
+        if with_local_eval:
+            run_local_evaluation(idea, factor_sql, sample_start=sample_start)
         return factor_sql
 
     if not use_cursor:
@@ -123,10 +145,24 @@ def translate_idea(
 
     schema_path = repo_root() / "schemas" / "factor-sql-schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    raw = run_cursor(build_prompt(idea, schema))
-    factor_sql = extract_json_object(raw)
-    validate_factor_sql(factor_sql)
-    return factor_sql
+    last_error: Exception | None = None
+    feedback = ""
+    for attempt in range(1, MAX_TRANSLATION_ATTEMPTS + 1):
+        try:
+            raw = run_cursor(build_prompt(idea, schema, validation_feedback=feedback))
+            factor_sql = extract_json_object(raw)
+            validate_factor_sql(factor_sql)
+            if with_local_eval:
+                run_local_evaluation(idea, factor_sql, sample_start=sample_start)
+            return factor_sql
+        except (ValueError, json.JSONDecodeError) as exc:
+            last_error = exc
+            feedback = str(exc)
+            print(
+                f"翻译校验失败 ({attempt}/{MAX_TRANSLATION_ATTEMPTS}): {exc}",
+                file=sys.stderr,
+            )
+    raise ValueError(f"多次翻译校验失败: {last_error}")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -143,6 +179,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="与 --factor-sql 配合；无 Cursor 时用于本地测试",
     )
+    parser.add_argument(
+        "--with-local-eval",
+        action="store_true",
+        help="翻译后在 Runner 上用合成数据执行本地评估，失败时将报错反馈给 Cursor 重试",
+    )
+    parser.add_argument(
+        "--sample-start",
+        default=os.environ.get("SAMPLE_START", "2023-01-01"),
+        help="本地评估样本起始日",
+    )
     return parser.parse_args(argv)
 
 
@@ -156,6 +202,8 @@ def main(argv: list[str] | None = None) -> int:
             idea,
             use_cursor=not args.skip_cursor,
             factor_sql_override=args.factor_sql,
+            with_local_eval=args.with_local_eval,
+            sample_start=args.sample_start,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

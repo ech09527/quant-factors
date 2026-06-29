@@ -84,18 +84,19 @@ jobs:
           CURSOR_AUTH_JSON: ${{ secrets.CURSOR_AUTH_JSON }}
         run: bash scripts/setup_cursor_auth.sh
 
-      - name: Translate idea to factor SQL
+      - name: Translate and evaluate factor SQL with Cursor
         env:
           CURSOR_TIMEOUT_SECONDS: "900"
+          TRANSLATION_MAX_ATTEMPTS: "5"
+          SAMPLE_START: ${{ inputs.sample_start || '2023-01-01' }}
         run: |
           python scripts/translate_idea_to_sql.py \
             --idea /tmp/idea.json \
-            -o /tmp/factor_sql.json
+            -o /tmp/factor_sql.json \
+            --with-local-eval \
+            --sample-start "${SAMPLE_START}"
 
-      - name: Validate factor SQL
-        run: python scripts/validate_sql.py /tmp/factor_sql.json
-
-      - name: Run Kaggle factor evaluation
+      - name: Run Kaggle factor evaluation (full data)
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}

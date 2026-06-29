@@ -54,7 +54,8 @@ jobs:
             echo "无待评估想法"
             exit 0
           fi
-          jq -c '.pending[]' /tmp/pending.json | while read -r idea; do
+          FAILED=0
+          while IFS= read -r idea; do
             TITLE_HASH=$(echo "$idea" | jq -r '.title_hash')
             TITLE=$(echo "$idea" | jq -r '.title')
             echo "触发评估: $TITLE ($TITLE_HASH)"
@@ -63,5 +64,14 @@ jobs:
               -f idea_title="$TITLE"
             sleep 10
             RUN_ID=$(gh run list --workflow=factor-evaluation.yml --limit 1 --json databaseId -q '.[0].databaseId')
-            gh run watch "$RUN_ID" --exit-status
-          done
+            if gh run watch "$RUN_ID" --exit-status; then
+              echo "评估成功: $TITLE ($TITLE_HASH)"
+            else
+              echo "::warning::评估失败: $TITLE ($TITLE_HASH)"
+              FAILED=$((FAILED + 1))
+            fi
+          done < <(jq -c '.pending[]' /tmp/pending.json)
+          if [ "$FAILED" -gt 0 ]; then
+            echo "::error::$FAILED 条想法评估失败"
+            exit 1
+          fi

@@ -141,6 +141,65 @@ def parse_sample_start_ms(sample_start: str) -> int:
     return int(dt.timestamp() * 1000)
 
 
+def write_minimal_validation_parquet(
+    path: Path,
+    *,
+    sample_start_ms: int = 1_672_531_200_000,
+    n_symbols: int = 6,
+    n_hours: int = 220,
+) -> None:
+    """写入用于 signal_sql 校验的最小 parquet（覆盖常见 universe 窗口长度）。"""
+    rows: list[dict[str, Any]] = []
+    for s in range(n_symbols):
+        symbol = f"VAL{s:03d}"
+        price = 100.0 + s
+        for t in range(n_hours):
+            qv = 1_000_000.0 + s * 10_000 + t * 100
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "open_time": sample_start_ms + t * 3_600_000,
+                    "open": price,
+                    "high": price * 1.002,
+                    "low": price * 0.998,
+                    "close": price,
+                    "volume": qv * 0.8,
+                    "quote_volume": qv,
+                    "count": 1000.0 + t,
+                    "taker_buy_volume": qv * 0.4,
+                    "taker_buy_quote_volume": qv * 0.4,
+                }
+            )
+            price *= 1.0005
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(path, index=False)
+
+
+def validate_factor_sql_executable(
+    factor_sql: dict[str, Any],
+    *,
+    sample_start: str = "2023-01-01",
+) -> None:
+    """在合成数据上 dry-run panel SQL，提前捕获 DuckDB 绑定/语法错误。"""
+    if factor_sql["evaluation_type"] != "cross_sectional":
+        return
+
+    import tempfile
+
+    sample_start_ms = parse_sample_start_ms(sample_start)
+    with tempfile.TemporaryDirectory() as tmp:
+        parquet_path = Path(tmp) / "validation.parquet"
+        write_minimal_validation_parquet(parquet_path, sample_start_ms=sample_start_ms)
+        try:
+            run_panel_query(
+                factor_sql,
+                data_path=str(parquet_path),
+                sample_start=sample_start,
+            )
+        except duckdb.Error as exc:
+            raise ValueError(f"signal_sql DuckDB 执行校验失败: {exc}") from exc
+
+
 def run_panel_query(
     factor_sql: dict[str, Any],
     *,

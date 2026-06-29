@@ -13,7 +13,11 @@ if __package__ in (None, ""):
 
 import jsonschema
 
-from scripts.evaluate_engine import ALLOWED_COLUMNS, validate_postprocess
+from scripts.evaluate_engine import (
+    ALLOWED_COLUMNS,
+    validate_factor_sql_executable,
+    validate_postprocess,
+)
 
 FORBIDDEN_KEYWORDS = re.compile(
     r"\b(COPY|ATTACH|INSTALL|LOAD|EXPORT|READ_|CREATE|DROP|INSERT|UPDATE|DELETE|"
@@ -148,6 +152,8 @@ def validate_factor_sql(factor_sql: dict[str, Any]) -> None:
     )
     if errors:
         raise ValueError("; ".join(errors))
+
+    validate_factor_sql_executable(factor_sql)
 
 
 def main(argv: list[str] | None = None) -> int:

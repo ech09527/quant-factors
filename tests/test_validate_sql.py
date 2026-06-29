@@ -18,12 +18,7 @@ VALID_FACTOR_SQL = {
     "dialect": "duckdb-factor-v1",
     "evaluation_type": "cross_sectional",
     "data_source": "yhydev97/quant-data",
-    "signal_sql": (
-        "(close / LAG(close, 24) OVER w - 1) / "
-        "(STDDEV_SAMP(LN(close / LAG(close, 1) OVER w)) "
-        "OVER (PARTITION BY symbol ORDER BY open_time "
-        "ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8)"
-    ),
+    "signal_sql": "ret_24h / (vol_24h + 1e-8)",
     "postprocess": "cs_rank",
     "universe": {
         "dropna": ["open", "high", "low", "close"],
@@ -50,3 +45,15 @@ def test_allows_nullif_function():
         "ABS(log_ret_1) / NULLIF(quote_volume, 0)"
     )
     validate_factor_sql(factor_sql)
+
+
+def test_rejects_nested_window_functions():
+    bad = dict(VALID_FACTOR_SQL)
+    bad["signal_sql"] = (
+        "CASE WHEN MAX(AVG((high - low) / close) "
+        "OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW)) "
+        "OVER (w ROWS BETWEEN 47 PRECEDING AND CURRENT ROW) > 0 "
+        "THEN 1 ELSE 0 END"
+    )
+    with pytest.raises(ValueError, match="DuckDB 执行校验失败"):
+        validate_factor_sql(bad)
