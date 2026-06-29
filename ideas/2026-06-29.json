@@ -1,18 +1,18 @@
 [
   {
-    "title": "横截面笔均Quote规模-笔数密度错配轮动",
-    "hypothesis": "在1h K线内，若某symbol以较少成交笔数（count）承载了相对更大的单笔Quote规模（quote_volume/count），往往反映大单或机构型主动成交而非散户噪声；这类「少笔大额」结构若在同时间戳横截面上显著高于 peers，短期价格发现可能尚未充分，下一根1h存在相对延续或补涨空间。",
+    "title": "横截面主动买卖成交均价差轮动",
+    "hypothesis": "在同一根1h K线内，主动买入的Quote均价若系统性高于主动卖出的Quote均价，说明买方愿意以溢价成交而卖方更多在相对低价被动出清，反映短周期 informed demand。横截面上，该买卖均价差越大的symbol，下一小时相对收益可能更强。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "对每条1h记录按symbol计算：avg_quote_trade = quote_volume / max(count, 1)；trade_density = count / max(quote_volume, eps)。Universe过滤：quote_volume 高于当日横截面20%分位、count>0、symbol累计bar数≥168（约7天）、剔除 high==low 的零振幅bar。在每个 open_time 分组内：r_size = rank(avg_quote_trade)，r_dense = rank(trade_density)，raw = r_size - r_dense（笔均Quote规模排名减笔数密度排名，值越大表示「少笔大额」越突出）；对 raw 做 winsorize 后计算横截面 z-score 或分位。可选：乘以 sign(close/open-1) 区分同向/逆向错配，或除以 rolling_24h(realized_vol) 做波动调整。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 raw 高分位（笔均Quote规模相对笔数密度更突出的「少笔大额」标的），做空低分位；持有期为下一根1h bar（open-to-open 或 close-to-close 一致即可）；适用于多币种永续合约1h相对强弱轮动与多空配对。",
+    "formula_sketch": "按 symbol 逐 bar 计算：avg_buy_px = taker_buy_quote_volume / max(taker_buy_volume, eps)；avg_sell_px = (quote_volume - taker_buy_quote_volume) / max(volume - taker_buy_volume, eps)；mid = (high + low) / 2；raw = (avg_buy_px - avg_sell_px) / max(mid, eps)。universe 过滤：同一 open_time 上 quote_volume 横截面分位 >= 20%；symbol 累计有效 bar 数 >= 168（约7天）；剔除 taker_buy_volume 或 (volume - taker_buy_volume) 占 volume 比例 < 5% 的 bar。在每个 open_time 上对过滤后 universe 的 raw 做横截面 rank 或 z-score，得 factor_cs。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 factor_cs 高分位（主动买均价显著高于主动卖均价），做空低分位；持有至下一根 1h bar（如 close-to-close）；适用于多币种永续合约 1h 相对强弱轮动。",
     "risks": [
-      "低流动性symbol的 count 与 quote_volume 噪声大，横截面排名易被少数异常bar扭曲",
-      "新上市symbol历史bar不足导致rolling波动与过滤不稳定",
-      "极端行情下全市场同步放量，截面区分度塌缩、因子失效",
-      "quote_volume分层与最小变动价位差异造成不可交易或滑点侵蚀",
-      "幸存者偏差：delisted symbol未纳入universe会高估历史收益"
+      "单边成交占比过高时买卖均价分母过小，横截面排序噪声大",
+      "低 quote_volume symbol 均价估计不稳定，流动性分层导致组合不可交易",
+      "新上市 symbol 有效 bar 不足被过滤，产生 symbol 冷启动偏差",
+      "极端全场同向行情下截面区分度塌陷、因子失效",
+      "universe 随时间变更带来幸存者偏差"
     ]
   }
 ]
