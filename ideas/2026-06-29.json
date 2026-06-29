@@ -1,18 +1,17 @@
 [
   {
-    "title": "横截面主动买入占比加速度轮动",
-    "hypothesis": "在同一 open_time 的市场环境下，主动买入占比的一阶变化（加速度）比静态水平更能捕捉增量 aggressive 资金的边际涌入；横截面上加速度领先的 symbol 相对 universe  peers 在下一根 1h 更可能延续相对强势，因订单流信息在截面维度具有短期领先性。",
+    "title": "横截面开盘缺口修复失败延续轮动",
+    "hypothesis": "在加密货币 UM 永续 1h 面板上，symbol 相对前一根 close 的开盘缺口反映隔夜/跨 bar 信息冲击；若同一 bar 内 close 未能向缺口反方向修复，说明该方向资金共识强于均值回归。横截面上修复失败程度更高的品种，下一根 1h 更可能延续相对强弱而非被同类品种均值拉回。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "1) 按 symbol 分组，计算 taker_buy_ratio = taker_buy_volume / volume；2) 按 symbol 时序计算 accel = taker_buy_ratio - taker_buy_ratio.shift(1)（可选：accel2 = accel - accel.shift(1) 作为二阶加速度）；3) universe 过滤：symbol 累计有效 1h bar 数 >= 168，且 quote_volume 的 24 根滚动中位数位于当日截面 top 70%；4) 在每个 open_time 上对过滤后 universe 内各 symbol 的 accel 做横截面 rank 或 z-score，因子值 F = rank_pct(accel)；5) 仅用 t 时刻及之前数据，shift 严格在 symbol 内完成。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 F 高分位（如 top quintile）、做空 F 低分位（bottom quintile）；持有期为下一根 1h bar（t+1 的 open 至 close）；适用于 Binance UM 多币种（约 523 symbol）相对强弱轮动与多空配对。",
+    "formula_sketch": "1) Universe 过滤：每个 open_time 仅保留 quote_volume 截面 ≥20 分位且 symbol 累计 bar 数 ≥168 的标的。2) 按 symbol 时序计算：gap_t = open_t / close_{t-1} - 1；intrabar_ret_t = (close_t - open_t) / open_t；repair_fail_t = sign(gap_t) * gap_t - sign(gap_t) * intrabar_ret_t（缺口方向上未被 bar 内走势抵消的部分，越大表示修复越失败、延续越强）。3) 在每个 open_time 上对 universe 内 repair_fail_t 做横截面 winsorize(1%,99%) 后 rank 或 z-score，得到 cs_repair_fail_t。4) 组合信号：做多 cs_repair_fail_t 高分位、做空低分位。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较 repair_fail，做多高分位（开盘缺口方向延续、bar 内修复失败），做空低分位（缺口被 bar 内有效修复、相对弱势）；持有期至下一根 1h bar（open_{t+1} 至 close_{t+1}）；适用于 523 个 UM 永续品种的多空轮动与相对强弱配置。",
     "risks": [
-      "低 quote_volume symbol 的 taker_buy_ratio 估计噪声大，截面排序易受流动性分层干扰",
-      "新上市 symbol 冷启动期历史 bar 不足导致 accel 不稳定",
-      "全市场极端单边行情下截面分化减弱、因子失效",
-      "幸存者偏差：universe 随时间变化需用当时可交易 symbol 集合",
-      "shift 若未严格按 symbol 分组可能引入 lookahead 或 symbol 串扰"
+      "极端单边行情中多数 symbol 同步出现大缺口且同向延续，横截面分化不足导致因子失效",
+      "新上市或历史 bar 不足的 symbol 无法稳定计算 gap，冷启动期噪声污染截面排序",
+      "低 quote_volume 分层标的流动性差，高分位组合实际不可交易且滑点显著",
+      "universe 构成随时间变化存在幸存者偏差，早期缺失品种影响回测可比性"
     ]
   }
 ]
