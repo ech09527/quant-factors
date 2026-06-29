@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "横截面开盘缺口修复失败延续轮动",
+  "title_hash": "a2282b211f0613c46395ca77087c075d36da8311a5c44f1520ba574525e526a2",
+  "formula_hash": "622319159eff1adbad39676db3f3e3c880915f653c9edbefea3cc0108c17f81e",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T12:56:15.055596+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "ABS(open / NULLIF(LAG(close, 1) OVER w, 0) - 1) - SIGN(open / NULLIF(LAG(close, 1) OVER w, 0) - 1) * ((close - open) / NULLIF(open, 0))",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.00107415080100418,
+    "ic_ir": 0.011247632597363822,
+    "mean_rank_ic": 0.002482993692371577,
+    "rank_ic_ir": 0.028024656847363657,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.5013868003341687
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
