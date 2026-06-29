@@ -1,0 +1,19 @@
+[
+  {
+    "title": "振幅压缩突破方向因子",
+    "hypothesis": "Binance UM 1h K 线上波动率具有聚类特征：当某 symbol 过去若干小时的 intrabar 振幅 (high-low)/close 处于 symbol 内历史低位（波动压缩）后，若当前 bar 振幅突然放大且收盘方向明确（close 相对 open），往往对应信息冲击释放与流动性重新定价，短期价格发现倾向于沿突破方向延续。",
+    "data_sources": [
+      "yhydev97/quant-data"
+    ],
+    "formula_sketch": "1) 读取 futures/um/klines/1h.parquet，dropna(subset=['open_time','open','high','low','close'])；按 (symbol, open_time) 排序。\n2) range_pct = (high - low) / close。\n3) 对每个 symbol：range_z = (range_pct - rolling_mean(range_pct, N)) / rolling_std(range_pct, N)，N 如 168（7 天）。\n4) compress = rolling_max(range_z.shift(1), M) < -k，M 如 24，k 如 1.0，表示前 M 小时处于压缩态。\n5) breakout = range_z > z_high（如 1.5）；direction = sign(close - open)。\n6) raw_signal = compress * breakout * direction（无突破时为 0）。\n7) 横截面：每个 open_time 在通过 quote_volume 与上市 bar 数过滤后的 universe 内，对 raw_signal 做分位数 rank 或 z-score，作为因子值。",
+    "expected_signal": "压缩后向上突破（raw_signal > 0）预期未来 4–24h 正收益；做空 raw_signal 最低分位、做多最高分位。适用于 523 个 symbol 的 1h 横截面多空，需按 symbol 内因果 rolling 并 contemporaneous 横截面标准化，持仓周期偏中短（4h–7d）。",
+    "risks": [
+      "约 12.6% 占位 NaN 行若未清洗会污染 rolling 统计",
+      "新上市 symbol（如 0GUSDT）有效 bar 少，rolling 窗口不稳定",
+      "与 close 多周期动量在趋势市可能高度共线",
+      "压缩/突破阈值 N、M、k 存在过拟合风险",
+      "横截面需 quote_volume 流动性过滤，否则低流动性 symbol 振幅噪音大",
+      "全量回测须按时间切分样本外，避免生存偏差夸大 IC"
+    ]
+  }
+]
