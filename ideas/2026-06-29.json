@@ -1,17 +1,18 @@
 [
   {
-    "title": "横截面空洞振幅轮动",
-    "hypothesis": "在1h K线上，若某标的区间振幅（high-low）相对其近期 quote_volume 异常放大，而横截面 peers 同期并未出现同等幅度的成交确认，则该波动更可能来自流动性稀薄或噪声交易，下一根 bar 相对收益倾向于弱于 universe；反之，振幅扩张伴随 quote_volume 同向放大，代表信息驱动的有效定价，横截面上应获得相对延续溢价。",
+    "title": "横截面主动买入占比加速度轮动",
+    "hypothesis": "在同一 open_time 的市场环境下，主动买入占比的一阶变化（加速度）比静态水平更能捕捉增量 aggressive 资金的边际涌入；横截面上加速度领先的 symbol 相对 universe  peers 在下一根 1h 更可能延续相对强势，因订单流信息在截面维度具有短期领先性。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "对每个 symbol 按 open_time 排序：amp = (high - low) / close；rel_qv = quote_volume / rolling_mean(quote_volume, 24)；raw = amp / (rel_qv + 1e-8)。universe 过滤：quote_volume 不低于该 open_time 截面 20 分位；symbol 历史有效 bar 数 >= 48；剔除 open/high/low/close/quote_volume 任一缺失行。在每个 open_time 上对 universe 内 raw 做横截面 rank 或 z-score，得 factor_cs。可选 winsorize 截面 1%/99% 后再标准化。",
-    "expected_signal": "横截面：在每个 open_time 做多 factor_cs 低分位（振幅扩张有 quote_volume 确认、空洞振幅低），做空高分位（空洞振幅高、价量背离）；等权或 quote_volume 加权多空；持有期为下一根 1h bar（open_time 至下一 open_time）；适用于多币种永续合约 1h 相对强弱轮动与短期截面 alpha。",
+    "formula_sketch": "1) 按 symbol 分组，计算 taker_buy_ratio = taker_buy_volume / volume；2) 按 symbol 时序计算 accel = taker_buy_ratio - taker_buy_ratio.shift(1)（可选：accel2 = accel - accel.shift(1) 作为二阶加速度）；3) universe 过滤：symbol 累计有效 1h bar 数 >= 168，且 quote_volume 的 24 根滚动中位数位于当日截面 top 70%；4) 在每个 open_time 上对过滤后 universe 内各 symbol 的 accel 做横截面 rank 或 z-score，因子值 F = rank_pct(accel)；5) 仅用 t 时刻及之前数据，shift 严格在 symbol 内完成。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 F 高分位（如 top quintile）、做空 F 低分位（bottom quintile）；持有期为下一根 1h bar（t+1 的 open 至 close）；适用于 Binance UM 多币种（约 523 symbol）相对强弱轮动与多空配对。",
     "risks": [
-      "低 quote_volume symbol 分母 rel_qv 不稳定，横截面排序易受流动性分层扭曲",
-      "新上市 symbol 24h 滚动均值冷启动导致 factor 噪声大",
-      "极端行情下全 universe 同步放量，截面区分度塌陷",
-      "1h 面板存在 symbol 上下架幸存者偏差，历史回测高估可交易 universe"
+      "低 quote_volume symbol 的 taker_buy_ratio 估计噪声大，截面排序易受流动性分层干扰",
+      "新上市 symbol 冷启动期历史 bar 不足导致 accel 不稳定",
+      "全市场极端单边行情下截面分化减弱、因子失效",
+      "幸存者偏差：universe 随时间变化需用当时可交易 symbol 集合",
+      "shift 若未严格按 symbol 分组可能引入 lookahead 或 symbol 串扰"
     ]
   }
 ]
