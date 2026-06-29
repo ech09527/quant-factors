@@ -52,6 +52,9 @@ def _build_synthetic_parquet(path: Path, *, n_symbols: int = 40, n_hours: int = 
                     "close": price,
                     "volume": qv * 0.8,
                     "quote_volume": qv,
+                    "count": abs(rng.normal(1000, 200)),
+                    "taker_buy_volume": qv * 0.4,
+                    "taker_buy_quote_volume": qv * 0.4,
                 }
             )
     pd.DataFrame(rows).to_parquet(path, index=False)

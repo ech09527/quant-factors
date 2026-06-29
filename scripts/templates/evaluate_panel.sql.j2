@@ -9,8 +9,11 @@ WITH base AS (
     high,
     low,
     close,
+    volume,
     quote_volume,
-    volume
+    count,
+    taker_buy_volume,
+    taker_buy_quote_volume
   FROM read_parquet('{{ data_path }}')
   WHERE open_time >= {{ sample_start_ms }}
 ),
@@ -37,8 +40,11 @@ universe AS (
     high,
     low,
     close,
+    volume,
     quote_volume,
-    volume
+    count,
+    taker_buy_volume,
+    taker_buy_quote_volume
   FROM enriched
   WHERE {{ window_universe_sql }}
 ),
