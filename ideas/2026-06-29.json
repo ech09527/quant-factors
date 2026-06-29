@@ -1,17 +1,18 @@
 [
   {
-    "title": "横截面净主动流单位振幅吸收轮动",
-    "hypothesis": "在同一 1h bar 内，净主动买入（以 quote 计）相对振幅的“吸收效率”反映多空在该价位区间的博弈结果：横截面上净主动流大但振幅偏小的标的，说明主动买盘在 peers 中更高效地承接卖压且价格尚未充分反应；下一根 bar 存在相对延续上涨的概率。反之，净主动卖出伴随极小振幅则预示相对弱势延续。",
+    "title": "横截面成交重心-主动流背离轮动",
+    "hypothesis": "Bar 内成交量加权均价（quote_volume/volume）反映真实成交重心在高低区间的位置；若主动买入占比（taker_buy_volume/volume）显著高于该重心所隐含的多空均衡，说明 aggressive buy 在相对低位或均价下方集中出现，存在知情或机构吸筹后的短周期延续；反之主动流弱于成交重心则暗示隐性派发，下一根 1h 相对走弱。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 逐 bar 计算：net_taker_quote = 2 * taker_buy_quote_volume - quote_volume；mid = (high + low) / 2；range_frac = (high - low) / (mid + 1e-8)；flow_intensity = net_taker_quote / (quote_volume + 1e-8)；absorption = flow_intensity / (range_frac + 1e-8)。universe 过滤：quote_volume 在 open_time 截面不低于 20 分位；symbol 累计有效 bar 数 >= 168；剔除 high <= low 或 quote_volume <= 0。按 open_time 分组，对 universe 内 absorption 做横截面 rank 或 winsorize 后 z-score。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 排序，做多 absorption 高分位（净主动买入相对振幅吸收强），做空低分位（净主动卖出且振幅压缩）；等权或流动性加权多空，持有至下一根 1h bar（open_time 对齐）；适用于多币种永续合约相对强弱轮动。",
+    "formula_sketch": "universe 过滤：quote_volume 截面分位 >= 20%，且 symbol 累计有效 1h bar 数 >= 168。按 symbol 计算：avg_px = quote_volume / volume；range_pos = (avg_px - low) / (high - low + 1e-8)；taker_imb = taker_buy_volume / volume - 0.5；divergence = taker_imb - (range_pos - 0.5)。可选对 divergence 做 3 根 1h EMA 平滑。按 open_time 分组，对 universe 内各 symbol 的 divergence 做横截面 rank 或 z-score，得到 factor_cs。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 排序，做多 factor_cs 高分位（主动流强于成交重心隐含方向），做空低分位；持有期为下一根 1h bar（open_{t+1} 至 close_{t+1} 收益）；适用于多币种永续合约相对强弱轮动与多空配对。",
     "risks": [
-      "低 quote_volume symbol 的 range_frac 不稳定，横截面分位易受流动性分层扭曲",
-      "新上市 symbol 历史 bar 不足导致 absorption 估计噪声大",
-      "极端行情下全市场同步放大振幅，截面 rank 区分度塌陷",
-      "taker_buy_quote_volume 与 quote_volume 口径不一致时可能引入幸存者偏差与不可交易标的"
+      "低 quote_volume 标的 avg_px 噪声大，横截面排序易受流动性分层扭曲",
+      "新上市 symbol 历史 bar 不足导致 range_pos 与 taker_imb 估计不稳定",
+      "全市场极端共振行情下截面分化 collapse、因子区分度下降",
+      "taker 字段为聚合近似，无法区分 maker/taker 微观结构变化",
+      "同 bar 内 signal 与执行时点需严格对齐至 bar 收盘，避免 lookahead"
     ]
   }
 ]
