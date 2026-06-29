@@ -250,12 +250,22 @@ def evaluate_factor_sql(
 
 def resolve_kaggle_data_path(dataset_slug: str, target_file: str) -> str:
     slug_dir = dataset_slug.replace("/", "-")
+    slug_path = dataset_slug.strip("/")
     candidates = [
         f"/kaggle/input/{slug_dir}/{target_file}",
+        f"/kaggle/input/datasets/{slug_path}/{target_file}",
         f"/kaggle/input/datasets/{target_file}",
         f"/kaggle/input/{slug_dir}/{dataset_slug}/{target_file}",
     ]
     for path in candidates:
         if Path(path).is_file():
             return path
+
+    input_root = Path("/kaggle/input")
+    if input_root.is_dir():
+        name = Path(target_file).name
+        for path in sorted(input_root.rglob(name)):
+            if path.is_file():
+                return str(path)
+
     return candidates[0]
