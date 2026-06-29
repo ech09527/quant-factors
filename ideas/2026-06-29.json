@@ -1,19 +1,47 @@
 [
   {
-    "title": "振幅压缩突破方向因子",
-    "hypothesis": "Binance UM 1h K 线上波动率具有聚类特征：当某 symbol 过去若干小时的 intrabar 振幅 (high-low)/close 处于 symbol 内历史低位（波动压缩）后，若当前 bar 振幅突然放大且收盘方向明确（close 相对 open），往往对应信息冲击释放与流动性重新定价，短期价格发现倾向于沿突破方向延续。",
+    "title": "Bar内CLV多周期累积延续",
+    "hypothesis": "收盘在小时K线区间内的相对位置（CLV）反映该bar内多空博弈结果；若多个连续bar的CLV偏高，说明买方持续掌控日内定价权，短周期价格延续上涨的概率更高。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "1) 读取 futures/um/klines/1h.parquet，dropna(subset=['open_time','open','high','low','close'])；按 (symbol, open_time) 排序。\n2) range_pct = (high - low) / close。\n3) 对每个 symbol：range_z = (range_pct - rolling_mean(range_pct, N)) / rolling_std(range_pct, N)，N 如 168（7 天）。\n4) compress = rolling_max(range_z.shift(1), M) < -k，M 如 24，k 如 1.0，表示前 M 小时处于压缩态。\n5) breakout = range_z > z_high（如 1.5）；direction = sign(close - open)。\n6) raw_signal = compress * breakout * direction（无突破时为 0）。\n7) 横截面：每个 open_time 在通过 quote_volume 与上市 bar 数过滤后的 universe 内，对 raw_signal 做分位数 rank 或 z-score，作为因子值。",
-    "expected_signal": "压缩后向上突破（raw_signal > 0）预期未来 4–24h 正收益；做空 raw_signal 最低分位、做多最高分位。适用于 523 个 symbol 的 1h 横截面多空，需按 symbol 内因果 rolling 并 contemporaneous 横截面标准化，持仓周期偏中短（4h–7d）。",
+    "formula_sketch": "对每个(symbol, open_time)：CLV = (close - low) / (high - low + eps)；在1h面板上按symbol对CLV做滚动窗口（如6h、24h）求均值或求和得 CLV_cum；横截面对 CLV_cum 排序，可选对 quote_volume 滚动均值设流动性门槛后中性化。",
+    "expected_signal": "横截面做多 CLV_cum 较高合约、做空较低合约；适用于1h频率短中期延续策略，建议配合流动性过滤与上市时长分层。",
     "risks": [
-      "约 12.6% 占位 NaN 行若未清洗会污染 rolling 统计",
-      "新上市 symbol（如 0GUSDT）有效 bar 少，rolling 窗口不稳定",
-      "与 close 多周期动量在趋势市可能高度共线",
-      "压缩/突破阈值 N、M、k 存在过拟合风险",
-      "横截面需 quote_volume 流动性过滤，否则低流动性 symbol 振幅噪音大",
-      "全量回测须按时间切分样本外，避免生存偏差夸大 IC"
+      "high-low 接近0时CLV不稳定，需加eps或剔除极窄bar",
+      "与纯价格动量因子相关性高，需检验增量IC",
+      "新上市合约历史窗口不足导致因子缺失或噪声大",
+      "1h聚合平滑了日内博弈细节，信号衰减较快"
+    ]
+  },
+  {
+    "title": "典型价VWAP偏离回归",
+    "hypothesis": "bar内典型成交价 quote_volume/volume 可近似VWAP；当 close 显著高于该典型价时，说明收盘价相对成交重心过度延伸，存在向成交均价回归的压力，反之亦然。",
+    "data_sources": [
+      "yhydev97/quant-data"
+    ],
+    "formula_sketch": "vwap_bar = quote_volume / (volume + eps)；dev = (close - vwap_bar) / (vwap_bar + eps)；可对dev取当期值或过去N根（如12h、24h）滚动均值/加权均值；横截面按 dev 降序排列（高偏离预期回落）。",
+    "expected_signal": "横截面做空 dev 偏高合约、做多 dev 偏低合约，预期为短周期均值回归信号；低流动性合约需剔除以降低报价噪声。",
+    "risks": [
+      "volume 极低时 vwap_bar 估计噪声大",
+      "强趋势行情中均值回归假设失效，需分regime检验",
+      "1000倍计价合约应统一使用 quote_volume/volume 比值而非 volume 横截面比较",
+      "缺失bar或OHLC空值行需删除而非填充"
+    ]
+  },
+  {
+    "title": "笔数激增价平吸筹",
+    "hypothesis": "当 count 相对自身历史显著放大而 close 收益率接近零时，可能反映大量小额拆单或隐蔽换手，主力在窄价区累积/派发；后续突破方向可能沿累积方向展开。",
+    "data_sources": [
+      "yhydev97/quant-data"
+    ],
+    "formula_sketch": "ret_1h = close / lag(close,1) - 1；count_z = (count - rolling_mean(count,N)) / (rolling_std(count,N) + eps)；price_flat = 1 if abs(ret_1h) < q20(|ret_1h|) else 0；factor = count_z * price_flat * sign(taker_buy_volume/volume - 0.5)，N 可取24h或72h；横截面排序。",
+    "expected_signal": "横截面做多 factor 较高合约（笔数异常放大、价格横盘且主动买入占优）；适用于1h中低频、流动性尚可的合约池。",
+    "risks": [
+      "1h频率下 count 信息已部分平滑，与 tick 级吸筹信号不等价",
+      "横盘阈值分位数选择敏感，存在过拟合风险",
+      "meme币 count 暴增可能仅为散户涌入而非有效吸筹",
+      "需 point-in-time universe 避免新币幸存者偏差"
     ]
   }
 ]
