@@ -172,7 +172,13 @@ def write_minimal_validation_parquet(
             )
             price *= 1.0005
     path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_parquet(path, index=False)
+    df = pd.DataFrame(rows)
+    con = duckdb.connect()
+    try:
+        con.register("_validation_df", df)
+        con.execute(f"COPY _validation_df TO '{path.as_posix()}' (FORMAT PARQUET)")
+    finally:
+        con.close()
 
 
 def validate_factor_sql_executable(
