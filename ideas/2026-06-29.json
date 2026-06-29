@@ -1,17 +1,18 @@
 [
   {
-    "title": "横截面被动Quote占比-价格推进效率错配轮动",
-    "hypothesis": "同等 Bar 内价格推进效率下，被动成交 Quote 占比（(quote_volume - taker_buy_quote_volume)/quote_volume）显著偏高的 symbol，说明价格变动更多依赖挂单被动成交而非主动扫单，信息含量与延续性通常弱于主动推进标的；在 open_time 截面上相对排序可捕捉多币种间「流-价效率错配」的短期修正或反转。",
+    "title": "横截面开盘锚位-净主动Quote流背离轮动",
+    "hypothesis": "在1h多标的面板中，当某symbol开盘价位于自身bar振幅上端（open_anchor高）但净主动Quote流（taker_buy_quote_volume减taker_sell_quote_volume）在universe内偏负，说明高位起点与主动订单流方向不一致，存在虚高开盘后的兑现压力；反之低位开盘伴随净主动Quote买入占优，更可能延续相对强势。横截面排序可捕捉这种「价格锚点-流方向」错配的相对收益差。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 在 1h bar 上计算：passive_quote_ratio = (quote_volume - taker_buy_quote_volume) / quote_volume；price_efficiency = abs(close - open) / (high - low + 1e-8)；raw = passive_quote_ratio / (price_efficiency + 1e-8)。universe 过滤：quote_volume 截面分位 >= 20%、count > 0、symbol 历史 bar 数 >= 168。按 open_time 分组，对 raw 做组内横截面 rank 或 z-score 得 factor_cs。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 排序，做多低分位（被动 Quote 占比相对低、单位价格推进效率更高，主动推进更强），做空高分位；持有期为下一根 1h close；适用于多币种永续相对强弱轮动。",
+    "formula_sketch": "1) 按symbol逐bar计算：open_anchor = (open - low) / (high - low + eps)；taker_sell_quote_volume = quote_volume - taker_buy_quote_volume；net_taker_quote = taker_buy_quote_volume - taker_sell_quote_volume；net_q_ratio = net_taker_quote / (quote_volume + eps)。2) 单标的背离度：div = open_anchor - 0.5 - 0.5 * net_q_ratio（或对 open_anchor、net_q_ratio 先做symbol内24h rolling z-score再组合）。3) Universe过滤：quote_volume >= 截面20%分位；symbol累计bar数 >= 168；剔除 (high-low)/close < 1e-4 的近似零振幅bar。4) 按 open_time 分组，对universe内symbol的div做横截面 rank 或 z-score 得 factor。5) 可选：对 factor 做 quote_volume 加权或分层中性化。",
+    "expected_signal": "横截面：做多低分位（低位开盘锚位且净主动Quote买入占优），做空高分位（高位开盘锚位且净主动Quote卖出占优）；信号在 open_time 收盘后生成，持有期为下一根1h（open-to-open或close-to-close）；适用于523个UM永续合约的多币种相对强弱轮动与多空配对。",
     "risks": [
-      "quote_volume 低的 symbol 被动占比估计噪声大，横截面分层后组合不可交易",
-      "新上市 symbol 历史 bar 不足导致 price_efficiency 与 passive 比率冷启动偏误",
-      "极端单边行情下 high≈low 时 price_efficiency 失真，截面 rank 同步失效",
-      "幸存者偏差与 universe 变更使历史回测截面构成与实盘不一致"
+      "quote_volume低的symbol在横截面排序中噪声大且实际不可交易",
+      "新上市symbol历史bar不足导致open_anchor与net_q_ratio估计不稳定",
+      "极端单边行情中全市场同向波动、截面分化减弱导致因子失效",
+      "high-low极窄时open_anchor分母过小产生异常值干扰截面排序",
+      "幸存者偏差：退市或长期停牌symbol未纳入universe"
     ]
   }
 ]
