@@ -1,0 +1,51 @@
+{
+  "status": "success",
+  "title": "单笔均量冲击因子",
+  "title_hash": "8e03abd0c762592821ea19093b00910983bd18f6e5fe1428bb2460a8e8bd1b0f",
+  "formula_hash": "59e112bd2343f2b072ae36ac3acd2dc283ff5a1d254f1e0b8632e14a8a4957d2",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T10:39:40.087976+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6568362
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "((volume / NULLIF(count, 0)) - AVG(volume / NULLIF(count, 0)) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW)) / (STDDEV_SAMP(volume / NULLIF(count, 0)) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8) * SIGN(close / open - 1)",
+    "postprocess": "cs_zscore",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "count"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.000618451818017796,
+    "ic_ir": -0.0068150373005194526,
+    "mean_rank_ic": -0.004458067488799785,
+    "rank_ic_ir": -0.051690465266065605,
+    "n_periods": 29924,
+    "ic_positive_ratio": 0.49762732255046116
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.4766917293233
+  }
+}
