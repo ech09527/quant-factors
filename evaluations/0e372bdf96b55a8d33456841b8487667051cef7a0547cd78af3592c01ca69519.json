@@ -1,0 +1,51 @@
+{
+  "status": "success",
+  "title": "主动买入占比冲击因子",
+  "title_hash": "0e372bdf96b55a8d33456841b8487667051cef7a0547cd78af3592c01ca69519",
+  "formula_hash": "5fff9ea9c6c228ac7969a6b35cebf858bd8169fcf47f5a590f8b2af3abeb0da1",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T10:33:16.981158+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(taker_buy_volume / NULLIF(volume, 0) - AVG(taker_buy_volume / NULLIF(volume, 0)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 23 PRECEDING AND CURRENT ROW)) / NULLIF(STDDEV_SAMP(taker_buy_volume / NULLIF(volume, 0)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 23 PRECEDING AND CURRENT ROW), 0)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "taker_buy_volume"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.006063370533754184,
+    "ic_ir": -0.06895294673530983,
+    "mean_rank_ic": -0.016297326638034147,
+    "rank_ic_ir": -0.17546683188209872,
+    "n_periods": 29924,
+    "ic_positive_ratio": 0.47039165886913514
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
