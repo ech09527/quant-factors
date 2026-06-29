@@ -1,17 +1,17 @@
 [
   {
-    "title": "横截面主动买入均价溢价轮动",
-    "hypothesis": "taker_buy_quote_volume / taker_buy_volume 刻画该 bar 内主动吃单成交均价；若主动买入均价显著高于 close，说明买方在 bar 内愿意以溢价抢筹，反映短期需求强度与信息优势；在 crypto 1h 多币种 universe 中，横截面上主动溢价更高的 symbol 下一 bar 更可能延续相对强势，反之溢价偏低或折价者相对偏弱。",
+    "title": "横截面高收主动卖压吸收轮动",
+    "hypothesis": "在 1h 永续合约面板中，若某 symbol 单根 K 线收盘贴近区间高位（高 CLV），同时主动卖出基量占比（(volume - taker_buy_volume)/volume）在横截面上亦偏高，则反映卖方主动砸盘被低位被动买单承接而非价格崩溃，行为上类似“高收放量换筹”；相对 universe 内其他 symbol，该承接结构更可能于下一根 1h 延续相对强势。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "对每个 symbol、每个 1h bar：taker_buy_avg = taker_buy_quote_volume / max(taker_buy_volume, eps)；premium = (taker_buy_avg - close) / close；可选 3-bar EMA 平滑：premium_ema = EMA(premium, 3)。Universe 过滤：quote_volume 在当 open_time 横截面排名前 80%；symbol 累计有效 bar 数 >= 168；剔除 taker_buy_volume=0 或 count<100 的 bar。在每个 open_time 上对 universe 内 symbol 的 premium_ema 做横截面 rank 或 z-score，得到 cs_premium。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较 cs_premium；做多 cs_premium 高分位（Top 20%）、做空低分位（Bottom 20%），等权或 quote_volume 加权；持有期下一根 1h bar（open_time 至下一 open_time 收益）；适用于多币种永续相对强弱轮动与 1h 频率截面多空。",
+    "formula_sketch": "按 symbol 逐 bar 计算：clv = (close - low) / (high - low + 1e-8)；taker_sell_ratio = (volume - taker_buy_volume) / (volume + 1e-8)；raw = clv * taker_sell_ratio；可选 per symbol 3 根 1h 滚动均值得 signal_raw。Universe 过滤：quote_volume 不低于当日 open_time 横截面中位数，且 symbol 累计 bar 数 >= 168（约 7 天）。在每个 open_time 对过滤后 universe 做横截面 rank_pct(signal_raw) 或 z-score，得因子值 F。",
+    "expected_signal": "横截面：做多 F 高分位（高 CLV × 高主动卖压吸收组合），做空 F 低分位；持有下一根 1h open→close 收益；适用于 523 个 UM 永续多币种相对强弱轮动与多空配对。",
     "risks": [
-      "低 quote_volume symbol 的 taker_buy 均价噪声大，横截面排序易被流动性分层扭曲",
-      "新上市 symbol 历史 bar 不足导致 premium_ema 冷启动偏误",
-      "全市场同向极端行情下截面分化收窄、因子区分度失效",
-      "taker_buy 字段为聚合统计，无法区分 spoof/撤单后的真实意图，存在过拟合风险"
+      "quote_volume 分层导致低流动性 symbol 的 count/volume 噪声放大、横截面排序不可交易",
+      "新上市 symbol 历史 bar 不足时 CLV 与 taker 结构不稳定（冷启动）",
+      "全市场极端暴跌时高 CLV 吸收信号在截面上集体失效",
+      "幸存者偏差：退市或长期停牌 symbol 未纳入 universe 会高估因子稳定性"
     ]
   }
 ]
