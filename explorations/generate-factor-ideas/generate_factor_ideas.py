@@ -49,27 +49,53 @@ def setup_cursor_auth(inputs: dict[str, Any]) -> bool:
     return True
 
 
-def ensure_cursor_cli() -> str:
-    cursor_bin = Path.home() / ".cursor" / "bin" / "agent"
-    if cursor_bin.is_file():
-        return str(cursor_bin.parent)
+def resolve_agent_binary() -> str:
+    """定位 Cursor agent 可执行文件；缺失时安装 CLI。"""
+    bin_dir = Path.home() / ".cursor" / "bin"
+    candidates = [
+        bin_dir / "agent",
+        bin_dir / "cursor-agent",
+        Path.home() / ".cursor" / "agent",
+    ]
+
+    def find_agent() -> str | None:
+        for candidate in candidates:
+            if candidate.is_file():
+                return str(candidate)
+        cursor_root = Path.home() / ".cursor"
+        if cursor_root.is_dir():
+            for path in sorted(cursor_root.rglob("agent")):
+                if path.is_file() and os.access(path, os.X_OK):
+                    return str(path)
+        return None
+
+    found = find_agent()
+    if found:
+        return found
 
     print("安装 Cursor CLI...")
     subprocess.run(
         ["bash", "-c", "curl -fsSL https://cursor.com/install | bash"],
         check=True,
     )
-    bin_dir = str(Path.home() / ".cursor" / "bin")
     os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
-    return bin_dir
+
+    found = find_agent()
+    if found:
+        return found
+
+    if bin_dir.is_dir():
+        listing = ", ".join(sorted(p.name for p in bin_dir.iterdir()))
+        print(f"警告: ~/.cursor/bin 内容: {listing}", file=sys.stderr)
+    raise RuntimeError("Cursor agent 安装后未找到可执行文件")
 
 
 def run_cursor_agent(prompt: str, output_path: Path) -> str:
-    ensure_cursor_cli()
+    agent_bin = resolve_agent_binary()
     cmd = [
         "timeout",
         str(CURSOR_TIMEOUT),
-        "agent",
+        agent_bin,
         "-p",
         "--force",
         "--output-format",
