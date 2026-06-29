@@ -1,47 +1,17 @@
 [
   {
-    "title": "横截面风险调整动量",
-    "hypothesis": "加密货币多币种市场中，单纯价格动量受高波动小币噪音干扰；经过去24小时实现波动率标准化后的收益更能反映“质量动量”，在同一时点相对更强的标的在下一小时仍具延续性。",
+    "title": "横截面波动调整换手异常",
+    "hypothesis": "在同一小时截面上，单位已实现波动对应的报价成交额（quote_volume）越高，往往意味着该 symbol 正在经历相对更强的信息流入或注意力聚集；在永续合约多币种轮动中，横截面相对更高的「波动调整换手」可能预示下一根 1h 的相对超额收益延续，而极低值则反映流动性枯竭或缺乏边际买家。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 在 1h 面板上计算：ret_24h = close / lag(close, 24) - 1；rv_24h = std(log(close/lag(close,1)), 窗口24, min_periods=20)；raw = ret_24h / (rv_24h + eps)。Universe：剔除 open/high/low/close 缺失行；symbol 有效 bar 数 >= 168；当前 bar quote_volume >= 该 open_time 截面 P20。在每个 open_time 上对 raw 做横截面 rank 或 z-score（组内 winsorize 1%/99%）。",
-    "expected_signal": "横截面：做多高分位（风险调整后动量强）、做空低分位；持有期下一根 1h bar（close(t+1)/close(t)-1）；适用于多币种 UM 永续相对强弱轮动组合。",
+    "formula_sketch": "按 symbol 计算：ret_1h = log(close / close.shift(1))；vol_24 = rolling_std(ret_1h, 24)；tv_ratio = quote_volume / (vol_24 + 1e-8)；可选 per-symbol 去均值：tv_z = (tv_ratio - rolling_mean(tv_ratio, 168)) / (rolling_std(tv_ratio, 168) + 1e-8)。Universe 过滤：quote_volume >= 该 open_time 截面中位数 × 0.2，且 symbol 累计有效 1h bar 数 >= 720，剔除 open/high/low/close/quote_volume 任一缺失行。在每个 open_time 上对 universe 内 symbol 的 tv_z（或 tv_ratio）做横截面 rank 或 z-score，得到 [0,1] 分位因子值。",
+    "expected_signal": "横截面：做多高分位（波动调整换手相对更高）、做空低分位；信号在 bar 收盘后生成，持有期为下一根 1h（open_time 对齐）；适用于多币种永续合约相对强弱轮动与多空配对。",
     "risks": [
-      "早期 open_time 截面仅数十个 symbol，分位稳定性差",
-      "小币 rv_24h 估计噪声大，极端行情下截面 rank 失效",
-      "quote_volume 分层导致低流动性端不可交易",
-      "新上市 symbol 冷启动窗口不足时因子缺失"
-    ]
-  },
-  {
-    "title": "横截面Amihud非流动性溢价",
-    "hypothesis": "单位成交额所需的价格冲击（非流动性）在 crypto 截面上存在风险补偿；同一时刻相对更“难交易”的合约，后续小时收益应系统性更高，体现流动性溢价。",
-    "data_sources": [
-      "yhydev97/quant-data"
-    ],
-    "formula_sketch": "按 symbol 逐 bar 计算 amihud_1h = abs(log(close/lag(close,1))) / (quote_volume + eps)；amihud_24h = rolling_mean(amihud_1h, 24, min_periods=20)。Universe：symbol 历史 >= 168 bar；当前 open_time 的 quote_volume 截面 P25 以上；剔除 OHLCV 缺失。在每个 open_time 上对 amihud_24h 做横截面 rank 或 z-score（高值=更非流动）。",
-    "expected_signal": "横截面：做多高分位（非流动性高）、做空低分位（流动性好）；持有期 1h（下一根 bar）；适用于多币种流动性分层轮动，需配合成交额权重 cap。",
-    "risks": [
-      "BTC/ETH 等 mega-cap 与非小币流动性不可比，截面两端受规模主导",
-      "极端放量小时 amihud 骤降造成因子跳变",
-      "幸存者偏差：已下架合约不在库中，高估流动性溢价",
-      "1h 频率换手高，低 quote_volume 分位滑点侵蚀收益"
-    ]
-  },
-  {
-    "title": "单标的量价背离衰竭",
-    "hypothesis": "当单合约价格沿时间轴创新高/新低而 quote_volume 相对自身过去均量萎缩时，趋势缺乏资金确认，短周期内更易出现方向修正或动能衰竭。",
-    "data_sources": [
-      "yhydev97/quant-data"
-    ],
-    "formula_sketch": "按 symbol 时序计算（不使用跨 symbol 比较）：ret_6h = close/lag(close,6)-1；vol_ratio = quote_volume / rolling_mean(quote_volume, 24)；divergence = sign(ret_6h) * (1 - vol_ratio)（涨但缩量为正背离，跌但缩量为负背离，可按方向调整符号使“衰竭”为正值）。可选：仅当 abs(ret_6h) > 自身过去 168h 收益 P80 时触发。信号在 open_time=t 生成，收益标签用 t→t+1 的 close 变化。",
-    "expected_signal": "时序：单 symbol 上 divergence 高时做空该币（上涨缩量）或做多（下跌缩量），持有下一根 1h；可用于单币择时或作为横截面复合信号的时序过滤层，非截面 rank 策略。",
-    "risks": [
-      "lookahead：须确保 vol_ratio 仅用 t 及之前已闭合 bar",
-      "Meme 币 quote_volume 尖刺导致 vol_ratio 失真",
-      "与横截面轮动混用时需逐 symbol 独立回测",
-      "1h 噪声大，背离信号频繁假突破"
+      "quote_volume 分层导致低流动性 symbol 横截面排序噪声大、实际不可交易",
+      "新上市 symbol 的 vol_24 估计不稳定造成冷启动偏误",
+      "全市场极端行情下截面分化 collapse、因子短期失效",
+      "幸存者偏差：退市或长期停盘 symbol 未纳入历史截面"
     ]
   }
 ]
