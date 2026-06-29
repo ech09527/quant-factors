@@ -1,18 +1,17 @@
 [
   {
-    "title": "横截面成交量-笔数增速裂口轮动",
-    "hypothesis": "在1h K线上，成交量相对上一根 bar 的增幅显著高于成交笔数增幅，通常意味着大单/块状成交占比上升而非散户碎片化撮合；这类「量增而笔数未同步放大」的标的更可能反映机构或知情资金的集中介入，横截面上相对其他 symbol 应出现短期价格延续。",
+    "title": "横截面主动Quote流-收益排名错配轮动",
+    "hypothesis": "在同一1h bar内，主动买入Quote占比反映增量资金意愿，而Bar内收益反映价格已兑现幅度。若某symbol的主动流横截面排名显著高于其收益排名，说明资金先行、价格滞后，短期存在延续；反之收益排名超前于主动流排名，则隐含追涨衰竭或虚涨。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "universe 过滤：每个 open_time 保留 quote_volume 高于当日横截面 20% 分位且 symbol 历史 bar 数≥168 的样本；按 symbol 计算 vol_gr = log(volume_t / volume_{t-1}) 与 cnt_gr = log(count_t / count_{t-1})，gap = vol_gr - cnt_gr（可对 vol_gr、cnt_gr 做 1%/99% winsorize）；在每个 open_time 上对 gap 做横截面 rank 或 z-score，得到 xs_gap；信号在 bar t 收盘后生成，用于 bar t+1 交易。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 对 xs_gap 排序，做多高分位（量-笔数增速裂口最大）、做空低分位；持有期下一根 1h bar；适用于多币种永续合约相对强弱轮动与多空配对。",
+    "formula_sketch": "universe过滤：quote_volume > 当日横截面20%分位，且symbol累计bar数 >= 168。按symbol计算 ret_1h = (close - open) / open，flow_q = taker_buy_quote_volume / quote_volume。按 open_time 分组，对组内各symbol分别做横截面 percentile rank 得 rank_flow 与 rank_ret；mismatch = rank_flow - rank_ret；可选对 mismatch 再做组内 z-score 或五分位分层。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 mismatch 高分位（主动Quote流排名显著高于收益排名），做空低分位（收益排名显著高于主动流排名）；持有至下一根 1h bar；适用于523个UM永续合约的多币种相对强弱轮动。",
     "risks": [
-      "横截面流动性分层导致低 quote_volume symbol 滑点大、不可交易",
-      "新上市 symbol 冷启动导致 volume/count 比值不稳定",
-      "全市场同步放量时截面分化减弱、因子失效",
-      "volume 或 count 接近 0 时 log 增速噪声大需 winsorize",
-      "幸存者偏差：退市/下架 symbol 未纳入 universe"
+      "极端单边行情中全市场同步上涨/下跌导致 rank 分化压缩、截面信号失效",
+      "低 quote_volume symbol 流动性分层使 rank 不稳定、回测不可交易",
+      "新上市 symbol 历史 bar 不足导致 flow_q 与 ret_1h 估计噪声大",
+      "横截面组合未控制共同Beta暴露，系统性风险冲击时多空同时受损"
     ]
   }
 ]
