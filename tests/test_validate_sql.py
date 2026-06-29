@@ -42,3 +42,11 @@ def test_forbidden_lead():
     bad["signal_sql"] = "LEAD(close, 1) OVER w"
     with pytest.raises(ValueError, match="禁止关键字"):
         validate_factor_sql(bad)
+
+
+def test_allows_nullif_function():
+    factor_sql = dict(VALID_FACTOR_SQL)
+    factor_sql["signal_sql"] = (
+        "ABS(log_ret_1) / NULLIF(quote_volume, 0)"
+    )
+    validate_factor_sql(factor_sql)

@@ -26,6 +26,86 @@ FORBIDDEN_CS_PARTITION = re.compile(
     re.IGNORECASE,
 )
 
+SQL_RESERVED = frozenset(
+    {
+        "over",
+        "partition",
+        "by",
+        "order",
+        "rows",
+        "between",
+        "preceding",
+        "following",
+        "current",
+        "row",
+        "and",
+        "or",
+        "not",
+        "null",
+        "true",
+        "false",
+        "case",
+        "when",
+        "then",
+        "else",
+        "end",
+        "cast",
+        "as",
+        "distinct",
+        "filter",
+        "within",
+        "group",
+        "window",
+        "w",
+    }
+)
+
+SQL_FUNCTIONS = frozenset(
+    {
+        "abs",
+        "avg",
+        "coalesce",
+        "count",
+        "dense_rank",
+        "exp",
+        "floor",
+        "greatest",
+        "if",
+        "iff",
+        "isnan",
+        "isinf",
+        "lag",
+        "lead",
+        "least",
+        "ln",
+        "log",
+        "log10",
+        "max",
+        "min",
+        "nullif",
+        "percent_rank",
+        "power",
+        "quantile_cont",
+        "quantile_disc",
+        "rank",
+        "round",
+        "sign",
+        "sqrt",
+        "stddev",
+        "stddev_pop",
+        "stddev_samp",
+        "sum",
+        "var_pop",
+        "var_samp",
+    }
+)
+
+
+def extract_column_refs(signal_sql: str) -> set[str]:
+    tokens = set(re.findall(r"\b([a-z_][a-z0-9_]*)\b", signal_sql.lower()))
+    ignored = SQL_RESERVED | SQL_FUNCTIONS
+    return {t for t in tokens if t not in ignored}
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
@@ -35,16 +115,6 @@ def load_factor_sql_schema() -> dict[str, Any]:
     path = repo_root() / "schemas" / "factor-sql-schema.json"
     with path.open(encoding="utf-8") as handle:
         return json.load(handle)
-
-
-def extract_column_refs(signal_sql: str) -> set[str]:
-    tokens = set(re.findall(r"\b([a-z_][a-z0-9_]*)\b", signal_sql.lower()))
-    sql_keywords = {
-        "over", "partition", "by", "order", "rows", "between", "preceding",
-        "current", "row", "and", "null", "case", "when", "then", "else", "end",
-        "cast", "as", "ln", "log", "abs", "avg", "stddev_samp", "lag", "lead", "w",
-    }
-    return {t for t in tokens if t not in sql_keywords}
 
 
 def validate_signal_sql(signal_sql: str, evaluation_type: str) -> list[str]:
