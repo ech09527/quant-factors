@@ -31,6 +31,9 @@ ALLOWED_COLUMNS = frozenset(
         "count",
         "taker_buy_volume",
         "taker_buy_quote_volume",
+        "log_ret_1",
+        "ret_24h",
+        "vol_24h",
     }
 )
 

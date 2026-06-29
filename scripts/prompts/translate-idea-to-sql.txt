@@ -21,9 +21,9 @@
 ## 规则
 
 1. **只输出 JSON**，禁止 Python 代码。
-2. `signal_sql` 是 SELECT 列表中的表达式，可引用列：`open, high, low, close, volume, quote_volume, count, taker_buy_volume, taker_buy_quote_volume`。
-3. 时序窗口使用 `OVER w` 或显式 `OVER (PARTITION BY symbol ORDER BY open_time)`。
-4. **禁止**在 `signal_sql` 中使用：`LEAD`, `COPY`, `ATTACH`, `READ_`, `PARTITION BY open_time`。
+2. `signal_sql` 是 SELECT 列表中的表达式，可引用列：`open, high, low, close, volume, quote_volume, count, taker_buy_volume, taker_buy_quote_volume` 以及引擎预计算列 `log_ret_1, ret_24h, vol_24h`。
+3. 优先使用预计算列，避免在 `signal_sql` 中嵌套窗口函数（如 `STDDEV_SAMP(LN(close/LAG(...)))`）。
+4. 时序 lag 可使用 `LAG(col, n) OVER w`（窗口 `w` 由模板提供）。
 5. `fwd_ret` 由引擎计算，不要在 signal_sql 中计算未来收益。
 6. `evaluation_type=cross_sectional` → `postprocess` 必须为 `cs_rank` 或 `cs_zscore`；截面 rank/zscore **不要**写在 signal_sql 里。
 7. `evaluation_type=time_series` → `postprocess` 必须为 `none`。
@@ -33,7 +33,11 @@
 ## 示例 signal_sql（横截面风险调整动量）
 
 ```
-(close / LAG(close, 24) OVER w - 1) / (STDDEV_SAMP(LN(close / LAG(close, 1) OVER w)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8)
+ret_24h / (vol_24h + 1e-8)
 ```
 
-窗口 `w` 在引擎模板中定义为 `(PARTITION BY symbol ORDER BY open_time)`。
+或简单动量：
+
+```
+close / LAG(close, 24) OVER w - 1
+```

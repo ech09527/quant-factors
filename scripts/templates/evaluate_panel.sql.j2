@@ -48,12 +48,32 @@ universe AS (
 ),
 {% endif %}
 
+base_feat AS (
+  SELECT
+    *,
+    LN(close / LAG(close, 1) OVER w) AS log_ret_1,
+    close / LAG(close, 24) OVER w - 1 AS ret_24h
+  FROM universe
+  WINDOW w AS (PARTITION BY symbol ORDER BY open_time)
+),
+
+features AS (
+  SELECT
+    *,
+    STDDEV_SAMP(log_ret_1)
+      OVER (
+        PARTITION BY symbol
+        ORDER BY open_time
+        ROWS BETWEEN 23 PRECEDING AND CURRENT ROW
+      ) AS vol_24h
+  FROM base_feat
+),
+
 signal AS (
   SELECT
     *,
     ({{ signal_sql }}) AS raw_signal
-  FROM universe
-  WINDOW w AS (PARTITION BY symbol ORDER BY open_time)
+  FROM features
 ),
 
 postprocessed AS (
