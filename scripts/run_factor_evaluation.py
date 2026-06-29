@@ -37,20 +37,7 @@ from scripts.kaggle_kernel import (  # noqa: E402
 from scripts.validate_evaluation import validate_evaluation  # noqa: E402
 from scripts.write_evaluation_to_project import write_evaluation  # noqa: E402
 
-DEFAULT_KERNEL_SLUG = "evaluate-factor-idea"
-DEFAULT_TARGET_FILE = "futures/um/klines/1h.parquet"
-
-
-def bundle_kernel(kernel_dir: Path, repo: Path) -> None:
-    for name in ("evaluate_engine.py", "compute_metrics.py"):
-        shutil.copy2(repo / "scripts" / name, kernel_dir / name)
-
-    templates_dst = kernel_dir / "templates"
-    templates_dst.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(
-        repo / "scripts" / "templates" / "evaluate_panel.sql.j2",
-        templates_dst / "evaluate_panel.sql.j2",
-    )
+from scripts.bundle_evaluate_kernel import build_bundled_kernel_source
 
 
 def run_kernel_once(
@@ -71,7 +58,8 @@ def run_kernel_once(
     kernel = kernel_ref(username, DEFAULT_KERNEL_SLUG)
 
     try:
-        bundle_kernel(kernel_dir, repo)
+        bundled = build_bundled_kernel_source(repo, main_py)
+        main_py.write_text(bundled, encoding="utf-8")
         inject_kernel_inputs_inline(main_py, kernel_inputs)
         update_kernel_metadata(
             metadata_path,
@@ -91,13 +79,6 @@ def run_kernel_once(
         restore_file(metadata_path, metadata_backup)
         restore_file(main_py, main_backup)
         remove_kernel_inputs_inline(main_py)
-        for name in ("evaluate_engine.py", "compute_metrics.py"):
-            path = kernel_dir / name
-            if path.is_file():
-                path.unlink()
-        templates_dst = kernel_dir / "templates"
-        if templates_dst.exists():
-            shutil.rmtree(templates_dst)
 
 
 def git_commit_evaluation(
