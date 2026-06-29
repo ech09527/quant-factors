@@ -19,8 +19,8 @@ on:
         required: false
         default: "explore_and_generate"
         type: string
-  # schedule:
-  #   - cron: "0 2 * * 1"
+  schedule:
+    - cron: "*/5 * * * *"
 
 concurrency:
   group: factor-ideas
@@ -36,8 +36,8 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
       KAGGLE_KERNEL_SLUG: generate-factor-ideas
-      MAX_IDEAS: ${{ inputs.max_ideas || '3' }}
-      KERNEL_MODE: ${{ inputs.mode || 'explore_and_generate' }}
+      MAX_IDEAS: ${{ github.event_name == 'schedule' && '1' || (inputs.max_ideas || '3') }}
+      KERNEL_MODE: ${{ github.event_name == 'schedule' && 'generate_only' || (inputs.mode || 'explore_and_generate') }}
 
     steps:
       - name: Checkout
