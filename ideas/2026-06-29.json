@@ -1,18 +1,17 @@
 [
   {
-    "title": "横截面相对Quote turnover价格推进效率轮动",
-    "hypothesis": "在同一1h截面内，单位相对报价成交额所实现的Bar价格推进幅度反映信息到达效率：推进效率高者说明同等流动性消耗下价格发现更清晰，短期延续性更强；推进效率低者（高Quote消耗、低振幅）则反映筹码换手拥堵或假突破，相对走弱。",
+    "title": "横截面Bar迂回度-净主动Quote流排名错配轮动",
+    "hypothesis": "Bar 内 (high-low) 相对 |close-open| 的迂回度越高，说明同振幅下方向性越弱、博弈越充分；若在相同 open_time 截面上净主动 Quote 流（taker 买卖不对称）排名仍显著高于迂回度排名，意味着 aggressive 买方在“拉扯型”K 线中相对占优，短期信息未充分定价，下一根 1h 更可能相对走强。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 在 1h 面板上计算：ret_move = abs(close/open - 1)；quote_turn_rel = quote_volume / SMA(quote_volume, 24)（按 symbol 时序滚动）；efficiency = ret_move / (quote_turn_rel + 1e-8)。Universe 过滤：每个 open_time 剔除 quote_volume 低于截面 20 分位的 symbol，且 symbol 历史 bar 数 >= 168。按 open_time 分组，对 universe 内 efficiency 做横截面 rank（或 z-score），可选对 ret_move 与 sign(close-open) 同号约束后再排序。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 排序，做多 efficiency 高分位（如前 20%），做空低分位（后 20%）；持有期为下一根 1h bar（open_time 顺延 1 期）；适用于多币种永续合约 1h 相对强弱轮动与多空组合。",
+    "formula_sketch": "按 symbol 计算：body=abs(close-open)，amp=high-low，winding=amp/(body+1e-8)；net_active_q=(2*taker_buy_quote_volume-quote_volume)/quote_volume。universe 过滤：quote_volume 截面分位>=20%，symbol 累计 bar 数>=168。在每个 open_time 分组：r_w=组内 rank(winding)，r_f=组内 rank(net_active_q)，factor=r_f-r_w（亦可 z-score）。组合：按 factor 截面分位做多 top、做空 bottom。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 factor 高分位（净主动 Quote 流排名相对高于 Bar 迂回度排名），做空低分位；信号在 bar close 形成，下一根 1h 持有；适用于多币种永续合约相对强弱轮动。",
     "risks": [
-      "低 quote_volume symbol 的 efficiency 估计噪声大，横截面分层后尾部不可交易",
-      "新上市 symbol SMA 冷启动导致 efficiency 失真",
-      "极端行情下全市场同步高换手，截面 rank 区分度塌陷",
-      "幸存者偏差使历史 universe 流动性结构偏乐观",
-      "abs 收益口径忽略方向，单边趋势市可能引入系统性偏误"
+      "低 quote_volume symbol 的 winding 对微小 body 极敏感，横截面排名噪声大",
+      "极端行情下全市场同步高迂回度，截面区分度塌陷",
+      "新上市 symbol 历史 bar 不足导致 rolling 过滤样本偏少",
+      "幸存者偏差使长期退市标的无法参与截面比较"
     ]
   }
 ]
