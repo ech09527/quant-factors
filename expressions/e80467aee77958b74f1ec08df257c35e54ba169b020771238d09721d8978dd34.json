@@ -1,0 +1,21 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "AVG((close - quote_volume / (volume + 1e-8)) / (quote_volume / (volume + 1e-8) + 1e-8)) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW)",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": [
+      "open",
+      "high",
+      "low",
+      "close"
+    ],
+    "min_symbol_bars": 168,
+    "cs_quantile_gte": {
+      "col": "quote_volume",
+      "q": 0.2
+    }
+  }
+}
