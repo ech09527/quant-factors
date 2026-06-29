@@ -1,18 +1,17 @@
 [
   {
-    "title": "横截面主动买卖成交均价差轮动",
-    "hypothesis": "在同一根1h K线内，主动买入的Quote均价若系统性高于主动卖出的Quote均价，说明买方愿意以溢价成交而卖方更多在相对低价被动出清，反映短周期 informed demand。横截面上，该买卖均价差越大的symbol，下一小时相对收益可能更强。",
+    "title": "横截面短期反转主动流确认轮动",
+    "hypothesis": "在加密货币1h多标的面板中，上一根K线相对universe显著跑输但当期主动买入占比（taker_buy_volume/volume）处于横截面高位的标的，更可能经历散户/短线抛压后的Aggressive买盘吸收，形成1h尺度的相对反转；反之，续跌且主动流弱化的标的相对弱势延续。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 逐 bar 计算：avg_buy_px = taker_buy_quote_volume / max(taker_buy_volume, eps)；avg_sell_px = (quote_volume - taker_buy_quote_volume) / max(volume - taker_buy_volume, eps)；mid = (high + low) / 2；raw = (avg_buy_px - avg_sell_px) / max(mid, eps)。universe 过滤：同一 open_time 上 quote_volume 横截面分位 >= 20%；symbol 累计有效 bar 数 >= 168（约7天）；剔除 taker_buy_volume 或 (volume - taker_buy_volume) 占 volume 比例 < 5% 的 bar。在每个 open_time 上对过滤后 universe 的 raw 做横截面 rank 或 z-score，得 factor_cs。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 factor_cs 高分位（主动买均价显著高于主动卖均价），做空低分位；持有至下一根 1h bar（如 close-to-close）；适用于多币种永续合约 1h 相对强弱轮动。",
+    "formula_sketch": "按 symbol、open_time 排序；对每个 symbol 在 bar t 计算：ret_prev = close_t / close_{t-1} - 1；tbr_t = taker_buy_volume_t / volume_t。universe 过滤：quote_volume_t 不低于该 open_time 横截面20%分位，且 symbol 累计有效 bar 数 ≥ 168（约7天1h）。在每个 open_time 分组内：rank_rev = rank(-ret_prev)（上一根相对弱势更高分），rank_flow = rank(tbr_t)，factor_t = 0.5 * (rank_rev + rank_flow) 或组内 z-score( rank_rev * rank_flow )。缺失 volume=0 或 ret_prev 不可算的行剔除。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 对 factor 做分位排序，做多高分位（上一根相对弱势 + 当期主动买入占比偏强），做空低分位（上一根相对强势或续跌且主动流偏弱）；持有期为下一根1h bar（t+1 至 t+2 open_time）；适用于多币种UM永续相对强弱轮动与短周期反转增强。",
     "risks": [
-      "单边成交占比过高时买卖均价分母过小，横截面排序噪声大",
-      "低 quote_volume symbol 均价估计不稳定，流动性分层导致组合不可交易",
-      "新上市 symbol 有效 bar 不足被过滤，产生 symbol 冷启动偏差",
-      "极端全场同向行情下截面区分度塌陷、因子失效",
-      "universe 随时间变更带来幸存者偏差"
+      "quote_volume 分层导致低流动性 symbol 反转信号不可交易或滑点放大",
+      "新上市 symbol 历史 bar 不足导致 ret_prev/tbr 冷启动偏差",
+      "极端单边行情（全市场同向暴跌）下横截面反转因子整体失效",
+      "1h 面板中 symbol 同步性高时截面区分度下降、组合过度拥挤"
     ]
   }
 ]
