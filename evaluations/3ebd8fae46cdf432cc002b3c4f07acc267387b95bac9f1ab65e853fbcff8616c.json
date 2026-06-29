@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "横截面短期反转主动流确认轮动",
+  "title_hash": "3ebd8fae46cdf432cc002b3c4f07acc267387b95bac9f1ab65e853fbcff8616c",
+  "formula_hash": "e96fcc4bbeaed248eb264c6542c743760507589f631f6836f9263bc6985e15f3",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T14:24:49.832177+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(1 - close / LAG(close, 1) OVER w) * (taker_buy_volume / (volume + 1e-8))",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.012378134930585849,
+    "ic_ir": 0.09489042755714033,
+    "mean_rank_ic": 0.03578583576717691,
+    "rank_ic_ir": 0.26411671827148275,
+    "n_periods": 29924,
+    "ic_positive_ratio": 0.5342868600454485
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
