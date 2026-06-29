@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "Bar内CLV多周期累积延续",
+  "title_hash": "bc054f74ccacb0185ac29db41e97e739dbc1ac666ad563a87eafac54bb5cba46",
+  "formula_hash": "3104e923406fda5f91d89af4d008e009733601cb15701e762bce5777c5302bf9",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T13:42:40.252819+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "AVG((close - low) / (high - low + 1e-8)) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.0025914807207631516,
+    "ic_ir": -0.024045133465493577,
+    "mean_rank_ic": -0.0018540261438129363,
+    "rank_ic_ir": -0.016097753283542942,
+    "n_periods": 29926,
+    "ic_positive_ratio": 0.4878700795295061
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
