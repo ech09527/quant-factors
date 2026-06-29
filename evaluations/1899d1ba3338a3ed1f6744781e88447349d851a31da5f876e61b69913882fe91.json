@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "横截面笔均Quote规模排名动量轮动",
+  "title_hash": "1899d1ba3338a3ed1f6744781e88447349d851a31da5f876e61b69913882fe91",
+  "formula_hash": "9916782f95adc3ffa10c0f52be7fe9cae81afc68c6d717ed6156a47be5704ccd",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T14:27:41.739941+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6565987
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(quote_volume / GREATEST(count, 1.0)) - LAG(quote_volume / GREATEST(count, 1.0), 6) OVER w",
+    "postprocess": "cs_zscore",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.00024969491709951857,
+    "ic_ir": 0.003732035935790884,
+    "mean_rank_ic": -0.003972728730440811,
+    "rank_ic_ir": -0.04503887691668429,
+    "n_periods": 29920,
+    "ic_positive_ratio": 0.5059157754010695
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.42665686307276
+  }
+}
