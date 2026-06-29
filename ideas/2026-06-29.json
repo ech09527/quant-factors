@@ -1,18 +1,17 @@
 [
   {
-    "title": "横截面报价量-基量层级差轮动",
-    "hypothesis": "在同一 1h 截面上，quote_volume 反映以报价货币计价的资金参与度，volume 反映基础资产换手；若某 symbol 的 quote_volume 横截面分位显著高于 volume 分位，说明单位 token 换手对应的报价资金流入更密集，可能体现大单或高价位区间的主动配置，对下一根 bar 具有相对延续性；反之则资金参与偏弱、相对走弱。",
+    "title": "横截面Quote-基量增速差轮动",
+    "hypothesis": "quote_volume 与 volume 的同步变化隐含成交均价变动：当某 symbol 的 quote_volume 增速持续高于 volume 增速时，表明单位基量对应的报价金额抬升（主动抬价/大单溢价成交），反映知情或趋势资金愿意以更高均价承接；在 1h 多币种横截面上，这类「价量增速错配」应相对 peers 具有短期延续性，适用于 crypto 永续相对强弱轮动。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "universe 过滤：每个 open_time 保留 quote_volume 高于截面 20 分位的 symbol，且 symbol 累计 bar 数 ≥ 168（1h）；按 symbol 取当前 bar 的 quote_volume、volume；在每个 open_time 内分别计算 q_rank = rank_pct(quote_volume)、v_rank = rank_pct(volume)；raw = q_rank - v_rank（或对 log(quote_volume)、log(volume) 做组内 z-score 后取差）；factor = raw，必要时对 symbol 做 3 根 1h 滚动均值平滑后再在 open_time 上重新截面 rank。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 raw 高分位（报价资金层级强于基量层级），做空 raw 低分位；持有期下一根 1h bar（open_time 对齐）；适用于多币种永续合约相对强弱轮动与多空配对。",
+    "formula_sketch": "按 symbol 在 1h 面板上计算：vol_growth = volume / volume.shift(1) - 1；quote_growth = quote_volume / quote_volume.shift(1) - 1；spread = quote_growth - vol_growth（可选 3h 滚动均值平滑）。universe 过滤：每个 open_time 仅保留 quote_volume 位于当日横截面 ≥30 分位且 symbol 历史有效 bar 数 ≥168 的标的。按 open_time 分组，对 spread 做组内横截面 rank 或 z-score 得到因子值 factor_cs。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 factor_cs 高分位（quote 增速显著快于基量增速、均价抬升），做空低分位；持有期为下一根 1h bar（open_time t 信号，t+1 收益）；适用多币种永续合约相对强弱轮动与多空配对。",
     "risks": [
-      "横截面流动性分层：低价 alt 与高价主流币 quote/volume 比值结构不同，截面排序可能混入价格层级效应",
-      "新上市 symbol 历史 bar 不足导致 rank 不稳定",
-      "极端行情下全市场同步放量，截面区分度塌陷、因子失效",
-      "低 quote_volume 边缘 symbol 滑点与不可交易性",
-      "样本期内下架 symbol 幸存者偏差"
+      "低 quote_volume symbol 的 spread 估计噪声大，横截面分层后仍可能不可交易",
+      "新上市 symbol 缺少足够 shift/滚动窗口，冷启动期因子失真",
+      "极端行情（全网暴跌/暴涨）下截面 rank 同质化，因子区分度与收益衰减",
+      "quote_volume 与 volume 高度相关，spread 对异常值与零成交量 bar 敏感，需 winsorize"
     ]
   }
 ]
