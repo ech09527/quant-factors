@@ -1,0 +1,118 @@
+# 工作流 C：单条因子想法 → Cursor 翻译 SQL → Kaggle 评估 → 写回 Project
+
+name: Factor Evaluation
+
+on:
+  workflow_dispatch:
+    inputs:
+      title_hash:
+        description: 想法 title_hash（必填）
+        required: true
+        type: string
+      idea_title:
+        description: 想法标题（日志用）
+        required: false
+        type: string
+      sample_start:
+        description: 样本起始日
+        required: false
+        default: "2023-01-01"
+        type: string
+      force:
+        description: 强制重评（true/false）
+        required: false
+        default: "false"
+        type: string
+
+concurrency:
+  group: factor-evaluation
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GITHUB_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
+      KAGGLE_KERNEL_SLUG: evaluate-factor-idea
+      SAMPLE_START: ${{ inputs.sample_start || '2023-01-01' }}
+      FORCE: ${{ inputs.force || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt pyyaml kaggle duckdb pandas numpy jinja2
+
+      - name: Configure Kaggle credentials
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          if [ -n "${KAGGLE_API_TOKEN}" ]; then
+            echo "使用 KAGGLE_API_TOKEN 认证"
+          elif [ -n "${KAGGLE_USERNAME}" ] && [ -n "${KAGGLE_KEY}" ]; then
+            mkdir -p ~/.kaggle
+            echo "{\"username\":\"${KAGGLE_USERNAME}\",\"key\":\"${KAGGLE_KEY}\"}" > ~/.kaggle/kaggle.json
+            chmod 600 ~/.kaggle/kaggle.json
+          else
+            echo "::error::需要配置 KAGGLE_API_TOKEN 或 KAGGLE_USERNAME + KAGGLE_KEY"
+            exit 1
+          fi
+
+      - name: Fetch idea by title_hash
+        run: |
+          export GITHUB_PROJECT_ID=$(jq -r .id config/github-project.json)
+          python scripts/fetch_existing_ideas.py -o /tmp/all_ideas.json
+          python scripts/fetch_idea_by_hash.py \
+            --ideas /tmp/all_ideas.json \
+            --title-hash "${{ inputs.title_hash }}" \
+            -o /tmp/idea.json
+
+      - name: Setup Cursor auth
+        env:
+          CURSOR_AUTH_JSON: ${{ secrets.CURSOR_AUTH_JSON }}
+        run: bash scripts/setup_cursor_auth.sh
+
+      - name: Translate idea to factor SQL
+        env:
+          CURSOR_TIMEOUT_SECONDS: "900"
+        run: |
+          python scripts/translate_idea_to_sql.py \
+            --idea /tmp/idea.json \
+            -o /tmp/factor_sql.json
+
+      - name: Validate factor SQL
+        run: python scripts/validate_sql.py /tmp/factor_sql.json
+
+      - name: Run Kaggle factor evaluation
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          KERNEL_LOG_TIMEOUT_SECONDS: "7200"
+        run: |
+          ARGS=(--idea /tmp/idea.json --factor-sql /tmp/factor_sql.json --sample-start "${SAMPLE_START}")
+          if [ "${FORCE}" = "true" ]; then
+            ARGS+=(--force)
+          fi
+          python scripts/run_factor_evaluation.py "${ARGS[@]}"
+
+      - name: Validate evaluation output
+        run: |
+          TITLE_HASH="${{ inputs.title_hash }}"
+          FORMULA_HASH=$(jq -r '.formula_hash' /tmp/idea.json)
+          python scripts/validate_evaluation.py \
+            "evaluations/${TITLE_HASH}.json" \
+            --title-hash "${TITLE_HASH}" \
+            --formula-hash "${FORMULA_HASH}"

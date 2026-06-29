@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ech09527/quant-factors/schemas/evaluation-schema.json",
+  "title": "FactorEvaluation",
+  "description": "因子评估结果（确定性引擎输出）",
+  "type": "object",
+  "required": [
+    "status",
+    "title",
+    "title_hash",
+    "formula_hash",
+    "expression_version",
+    "engine_version",
+    "metrics_version",
+    "evaluation_type",
+    "evaluated_at",
+    "data_range",
+    "factor_sql",
+    "metrics"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "failed", "skipped"]
+    },
+    "title": { "type": "string" },
+    "title_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "formula_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "expression_version": { "type": "string" },
+    "engine_version": { "type": "string" },
+    "metrics_version": { "type": "string" },
+    "evaluation_type": {
+      "type": "string",
+      "enum": ["cross_sectional", "time_series"]
+    },
+    "evaluated_at": { "type": "string", "format": "date-time" },
+    "skipped_reason": { "type": "string" },
+    "data_range": {
+      "type": "object",
+      "required": ["start", "end", "n_bars"],
+      "additionalProperties": false,
+      "properties": {
+        "start": { "type": "string" },
+        "end": { "type": "string" },
+        "n_bars": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "factor_sql": {
+      "type": "object",
+      "required": [
+        "version",
+        "dialect",
+        "evaluation_type",
+        "data_source",
+        "signal_sql",
+        "postprocess",
+        "universe"
+      ]
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "mean_ic",
+        "ic_ir",
+        "mean_rank_ic",
+        "rank_ic_ir",
+        "n_periods",
+        "ic_positive_ratio"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mean_ic": { "type": "number" },
+        "ic_ir": { "type": ["number", "null"] },
+        "mean_rank_ic": { "type": "number" },
+        "rank_ic_ir": { "type": ["number", "null"] },
+        "n_periods": { "type": "integer", "minimum": 0 },
+        "ic_positive_ratio": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

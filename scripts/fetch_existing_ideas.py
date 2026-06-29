@@ -32,10 +32,12 @@ query($projectId: ID!, $cursor: String) {
           id
           content {
             ... on DraftIssue {
+              id
               title
               body
             }
             ... on Issue {
+              id
               title
               body
             }
@@ -88,6 +90,8 @@ def fetch_project_ideas(project_id: str, token: str) -> list[dict[str, str]]:
                     "title": title,
                     "body": content.get("body") or "",
                     "title_hash": title_hash(title),
+                    "project_item_id": node["id"],
+                    "content_id": content.get("id"),
                 }
             )
 

@@ -1,0 +1,67 @@
+# 工作流 C-Dispatch：扫描待评估想法，逐条触发 factor-evaluation.yml
+
+name: Factor Evaluation Dispatch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_run:
+    workflows: ["Factor Ideas"]
+    types: [completed]
+
+concurrency:
+  group: factor-evaluation-dispatch
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      GITHUB_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Fetch ideas and pending list
+        run: |
+          export GITHUB_PROJECT_ID=$(jq -r .id config/github-project.json)
+          python scripts/fetch_existing_ideas.py -o /tmp/all_ideas.json
+          python scripts/fetch_pending_evaluations.py \
+            --ideas /tmp/all_ideas.json \
+            -o /tmp/pending.json
+
+      - name: Dispatch evaluate workflow for each pending idea
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          COUNT=$(jq '.count' /tmp/pending.json)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "无待评估想法"
+            exit 0
+          fi
+          jq -c '.pending[]' /tmp/pending.json | while read -r idea; do
+            TITLE_HASH=$(echo "$idea" | jq -r '.title_hash')
+            TITLE=$(echo "$idea" | jq -r '.title')
+            echo "触发评估: $TITLE ($TITLE_HASH)"
+            gh workflow run factor-evaluation.yml \
+              -f title_hash="$TITLE_HASH" \
+              -f idea_title="$TITLE"
+            sleep 10
+            RUN_ID=$(gh run list --workflow=factor-evaluation.yml --limit 1 --json databaseId -q '.[0].databaseId')
+            gh run watch "$RUN_ID" --exit-status
+          done

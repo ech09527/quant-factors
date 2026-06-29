@@ -1,0 +1,13 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "close / LAG(close, 24) OVER w - 1",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": ["open", "high", "low", "close", "quote_volume"],
+    "min_symbol_bars": 50,
+    "cs_quantile_gte": {"col": "quote_volume", "q": 0.5}
+  }
+}

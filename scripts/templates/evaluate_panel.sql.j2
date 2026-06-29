@@ -1,0 +1,80 @@
+-- evaluate_panel.sql.j2
+-- Stage 1: 固定模板 + AI signal_sql 片段 → panel(symbol, open_time, factor, fwd_ret)
+
+WITH base AS (
+  SELECT
+    symbol,
+    open_time,
+    open,
+    high,
+    low,
+    close,
+    quote_volume,
+    volume
+  FROM read_parquet('{{ data_path }}')
+  WHERE open_time >= {{ sample_start_ms }}
+),
+
+filtered AS (
+  SELECT *
+  FROM base
+  WHERE {{ static_universe_sql }}
+),
+
+{% if needs_window_universe %}
+enriched AS (
+  SELECT
+    *,
+    {{ enriched_select_sql | replace('\n', '\n    ') }}
+  FROM filtered
+),
+
+universe AS (
+  SELECT
+    symbol,
+    open_time,
+    open,
+    high,
+    low,
+    close,
+    quote_volume,
+    volume
+  FROM enriched
+  WHERE {{ window_universe_sql }}
+),
+{% else %}
+universe AS (
+  SELECT * FROM filtered
+),
+{% endif %}
+
+signal AS (
+  SELECT
+    *,
+    ({{ signal_sql }}) AS raw_signal
+  FROM universe
+  WINDOW w AS (PARTITION BY symbol ORDER BY open_time)
+),
+
+postprocessed AS (
+  SELECT
+    symbol,
+    open_time,
+    close,
+    {{ postprocess_expr }} AS factor
+  FROM signal
+),
+
+labeled AS (
+  SELECT
+    symbol,
+    open_time,
+    factor,
+    LEAD(close, 1) OVER w / close - 1 AS fwd_ret
+  FROM postprocessed
+  WINDOW w AS (PARTITION BY symbol ORDER BY open_time)
+)
+
+SELECT *
+FROM labeled
+WHERE factor IS NOT NULL;
