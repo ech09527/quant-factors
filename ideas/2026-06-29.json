@@ -1,17 +1,18 @@
 [
   {
-    "title": "横截面开盘缺口修复失败延续轮动",
-    "hypothesis": "在加密货币 UM 永续 1h 面板上，symbol 相对前一根 close 的开盘缺口反映隔夜/跨 bar 信息冲击；若同一 bar 内 close 未能向缺口反方向修复，说明该方向资金共识强于均值回归。横截面上修复失败程度更高的品种，下一根 1h 更可能延续相对强弱而非被同类品种均值拉回。",
+    "title": "横截面报价量-基量层级差轮动",
+    "hypothesis": "在同一 1h 截面上，quote_volume 反映以报价货币计价的资金参与度，volume 反映基础资产换手；若某 symbol 的 quote_volume 横截面分位显著高于 volume 分位，说明单位 token 换手对应的报价资金流入更密集，可能体现大单或高价位区间的主动配置，对下一根 bar 具有相对延续性；反之则资金参与偏弱、相对走弱。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "1) Universe 过滤：每个 open_time 仅保留 quote_volume 截面 ≥20 分位且 symbol 累计 bar 数 ≥168 的标的。2) 按 symbol 时序计算：gap_t = open_t / close_{t-1} - 1；intrabar_ret_t = (close_t - open_t) / open_t；repair_fail_t = sign(gap_t) * gap_t - sign(gap_t) * intrabar_ret_t（缺口方向上未被 bar 内走势抵消的部分，越大表示修复越失败、延续越强）。3) 在每个 open_time 上对 universe 内 repair_fail_t 做横截面 winsorize(1%,99%) 后 rank 或 z-score，得到 cs_repair_fail_t。4) 组合信号：做多 cs_repair_fail_t 高分位、做空低分位。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较 repair_fail，做多高分位（开盘缺口方向延续、bar 内修复失败），做空低分位（缺口被 bar 内有效修复、相对弱势）；持有期至下一根 1h bar（open_{t+1} 至 close_{t+1}）；适用于 523 个 UM 永续品种的多空轮动与相对强弱配置。",
+    "formula_sketch": "universe 过滤：每个 open_time 保留 quote_volume 高于截面 20 分位的 symbol，且 symbol 累计 bar 数 ≥ 168（1h）；按 symbol 取当前 bar 的 quote_volume、volume；在每个 open_time 内分别计算 q_rank = rank_pct(quote_volume)、v_rank = rank_pct(volume)；raw = q_rank - v_rank（或对 log(quote_volume)、log(volume) 做组内 z-score 后取差）；factor = raw，必要时对 symbol 做 3 根 1h 滚动均值平滑后再在 open_time 上重新截面 rank。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 raw 高分位（报价资金层级强于基量层级），做空 raw 低分位；持有期下一根 1h bar（open_time 对齐）；适用于多币种永续合约相对强弱轮动与多空配对。",
     "risks": [
-      "极端单边行情中多数 symbol 同步出现大缺口且同向延续，横截面分化不足导致因子失效",
-      "新上市或历史 bar 不足的 symbol 无法稳定计算 gap，冷启动期噪声污染截面排序",
-      "低 quote_volume 分层标的流动性差，高分位组合实际不可交易且滑点显著",
-      "universe 构成随时间变化存在幸存者偏差，早期缺失品种影响回测可比性"
+      "横截面流动性分层：低价 alt 与高价主流币 quote/volume 比值结构不同，截面排序可能混入价格层级效应",
+      "新上市 symbol 历史 bar 不足导致 rank 不稳定",
+      "极端行情下全市场同步放量，截面区分度塌陷、因子失效",
+      "低 quote_volume 边缘 symbol 滑点与不可交易性",
+      "样本期内下架 symbol 幸存者偏差"
     ]
   }
 ]
