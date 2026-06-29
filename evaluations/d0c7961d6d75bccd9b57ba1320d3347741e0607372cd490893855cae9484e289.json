@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "横截面Amihud非流动性溢价",
+  "title_hash": "d0c7961d6d75bccd9b57ba1320d3347741e0607372cd490893855cae9484e289",
+  "formula_hash": "75fbfffeb4ee75c3033d683fe07abde271beee5c7478555fef6cbcd4321d16a9",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T13:50:36.526637+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6159874
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "AVG(ABS(log_ret_1) / (quote_volume + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 23 PRECEDING AND CURRENT ROW)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.25
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.004542842969974365,
+    "ic_ir": 0.03422871937492146,
+    "mean_rank_ic": 0.0055792795823616055,
+    "rank_ic_ir": 0.03930424243347358,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.5135505430242272
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 205.812543856718
+  }
+}
