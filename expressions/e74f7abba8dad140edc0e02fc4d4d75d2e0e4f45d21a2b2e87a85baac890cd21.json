@@ -1,0 +1,25 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "AVG((taker_buy_quote_volume / (quote_volume + 1e-8)) - (taker_buy_volume / (volume + 1e-8))) OVER (w ROWS BETWEEN 5 PRECEDING AND CURRENT ROW)",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "volume",
+      "quote_volume",
+      "taker_buy_volume",
+      "taker_buy_quote_volume"
+    ],
+    "min_symbol_bars": 72,
+    "cs_quantile_gte": {
+      "col": "quote_volume",
+      "q": 0.2
+    }
+  }
+}

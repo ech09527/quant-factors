@@ -1,0 +1,53 @@
+{
+  "status": "success",
+  "title": "横截面主动买入Quote结构溢价",
+  "title_hash": "e74f7abba8dad140edc0e02fc4d4d75d2e0e4f45d21a2b2e87a85baac890cd21",
+  "formula_hash": "8ada26497f5c1845649aa1f85ebb076a2da39485d27e0ec9d680857ed59fba6e",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T14:03:05.568908+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569206
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "AVG((taker_buy_quote_volume / (quote_volume + 1e-8)) - (taker_buy_volume / (volume + 1e-8))) OVER (w ROWS BETWEEN 5 PRECEDING AND CURRENT ROW)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "quote_volume",
+        "taker_buy_volume",
+        "taker_buy_quote_volume"
+      ],
+      "min_symbol_bars": 72,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.000399749045263678,
+    "ic_ir": -0.0035279159975392252,
+    "mean_rank_ic": -0.009948960473556687,
+    "rank_ic_ir": -0.081540120417146,
+    "n_periods": 29926,
+    "ic_positive_ratio": 0.4997660896878968
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.49019280248604
+  }
+}
