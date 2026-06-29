@@ -1,0 +1,50 @@
+{
+  "status": "success",
+  "title": "横截面波动调整换手异常",
+  "title_hash": "b4014bb140fdc0ed2c616fac0555c8666c9de2912c20589232a2b97b1f450776",
+  "formula_hash": "9ece9c3bd7e06b0561ba98ca596590c0344fa7b6c6a3bd599396a3e39a20964c",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T13:56:57.760725+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(quote_volume / (vol_24h + 1e-8) - AVG(quote_volume / (vol_24h + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 167 PRECEDING AND CURRENT ROW)) / (STDDEV_SAMP(quote_volume / (vol_24h + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 167 PRECEDING AND CURRENT ROW) + 1e-8)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "quote_volume"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.0012460630038551575,
+    "ic_ir": -0.011656902353846067,
+    "mean_rank_ic": -0.013416980700467268,
+    "rank_ic_ir": -0.12632751364788466,
+    "n_periods": 29923,
+    "ic_positive_ratio": 0.5021889516425492
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}

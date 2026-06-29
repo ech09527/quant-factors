@@ -1,0 +1,22 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "(quote_volume / (vol_24h + 1e-8) - AVG(quote_volume / (vol_24h + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 167 PRECEDING AND CURRENT ROW)) / (STDDEV_SAMP(quote_volume / (vol_24h + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 167 PRECEDING AND CURRENT ROW) + 1e-8)",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": [
+      "open",
+      "high",
+      "low",
+      "close",
+      "quote_volume"
+    ],
+    "min_symbol_bars": 168,
+    "cs_quantile_gte": {
+      "col": "quote_volume",
+      "q": 0.2
+    }
+  }
+}
