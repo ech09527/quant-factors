@@ -110,19 +110,21 @@ EXPLORE_DATASET_EMBEDDED = None  # __EXPLORE_DATASET_EMBEDDED__
 
 
 def ensure_explore_dataset_module() -> None:
-    """Kaggle 仅上传主脚本时，从嵌入源码写出 explore_dataset.py。"""
-    target = SCRIPT_DIR / "explore_dataset.py"
-    if target.is_file():
+    """将嵌入的 explore_dataset 写到 /kaggle/working（/kaggle/src 只读）。"""
+    working_target = WORKING / "explore_dataset.py"
+    if working_target.is_file():
+        sys.path.insert(0, str(WORKING))
         return
     if not EXPLORE_DATASET_EMBEDDED:
         raise RuntimeError("缺少 explore_dataset.py 且未嵌入 EXPLORE_DATASET_EMBEDDED")
-    target.write_text(EXPLORE_DATASET_EMBEDDED, encoding="utf-8")
+    WORKING.mkdir(parents=True, exist_ok=True)
+    working_target.write_text(EXPLORE_DATASET_EMBEDDED, encoding="utf-8")
+    sys.path.insert(0, str(WORKING))
 
 
 def run_exploration(slug: str) -> int:
     os.environ["DATASET_SLUG"] = slug
     ensure_explore_dataset_module()
-    sys.path.insert(0, str(SCRIPT_DIR))
     import explore_dataset  # noqa: WPS433
 
     return explore_dataset.main()
