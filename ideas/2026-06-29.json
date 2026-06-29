@@ -1,17 +1,17 @@
 [
   {
-    "title": "横截面被动报量收位协同轮动",
-    "hypothesis": "在永续合约1h面上，若价格上涨主要由被动挂单（非taker端）成交承接，且收盘价位于当根K线区间上部，说明存在限价端被吸收的需求而非单纯追价；相对 peers 更强的「被动报量占比×收位强度」协同，预示下一小时相对强弱延续。",
+    "title": "横截面单位笔数价格推进轮动",
+    "hypothesis": "在1h K线面板上，(close-open)/count 衡量每笔成交平均推动的价格位移；同一 open_time 上该比值显著高于 universe 均值的 symbol，往往对应更少碎片化、更具方向性的主动成交，短期相对强弱更易延续至下一根 bar。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "universe：quote_volume 位于当日 open_time 横截面分位≥20%，且 symbol 累计 bar 数≥168。按 symbol 计算：passive_quote_ratio = (quote_volume - taker_buy_quote_volume) / quote_volume；close_loc = (close - low) / (high - low + 1e-8)；ret_sign = sign(close - open)；raw = close_loc * passive_quote_ratio * ret_sign（仅 ret_sign>0 时取 raw，否则取 -close_loc * passive_quote_ratio 以区分下跌协同）。在每个 open_time 上对 universe 内 symbol 的 raw 做横截面 rank 或 z-score 得 factor_cs。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 对 factor_cs 排序，做多高分位（高 passive_quote_ratio 且收位偏强、方向与涨跌一致），做空低分位；持有期为下一根 1h（open_time 顺延 1 bar）；适用于多币种永续相对强弱轮动与多空组合。",
+    "formula_sketch": "1) 按 symbol 逐 bar 计算 push = (close - open) / (count + 1e-8)；可选稳健化 push_adj = push / ((high - low) / close + 1e-8)。2) universe 过滤：quote_volume 截面分位 >= 20%，count >= 1000，symbol 累计 bar 数 >= 168。3) 在每个 open_time 上对过滤后 symbol 的 push（或 push_adj）做横截面 rank 或 z-score，得 cs_push。4) 组合：cs_push 最高组做多、最低组做空。",
+    "expected_signal": "横截面：做多 cs_push 高分位（单位笔数价格推进强）、做空低分位；持有期为下一根 1h bar（open_time 对齐）；适用于多币种 UM 永续相对强弱轮动与 hourly 再平衡。",
     "risks": [
-      "低 quote_volume symbol 的 passive_quote_ratio 估计噪声大，横截面排序易被流动性分层扭曲",
-      "新上市 symbol 历史 bar 不足导致 close_loc 与 passive 占比不稳定",
-      "极端单边行情下全市场 passive/taker 结构同步偏移，截面区分度塌陷",
-      "全样本仅 head 抽样可见单 symbol，全量 523 symbol 横截面需验证幸存者偏差"
+      "低 count 或低 quote_volume symbol 的 push 估计噪声大，横截面排序不稳定",
+      "新上市 symbol 历史 bar 不足导致冷启动与截面样本缺失",
+      "极端行情下 count 激增但价格推进失真，截面因子短期失效",
+      "幸存者偏差：退市或长期低流动性合约未纳入 universe"
     ]
   }
 ]
