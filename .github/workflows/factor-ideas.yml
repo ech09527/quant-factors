@@ -1,4 +1,4 @@
-# 工作流 B：基于 datasets/ 说明与已有 Project 想法，调用 Cursor CLI 生成新因子想法并写入 GitHub Project。
+# 工作流 B：Runner 纯脚本编排；Kaggle Kernel 内 Cursor 探索数据并生成因子想法。
 
 name: Factor Ideas
 
@@ -9,6 +9,15 @@ on:
         description: 生成想法数量
         required: false
         default: "3"
+        type: string
+      dataset_slug:
+        description: "可选：指定数据集 slug（owner/dataset-name）"
+        required: false
+        type: string
+      mode:
+        description: "explore_and_generate 或 generate_only"
+        required: false
+        default: "explore_and_generate"
         type: string
   # schedule:
   #   - cron: "0 2 * * 1"
@@ -23,22 +32,16 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     env:
       GITHUB_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
+      KAGGLE_KERNEL_SLUG: generate-factor-ideas
+      MAX_IDEAS: ${{ inputs.max_ideas || '3' }}
+      KERNEL_MODE: ${{ inputs.mode || 'explore_and_generate' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Verify dataset schemas exist
-        run: |
-          count=$(find datasets -name 'schema.json' -type f 2>/dev/null | wc -l)
-          if [ "$count" -eq 0 ]; then
-            echo "::error::datasets/ 下未找到 schema.json，请先运行 dataset-catalog 工作流完成数据探索。"
-            exit 1
-          fi
-          echo "找到 ${count} 个数据集 schema.json"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,65 +49,41 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python dependencies
-        run: pip install -r scripts/requirements.txt
+        run: pip install -r scripts/requirements.txt pyyaml
+
+      - name: Configure Kaggle credentials
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          if [ -n "${KAGGLE_API_TOKEN}" ]; then
+            echo "使用 KAGGLE_API_TOKEN 认证"
+          elif [ -n "${KAGGLE_USERNAME}" ] && [ -n "${KAGGLE_KEY}" ]; then
+            mkdir -p ~/.kaggle
+            echo "{\"username\":\"${KAGGLE_USERNAME}\",\"key\":\"${KAGGLE_KEY}\"}" > ~/.kaggle/kaggle.json
+            chmod 600 ~/.kaggle/kaggle.json
+          else
+            echo "::error::需要配置 KAGGLE_API_TOKEN 或 KAGGLE_USERNAME + KAGGLE_KEY"
+            exit 1
+          fi
 
       - name: Fetch existing ideas
         run: |
           export GITHUB_PROJECT_ID=$(jq -r .id config/github-project.json)
           python scripts/fetch_existing_ideas.py -o /tmp/existing.json
 
-      - name: Build idea prompt
+      - name: Run Kaggle factor ideas pipeline
         env:
-          MAX_IDEAS: ${{ inputs.max_ideas || '3' }}
-        run: |
-          python scripts/build_idea_prompt.py \
-            --existing /tmp/existing.json \
-            -o /tmp/prompt.txt \
-            2>/tmp/prompt-warnings.txt
-          if [ -s /tmp/prompt-warnings.txt ]; then
-            echo "::warning::build_idea_prompt 产生警告:"
-            cat /tmp/prompt-warnings.txt
-          fi
-          sed -i "s/3～5 条/${MAX_IDEAS} 条/g" /tmp/prompt.txt
-
-      - name: Install Cursor CLI
-        run: |
-          curl https://cursor.com/install -fsS | bash
-          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
-
-      - name: Configure Cursor auth
-        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
           CURSOR_AUTH_JSON: ${{ secrets.CURSOR_AUTH_JSON }}
-        run: bash scripts/setup_cursor_auth.sh
-
-      - name: Run Cursor agent
+          KERNEL_LOG_TIMEOUT_SECONDS: "6600"
         run: |
-          timeout 600 agent -p --force --output-format text "$(cat /tmp/prompt.txt)" \
-            | tee /tmp/cursor-output.txt
-
-      - name: Parse Cursor output
-        run: python scripts/parse_cursor_ideas.py /tmp/cursor-output.txt -o /tmp/parsed-ideas.json
-
-      - name: Write ideas to Project
-        run: |
-          export GITHUB_PROJECT_ID=$(jq -r .id config/github-project.json)
-          python scripts/write_to_project.py /tmp/parsed-ideas.json \
-            --existing /tmp/existing.json \
-            -o /tmp/write-result.json
-
-      - name: Backup ideas to repository
-        continue-on-error: true
-        run: |
-          DATE=$(date -u +%Y-%m-%d)
-          mkdir -p ideas
-          cp /tmp/parsed-ideas.json "ideas/${DATE}.json"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "ideas/${DATE}.json"
-          if git diff --staged --quiet; then
-            echo "无新备份文件需要提交"
-            exit 0
+          ARGS=(--existing /tmp/existing.json --max-ideas "${MAX_IDEAS}" --mode "${KERNEL_MODE}")
+          if [ -n "${{ inputs.dataset_slug }}" ]; then
+            ARGS+=(--slug "${{ inputs.dataset_slug }}")
           fi
-          git commit -m "chore(ideas): backup factor ideas ${DATE}"
-          git pull --rebase origin main
-          git push
+          export GITHUB_PROJECT_ID=$(jq -r .id config/github-project.json)
+          python scripts/run_factor_ideas.py "${ARGS[@]}"

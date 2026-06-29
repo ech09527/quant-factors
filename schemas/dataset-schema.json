@@ -51,6 +51,27 @@
           "type": "integer",
           "minimum": 0,
           "description": "抽样中的 symbol 唯一数"
+        },
+        "total_row_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "全量行数（parquet 元数据或聚合）"
+        },
+        "symbol_count_full": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "全量 symbol 唯一数"
+        },
+        "date_range_full": {
+          "type": "object",
+          "description": "全量时间范围",
+          "additionalProperties": false,
+          "properties": {
+            "column": { "type": "string" },
+            "start": { "type": "string" },
+            "end": { "type": "string" },
+            "unit": { "type": "string" }
+          }
         }
       }
     },
