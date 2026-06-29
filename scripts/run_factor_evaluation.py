@@ -42,15 +42,10 @@ DEFAULT_TARGET_FILE = "futures/um/klines/1h.parquet"
 
 
 def bundle_kernel(kernel_dir: Path, repo: Path) -> None:
-    scripts_dst = kernel_dir / "scripts"
-    if scripts_dst.exists():
-        shutil.rmtree(scripts_dst)
-    scripts_dst.mkdir(parents=True)
-
     for name in ("evaluate_engine.py", "compute_metrics.py"):
-        shutil.copy2(repo / "scripts" / name, scripts_dst / name)
+        shutil.copy2(repo / "scripts" / name, kernel_dir / name)
 
-    templates_dst = scripts_dst / "templates"
+    templates_dst = kernel_dir / "templates"
     templates_dst.mkdir(parents=True, exist_ok=True)
     shutil.copy2(
         repo / "scripts" / "templates" / "evaluate_panel.sql.j2",
@@ -96,9 +91,13 @@ def run_kernel_once(
         restore_file(metadata_path, metadata_backup)
         restore_file(main_py, main_backup)
         remove_kernel_inputs_inline(main_py)
-        scripts_dst = kernel_dir / "scripts"
-        if scripts_dst.exists():
-            shutil.rmtree(scripts_dst)
+        for name in ("evaluate_engine.py", "compute_metrics.py"):
+            path = kernel_dir / name
+            if path.is_file():
+                path.unlink()
+        templates_dst = kernel_dir / "templates"
+        if templates_dst.exists():
+            shutil.rmtree(templates_dst)
 
 
 def git_commit_evaluation(

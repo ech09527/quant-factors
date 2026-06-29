@@ -9,9 +9,7 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_SCRIPTS = SCRIPT_DIR / "scripts"
-sys.path.insert(0, str(REPO_SCRIPTS.parent))
-sys.path.insert(0, str(REPO_SCRIPTS))
+sys.path.insert(0, str(SCRIPT_DIR))
 
 KERNEL_INPUTS_INLINE = None  # __KERNEL_INPUTS_INLINE__
 
@@ -29,7 +27,6 @@ def load_kernel_inputs() -> dict[str, Any]:
 
 
 def main() -> int:
-    sys.path.insert(0, str(SCRIPT_DIR / "scripts"))
     from evaluate_engine import evaluate_factor_sql, resolve_kaggle_data_path
 
     inputs = load_kernel_inputs()
