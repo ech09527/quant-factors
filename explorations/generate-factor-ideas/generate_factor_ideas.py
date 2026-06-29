@@ -51,20 +51,32 @@ def setup_cursor_auth(inputs: dict[str, Any]) -> bool:
 
 def resolve_agent_binary() -> str:
     """定位 Cursor agent 可执行文件；缺失时安装 CLI。"""
-    bin_dir = Path.home() / ".cursor" / "bin"
+    local_bin = Path.home() / ".local" / "bin"
+    versions_root = Path.home() / ".local" / "share" / "cursor-agent" / "versions"
     candidates = [
-        bin_dir / "agent",
-        bin_dir / "cursor-agent",
-        Path.home() / ".cursor" / "agent",
+        local_bin / "agent",
+        local_bin / "cursor-agent",
+        Path.home() / ".cursor" / "bin" / "agent",
+        Path.home() / ".cursor" / "bin" / "cursor-agent",
     ]
+    if versions_root.is_dir():
+        for version_dir in sorted(versions_root.iterdir(), reverse=True):
+            candidates.extend(
+                [
+                    version_dir / "cursor-agent",
+                    version_dir / "agent",
+                ]
+            )
 
     def find_agent() -> str | None:
         for candidate in candidates:
-            if candidate.is_file():
-                return str(candidate)
-        cursor_root = Path.home() / ".cursor"
+            if candidate.is_file() or candidate.is_symlink():
+                resolved = candidate.resolve()
+                if resolved.is_file() and os.access(resolved, os.X_OK):
+                    return str(resolved)
+        cursor_root = Path.home() / ".local" / "share" / "cursor-agent"
         if cursor_root.is_dir():
-            for path in sorted(cursor_root.rglob("agent")):
+            for path in sorted(cursor_root.rglob("cursor-agent")):
                 if path.is_file() and os.access(path, os.X_OK):
                     return str(path)
         return None
@@ -78,15 +90,17 @@ def resolve_agent_binary() -> str:
         ["bash", "-c", "curl -fsSL https://cursor.com/install | bash"],
         check=True,
     )
-    os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
+    local_bin_str = str(local_bin)
+    os.environ["PATH"] = f"{local_bin_str}:{os.environ.get('PATH', '')}"
 
     found = find_agent()
     if found:
         return found
 
-    if bin_dir.is_dir():
-        listing = ", ".join(sorted(p.name for p in bin_dir.iterdir()))
-        print(f"警告: ~/.cursor/bin 内容: {listing}", file=sys.stderr)
+    for listing_dir in (local_bin, versions_root):
+        if listing_dir.is_dir():
+            listing = ", ".join(sorted(p.name for p in listing_dir.iterdir()))
+            print(f"警告: {listing_dir} 内容: {listing}", file=sys.stderr)
     raise RuntimeError("Cursor agent 安装后未找到可执行文件")
 
 
