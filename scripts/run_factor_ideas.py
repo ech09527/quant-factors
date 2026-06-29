@@ -26,10 +26,12 @@ from scripts.kaggle_kernel import (  # noqa: E402
     inject_dataset_slug_default,
     inject_explore_dataset_embedded,
     inject_kernel_inputs_inline,
+    inject_query_klines_embedded,
     kernel_ref,
     push_kernel,
     remove_dataset_slug_inject,
     remove_explore_dataset_embedded,
+    remove_query_klines_embedded,
     remove_kernel_inputs_inline,
     replace_placeholder_username,
     resolve_kaggle_username,
@@ -96,6 +98,7 @@ def _print_kernel_diagnostics(output_dir: Path) -> None:
         "exploration_summary.json",
         "schema.json",
         "exploration_narrative_raw.txt",
+        "exploration_log.json",
         "ideas_raw.txt",
     ):
         path = output_dir / name
@@ -119,6 +122,14 @@ def bundle_kernel(kernel_dir: Path, repo: Path) -> None:
         repo / "scripts" / "prompts" / "generate-ideas-kaggle.txt",
         prompts_dir / "generate-ideas-kaggle.txt",
     )
+    shutil.copy2(
+        repo / "scripts" / "prompts" / "generate-ideas-agent.txt",
+        prompts_dir / "generate-ideas-agent.txt",
+    )
+    query_py = kernel_dir / "query_klines.py"
+    repo_query = repo / "explorations" / "generate-factor-ideas" / "query_klines.py"
+    if repo_query.is_file() and repo_query.resolve() != query_py.resolve():
+        shutil.copy2(repo_query, query_py)
 
 
 def write_kernel_inputs(
@@ -308,14 +319,26 @@ def run_kernel_once(
         )
         if cursor_auth:
             inputs_payload["cursor_auth_json"] = cursor_auth
-        explore_src = repo / "explorations" / "explore-dataset" / "explore_dataset.py"
-        inputs_payload["explore_prompt_template"] = (
-            repo / "scripts" / "prompts" / "explore-dataset.txt"
-        ).read_text(encoding="utf-8")
-        inputs_payload["idea_prompt_template"] = (
-            repo / "scripts" / "prompts" / "generate-ideas-kaggle.txt"
-        ).read_text(encoding="utf-8")
-        inject_explore_dataset_embedded(main_py, explore_src)
+        agent_timeout = os.environ.get("AGENT_CURSOR_TIMEOUT_SECONDS", "").strip()
+        if agent_timeout:
+            inputs_payload["agent_cursor_timeout_seconds"] = int(agent_timeout)
+        if mode == "agent_generate":
+            inputs_payload["agent_prompt_template"] = (
+                repo / "scripts" / "prompts" / "generate-ideas-agent.txt"
+            ).read_text(encoding="utf-8")
+            inject_query_klines_embedded(
+                main_py,
+                repo / "explorations" / "generate-factor-ideas" / "query_klines.py",
+            )
+        else:
+            explore_src = repo / "explorations" / "explore-dataset" / "explore_dataset.py"
+            inputs_payload["explore_prompt_template"] = (
+                repo / "scripts" / "prompts" / "explore-dataset.txt"
+            ).read_text(encoding="utf-8")
+            inputs_payload["idea_prompt_template"] = (
+                repo / "scripts" / "prompts" / "generate-ideas-kaggle.txt"
+            ).read_text(encoding="utf-8")
+            inject_explore_dataset_embedded(main_py, explore_src)
         inject_kernel_inputs_inline(main_py, inputs_payload)
         update_kernel_metadata(
             metadata_path,
@@ -324,7 +347,8 @@ def run_kernel_once(
             kernel_slug=DEFAULT_KERNEL_SLUG,
         )
         replace_placeholder_username(metadata_path, username)
-        inject_dataset_slug_default(kernel_dir / "explore_dataset.py", dataset_slug)
+        if mode != "agent_generate":
+            inject_dataset_slug_default(kernel_dir / "explore_dataset.py", dataset_slug)
 
         push_kernel(kernel_dir, dry_run=dry_run)
         wait_for_kernel_logs(kernel, log_timeout, dry_run=dry_run)
@@ -347,8 +371,11 @@ def run_kernel_once(
         restore_file(main_py, main_backup)
         remove_kernel_inputs_inline(main_py)
         remove_explore_dataset_embedded(main_py)
+        remove_query_klines_embedded(main_py)
         if explore_backup:
             restore_file(explore_py, explore_backup)
+        elif mode == "agent_generate" and explore_py.is_file():
+            explore_py.unlink(missing_ok=True)
         else:
             remove_dataset_slug_inject(kernel_dir / "explore_dataset.py")
 
@@ -359,8 +386,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-ideas", type=int, default=int(os.environ.get("MAX_IDEAS", "3")))
     parser.add_argument(
         "--mode",
-        choices=("explore_and_generate", "generate_only"),
-        default=os.environ.get("KERNEL_MODE", "explore_and_generate"),
+        choices=("agent_generate", "explore_and_generate", "generate_only"),
+        default=os.environ.get("KERNEL_MODE", "agent_generate"),
     )
     parser.add_argument(
         "--target-file",

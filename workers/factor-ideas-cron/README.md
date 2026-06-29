@@ -1,14 +1,14 @@
 # Factor Ideas Cron（Cloudflare Worker）
 
-每 5 分钟通过 GitHub `workflow_dispatch` 触发 `factor-ideas.yml`，替代不可靠的 GitHub Actions `schedule`。
+每日 UTC 06:00 通过 GitHub `workflow_dispatch` 触发 `factor-ideas.yml`（Cursor Agent 自主查 K 线生成想法）。
 
 ## 架构
 
 ```
-Cloudflare Cron (*/5)
+Cloudflare Cron (0 6 * * *)
   → Worker 从 Vault 读取 GITHUB_PAT (kv/github/quant-factors)
   → POST /repos/.../actions/workflows/factor-ideas.yml/dispatches
-  → GitHub Actions 执行因子想法流水线
+  → GitHub Actions 执行因子想法流水线（mode=agent_generate）
 ```
 
 ## Vault 凭证
@@ -40,9 +40,7 @@ curl -X POST "https://<worker-subdomain>.workers.dev"
 
 ## 默认触发参数
 
-与原先 schedule 分支一致：
+- `max_ideas=3`
+- `mode=agent_generate`
 
-- `max_ideas=1`
-- `mode=generate_only`
-
-可在 `wrangler.toml` 的 `[vars]` 中修改。
+可在 `wrangler.toml` 的 `[vars]` 中修改。月更 K 线数据场景下，亦可在数据上架后手动触发 `factor-ideas.yml` 并提高 `max_ideas`。

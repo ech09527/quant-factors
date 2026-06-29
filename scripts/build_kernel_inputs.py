@@ -12,6 +12,8 @@ import argparse
 import json
 from typing import Any
 
+KERNEL_MODES = ("agent_generate", "explore_and_generate", "generate_only")
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
@@ -41,6 +43,14 @@ def load_cached_exploration(repo: Path, slug: str) -> dict[str, Any] | None:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
     return None
+
+
+def load_dataset_schema(repo: Path, slug: str) -> dict[str, Any] | None:
+    path = repo / "datasets" / slug_to_dir(slug) / "schema.json"
+    if not path.is_file():
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def build_inputs(
@@ -74,6 +84,14 @@ def build_inputs(
                 f"generate_only 模式需要 datasets/{slug_to_dir(dataset_slug)}/ 下已有探索产物"
             )
         payload["cached_exploration"] = cached
+    elif mode == "agent_generate":
+        dataset_schema = load_dataset_schema(repo, dataset_slug)
+        if dataset_schema is None:
+            raise ValueError(
+                f"agent_generate 模式需要 datasets/{slug_to_dir(dataset_slug)}/schema.json；"
+                "请先运行工作流 A（dataset-catalog.yml）"
+            )
+        payload["dataset_schema"] = dataset_schema
 
     return payload
 
@@ -84,8 +102,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-ideas", type=int, default=3)
     parser.add_argument(
         "--mode",
-        choices=("explore_and_generate", "generate_only"),
-        default="explore_and_generate",
+        choices=KERNEL_MODES,
+        default="agent_generate",
     )
     parser.add_argument("--existing", type=Path, help="fetch_existing_ideas 输出 JSON")
     parser.add_argument(

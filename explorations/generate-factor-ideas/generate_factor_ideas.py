@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kaggle Kernel：探索数据 + Cursor 语义分析 + Cursor 生成因子想法。"""
+"""Kaggle Kernel：Cursor Agent 自主查 K 线并生成因子想法。"""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 KERNEL_INPUTS_PATH = SCRIPT_DIR / "kernel_inputs.json"
 KERNEL_INPUTS_INLINE = None  # __KERNEL_INPUTS_INLINE__
 CURSOR_TIMEOUT = int(os.environ.get("CURSOR_TIMEOUT_SECONDS", "600"))
+AGENT_CURSOR_TIMEOUT = int(os.environ.get("AGENT_CURSOR_TIMEOUT_SECONDS", "1800"))
+SUPPORTED_EXTENSIONS = {".csv", ".parquet", ".pq"}
 
 
 def load_kernel_inputs() -> dict[str, Any]:
@@ -104,11 +106,18 @@ def resolve_agent_binary() -> str:
     raise RuntimeError("Cursor agent 安装后未找到可执行文件")
 
 
-def run_cursor_agent(prompt: str, output_path: Path) -> str:
+def run_cursor_agent(
+    prompt: str,
+    output_path: Path,
+    *,
+    timeout: int | None = None,
+    cwd: Path | None = None,
+) -> str:
     agent_bin = resolve_agent_binary()
+    effective_timeout = timeout if timeout is not None else CURSOR_TIMEOUT
     cmd = [
         "timeout",
-        str(CURSOR_TIMEOUT),
+        str(effective_timeout),
         agent_bin,
         "-p",
         "--force",
@@ -116,13 +125,14 @@ def run_cursor_agent(prompt: str, output_path: Path) -> str:
         "text",
         prompt,
     ]
-    print(f"调用 Cursor agent（超时 {CURSOR_TIMEOUT}s）...")
+    print(f"调用 Cursor agent（超时 {effective_timeout}s，cwd={cwd or Path.cwd()}）...")
     result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
-        timeout=CURSOR_TIMEOUT + 60,
+        timeout=effective_timeout + 60,
         check=False,
+        cwd=str(cwd) if cwd else None,
     )
     text = (result.stdout or "").strip()
     if result.stderr:
@@ -146,7 +156,128 @@ def format_titles(titles: list[str]) -> str:
     return "\n".join(f"- {title}" for title in titles) + "\n"
 
 
+def slug_to_input_path(slug: str) -> Path:
+    normalized = slug.strip().strip("/")
+    if not normalized or "/" not in normalized:
+        raise RuntimeError(f"Invalid dataset slug: {slug}")
+    return Path("/kaggle/input") / normalized.replace("/", "-")
+
+
+def discover_data_files(root: Path) -> list[Path]:
+    files: list[Path] = []
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
+            files.append(path)
+    return files
+
+
+def resolve_dataset_root(slug: str) -> Path:
+    expected = slug_to_input_path(slug)
+    if expected.is_dir():
+        return expected
+
+    input_root = Path("/kaggle/input")
+    if not input_root.is_dir():
+        raise FileNotFoundError(f"Kaggle 挂载目录不存在: {input_root}")
+
+    target = slug.strip().strip("/").replace("/", "-")
+    candidates = [
+        child
+        for child in sorted(input_root.iterdir())
+        if child.is_dir() and not child.name.startswith(".") and target in child.name
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        for child in sorted(input_root.iterdir()):
+            if child.is_dir() and discover_data_files(child):
+                candidates.append(child)
+    if len(candidates) == 1:
+        return candidates[0]
+    if candidates:
+        return candidates[0]
+
+    mounts = [p.name for p in input_root.iterdir() if p.is_dir()]
+    raise FileNotFoundError(
+        f"未找到数据集挂载 {expected}；可用 mounts: {mounts}"
+    )
+
+
+def resolve_parquet_path(slug: str, target_file: str) -> Path:
+    root = resolve_dataset_root(slug)
+    direct = root / target_file
+    if direct.is_file():
+        return direct
+
+    matches = [p for p in discover_data_files(root) if p.name == Path(target_file).name]
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        return matches[0]
+
+    all_files = discover_data_files(root)
+    if len(all_files) == 1:
+        return all_files[0]
+    raise FileNotFoundError(
+        f"在 {root} 下未找到目标文件 {target_file!r}；"
+        f"候选: {[str(p.relative_to(root)) for p in all_files[:10]]}"
+    )
+
+
+def format_dataset_schema(schema: dict[str, Any]) -> str:
+    if not schema:
+        return "（无 schema，请先运行工作流 A 或检查 datasets/ 目录）\n"
+    compact = {
+        "slug": schema.get("slug"),
+        "explored_at": schema.get("explored_at"),
+        "catalog_summary": schema.get("catalog_summary"),
+        "warnings": schema.get("warnings"),
+        "files": [],
+    }
+    for file_info in schema.get("files") or []:
+        compact["files"].append(
+            {
+                "name": file_info.get("name"),
+                "row_count": file_info.get("row_count"),
+                "sample_rows": file_info.get("sample_rows"),
+                "symbol_count_in_sample": file_info.get("symbol_count_in_sample"),
+                "columns": [
+                    {
+                        "name": col.get("name"),
+                        "dtype": col.get("dtype"),
+                        "null_rate": col.get("null_rate"),
+                    }
+                    for col in (file_info.get("columns") or [])
+                ],
+            }
+        )
+    return json.dumps(compact, ensure_ascii=False, indent=2)
+
+
+def setup_agent_workspace(parquet_path: Path, schema: dict[str, Any]) -> Path:
+    WORKING.mkdir(parents=True, exist_ok=True)
+    working_target = WORKING / "query_klines.py"
+    query_src = SCRIPT_DIR / "query_klines.py"
+    if query_src.is_file():
+        shutil.copy2(query_src, working_target)
+    elif QUERY_KLINES_EMBEDDED:
+        working_target.write_text(QUERY_KLINES_EMBEDDED, encoding="utf-8")
+    else:
+        raise FileNotFoundError(f"缺少 query_klines.py: {query_src}")
+
+    os.environ["KLINES_PARQUET_PATH"] = str(parquet_path)
+    os.environ["EXPLORATION_LOG_PATH"] = str(WORKING / "exploration_log.json")
+
+    if schema:
+        (WORKING / "schema.json").write_text(
+            json.dumps(schema, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return working_target
+
+
 EXPLORE_DATASET_EMBEDDED = None  # __EXPLORE_DATASET_EMBEDDED__
+QUERY_KLINES_EMBEDDED = None  # __QUERY_KLINES_EMBEDDED__
 
 
 def ensure_explore_dataset_module() -> None:
@@ -272,9 +403,43 @@ def extract_ideas(text: str) -> list[dict[str, Any]]:
     raise ValueError("无法从 Cursor 输出中解析 JSON 数组")
 
 
+def load_ideas_from_file(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"缺少 {path}")
+    with path.open(encoding="utf-8") as handle:
+        data = json.load(handle)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and isinstance(data.get("ideas"), list):
+        return data["ideas"]
+    raise ValueError(f"{path} 不是 JSON 数组")
+
+
+def finalize_ideas_output() -> None:
+    ideas_path = WORKING / "ideas.json"
+    if ideas_path.is_file():
+        ideas = load_ideas_from_file(ideas_path)
+        print(f"已生成 {len(ideas)} 条想法（ideas.json）")
+        return
+
+    raw_path = WORKING / "ideas_raw.txt"
+    if raw_path.is_file():
+        ideas = extract_ideas(raw_path.read_text(encoding="utf-8"))
+        ideas_path.write_text(json.dumps(ideas, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"已从 ideas_raw.txt 解析 {len(ideas)} 条想法")
+        return
+
+    raise FileNotFoundError("Agent 未产出 ideas.json 或 ideas_raw.txt")
+
+
 def copy_working_artifacts_to_output() -> None:
     """确保 schema/README 等落在 working 目录供 kernels output 拉取。"""
-    for name in ("schema.json", "README.md", "exploration_summary.json"):
+    for name in (
+        "schema.json",
+        "README.md",
+        "exploration_summary.json",
+        "exploration_log.json",
+    ):
         src = WORKING / name
         if src.is_file():
             continue
@@ -283,22 +448,77 @@ def copy_working_artifacts_to_output() -> None:
             shutil.copy2(bundled, src)
 
 
-def main() -> int:
-    inputs = load_kernel_inputs()
+def load_prompt(inputs: dict[str, Any], name: str, key: str) -> str:
+    inline = inputs.get(key)
+    if isinstance(inline, str) and inline.strip():
+        return inline
+    path = SCRIPT_DIR / "prompts" / name
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    raise FileNotFoundError(f"缺少 prompt: {key} / {path}")
+
+
+def run_agent_generate(inputs: dict[str, Any]) -> int:
+    slug = inputs["dataset_slug"]
+    target_file = inputs.get("target_file", "futures/um/klines/1h.parquet")
+    max_ideas = int(inputs.get("max_ideas", 3))
+    existing_titles: list[str] = list(inputs.get("existing_titles") or [])
+    schema: dict[str, Any] = dict(inputs.get("dataset_schema") or {})
+
+    WORKING.mkdir(parents=True, exist_ok=True)
+
+    if not setup_cursor_auth(inputs):
+        print("错误: Cursor 未配置，无法生成想法", file=sys.stderr)
+        return 1
+
+    try:
+        parquet_path = resolve_parquet_path(slug, target_file)
+    except FileNotFoundError as exc:
+        print(f"错误: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Agent 模式：Parquet={parquet_path}")
+    query_tool = setup_agent_workspace(parquet_path, schema)
+
+    idea_schema = inputs.get("idea_schema") or {}
+    agent_template = load_prompt(inputs, "generate-ideas-agent.txt", "agent_prompt_template")
+    agent_prompt = fill_template(
+        agent_template,
+        {
+            "{{DATASET_SLUG}}": slug,
+            "{{PARQUET_PATH}}": str(parquet_path),
+            "{{TARGET_FILE}}": target_file,
+            "{{DATASET_SCHEMA}}": format_dataset_schema(schema),
+            "{{QUERY_TOOL_PATH}}": str(query_tool),
+            "{{MAX_IDEAS}}": str(max_ideas),
+            "{{EXISTING_TITLES}}": format_titles(existing_titles),
+            "{{IDEA_SCHEMA}}": json.dumps(idea_schema, ensure_ascii=False, indent=2),
+        },
+    )
+
+    run_cursor_agent(
+        agent_prompt,
+        WORKING / "ideas_raw.txt",
+        timeout=int(inputs.get("agent_cursor_timeout_seconds") or AGENT_CURSOR_TIMEOUT),
+        cwd=WORKING,
+    )
+
+    try:
+        finalize_ideas_output()
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"警告: {exc}", file=sys.stderr)
+        print("ideas_raw.txt 已保留，Runner 将尝试二次解析", file=sys.stderr)
+
+    copy_working_artifacts_to_output()
+    return 0
+
+
+def run_legacy_generate(inputs: dict[str, Any]) -> int:
     slug = inputs["dataset_slug"]
     mode = inputs.get("mode", "explore_and_generate")
     target_file = inputs.get("target_file", "futures/um/klines/1h.parquet")
     max_ideas = int(inputs.get("max_ideas", 3))
     existing_titles: list[str] = list(inputs.get("existing_titles") or [])
-
-    def load_prompt(name: str, key: str) -> str:
-        inline = inputs.get(key)
-        if isinstance(inline, str) and inline.strip():
-            return inline
-        path = SCRIPT_DIR / "prompts" / name
-        if path.is_file():
-            return path.read_text(encoding="utf-8")
-        raise FileNotFoundError(f"缺少 prompt: {key} / {path}")
 
     WORKING.mkdir(parents=True, exist_ok=True)
 
@@ -324,7 +544,7 @@ def main() -> int:
 
     explore_template_path = SCRIPT_DIR / "prompts" / "explore-dataset.txt"
     if (inputs.get("explore_prompt_template") or explore_template_path.is_file()) and mode != "generate_only":
-        explore_template = load_prompt("explore-dataset.txt", "explore_prompt_template")
+        explore_template = load_prompt(inputs, "explore-dataset.txt", "explore_prompt_template")
         explore_prompt = fill_template(
             explore_template,
             {
@@ -341,13 +561,7 @@ def main() -> int:
         if cached_narrative.is_file():
             narrative = cached_narrative.read_text(encoding="utf-8")
 
-    idea_template_path = SCRIPT_DIR / "prompts" / "generate-ideas-kaggle.txt"
-    try:
-        idea_template = load_prompt("generate-ideas-kaggle.txt", "idea_prompt_template")
-    except FileNotFoundError as exc:
-        print(f"错误: {exc}", file=sys.stderr)
-        return 1
-
+    idea_template = load_prompt(inputs, "generate-ideas-kaggle.txt", "idea_prompt_template")
     idea_schema = inputs.get("idea_schema") or {}
     idea_prompt = fill_template(
         idea_template,
@@ -360,20 +574,23 @@ def main() -> int:
         },
     )
 
-    ideas_raw = run_cursor_agent(idea_prompt, WORKING / "ideas_raw.txt")
+    run_cursor_agent(idea_prompt, WORKING / "ideas_raw.txt")
     try:
-        ideas = extract_ideas(ideas_raw)
-        (WORKING / "ideas.json").write_text(
-            json.dumps(ideas, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        print(f"已生成 {len(ideas)} 条想法并写入 ideas.json")
-    except ValueError as exc:
-        print(f"警告: 无法解析 ideas.json: {exc}", file=sys.stderr)
+        finalize_ideas_output()
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"警告: {exc}", file=sys.stderr)
         print("ideas_raw.txt 已保留，Runner 将尝试二次解析", file=sys.stderr)
 
     copy_working_artifacts_to_output()
     return 0
+
+
+def main() -> int:
+    inputs = load_kernel_inputs()
+    mode = inputs.get("mode", "agent_generate")
+    if mode == "agent_generate":
+        return run_agent_generate(inputs)
+    return run_legacy_generate(inputs)
 
 
 if __name__ == "__main__":

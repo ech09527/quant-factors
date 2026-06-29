@@ -3,12 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["0 6 * * *"]
 
 [vars]
 GITHUB_REPO = "ech09527/quant-factors"
 GITHUB_WORKFLOW_FILE = "factor-ideas.yml"
 VAULT_ADDR = "https://vault.nocsdn.com"
 VAULT_GITHUB_PATH = "github/data/quant-factors"
-MAX_IDEAS = "1"
-KERNEL_MODE = "generate_only"
+MAX_IDEAS = "3"
+KERNEL_MODE = "agent_generate"

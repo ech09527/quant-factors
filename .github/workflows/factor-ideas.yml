@@ -1,4 +1,4 @@
-# 工作流 B：Runner 纯脚本编排；Kaggle Kernel 内 Cursor 探索数据并生成因子想法。
+# 工作流 B：Runner 纯脚本编排；Kaggle Kernel 内 Cursor Agent 自主查 K 线并生成因子想法。
 
 name: Factor Ideas
 
@@ -15,9 +15,9 @@ on:
         required: false
         type: string
       mode:
-        description: "explore_and_generate 或 generate_only"
+        description: "agent_generate（默认）、explore_and_generate 或 generate_only"
         required: false
-        default: "explore_and_generate"
+        default: "agent_generate"
         type: string
 
 concurrency:
@@ -35,7 +35,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
       KAGGLE_KERNEL_SLUG: generate-factor-ideas
       MAX_IDEAS: ${{ inputs.max_ideas || '3' }}
-      KERNEL_MODE: ${{ inputs.mode || 'explore_and_generate' }}
+      KERNEL_MODE: ${{ inputs.mode || 'agent_generate' }}
 
     steps:
       - name: Checkout
@@ -77,7 +77,8 @@ jobs:
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
           CURSOR_AUTH_JSON: ${{ secrets.CURSOR_AUTH_JSON }}
-          KERNEL_LOG_TIMEOUT_SECONDS: "6600"
+          KERNEL_LOG_TIMEOUT_SECONDS: "7200"
+          AGENT_CURSOR_TIMEOUT_SECONDS: "1800"
         run: |
           ARGS=(--existing /tmp/existing.json --max-ideas "${MAX_IDEAS}" --mode "${KERNEL_MODE}")
           if [ -n "${{ inputs.dataset_slug }}" ]; then
