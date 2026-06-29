@@ -1,18 +1,17 @@
 [
   {
-    "title": "横截面主动买入Quote结构溢价",
-    "hypothesis": "在同一1h bar内，若某symbol的主动买入在quote_volume维度上的占比显著高于其在volume维度上的占比（相对universe peers），说明大单更倾向以较高名义金额成交、存在抬价抢筹行为；该微观结构差异在横截面上应预测下一小时相对强弱。",
+    "title": "横截面下影拒绝对称轮动",
+    "hypothesis": "在同一1h bar内，(low与实体下沿距离)/(high-low)相对上影对称项更能刻画低位承接与卖压衰竭；crypto永续多币种市场中，横截面上该「下影拒绝强度」更高的标的，短周期内相对强弱往往延续，反映跨symbol的相对买盘韧性差异。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "universe过滤：quote_volume >= 当日open_time横截面20%分位，且symbol累计1h bar数 >= 72。\n按symbol逐bar计算：\n  buy_quote_share = taker_buy_quote_volume / quote_volume\n  buy_vol_share = taker_buy_volume / volume\n  struct_premium = buy_quote_share - buy_vol_share\n可选：struct_premium = EMA(struct_premium, span=6) 以降低单bar噪声。\n在每个 open_time 上，对universe内全部symbol的 struct_premium 做横截面 rank 或 z-score，得到 factor_cs。\n组合：按 factor_cs 排序构建多空（如做多top 20%、做空bottom 20%）。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较 struct_premium，做多高分位（主动买入Quote结构溢价更高）、做空低分位；持有期为下一根1h bar（open到open）；适用于Binance UM永续多币种1h相对强弱轮动。",
+    "formula_sketch": "universe过滤：quote_volume>当日横截面中位数且symbol历史bar数>=168。按symbol计算：body_lo=min(open,close)，body_hi=max(open,close)，range=max(high-low,eps)，lower_reject=(body_lo-low)/range，upper_reject=(high-body_hi)/range，reject_skew=lower_reject-upper_reject。在每个open_time上对universe内symbol的reject_skew做横截面rank或z-score（可选winsorize 1%/99%）。",
+    "expected_signal": "横截面：做多reject_skew高分位（下影拒绝强于上影）、做空低分位；持有下一根1h bar至close；适用于523个UM永续symbol的多币种相对强弱轮动与多空配对。",
     "risks": [
-      "横截面流动性分层：低quote_volume symbol 的 taker_buy 结构噪声大、滑点高",
-      "新上市或冷启动 symbol 历史bar不足导致 struct_premium 不稳定",
-      "低价/高价币种的 quote-volume 与 volume 天然比例差异可能引入截面伪信号",
-      "极端单边行情下全市场同步抢筹，横截面区分度塌陷",
-      "抽样/幸存者偏差：退市或长期停牌合约未纳入universe"
+      "低quote_volume symbol横截面排序噪声大、实际不可交易",
+      "新上市symbol K线形态样本不足导致截面z-score失真",
+      "极端单边行情下全市场下影/sync形态趋同、截面区分度塌陷",
+      "high-low接近0时range归一化放大微结构噪声"
     ]
   }
 ]
