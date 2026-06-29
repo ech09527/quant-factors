@@ -1,0 +1,51 @@
+{
+  "status": "success",
+  "title": "横截面主动买入占比加速度轮动",
+  "title_hash": "2bb97fc449b15b86354a4e3af9cac074fecd52dcd19f1b8c9f35999ffbd5298f",
+  "formula_hash": "b7f409e799bfa84d729a75b7a4d4b997f98e163659342b96b9925c4727fe06f9",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T12:53:24.044634+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 5748234
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(taker_buy_volume / (volume + 1e-8)) - LAG(taker_buy_volume / (volume + 1e-8), 1) OVER w",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "taker_buy_volume"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.3
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.0028608190493998693,
+    "ic_ir": -0.03215315862208341,
+    "mean_rank_ic": -0.0075679774329438,
+    "rank_ic_ir": -0.08165491819417187,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.4857477025898079
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 192.05774050188793
+  }
+}
