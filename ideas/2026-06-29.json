@@ -1,17 +1,17 @@
 [
   {
-    "title": "横截面短期反转主动流确认轮动",
-    "hypothesis": "在加密货币1h多标的面板中，上一根K线相对universe显著跑输但当期主动买入占比（taker_buy_volume/volume）处于横截面高位的标的，更可能经历散户/短线抛压后的Aggressive买盘吸收，形成1h尺度的相对反转；反之，续跌且主动流弱化的标的相对弱势延续。",
+    "title": "横截面笔均Quote规模排名动量轮动",
+    "hypothesis": "笔均Quote规模（quote_volume/count）上升反映大单或机构参与加深；若某 symbol 在 universe 内该指标的横截面分位持续抬升，说明相对资金结构正在向“大额成交”迁移，短期价格发现可能沿同方向延续。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol、open_time 排序；对每个 symbol 在 bar t 计算：ret_prev = close_t / close_{t-1} - 1；tbr_t = taker_buy_volume_t / volume_t。universe 过滤：quote_volume_t 不低于该 open_time 横截面20%分位，且 symbol 累计有效 bar 数 ≥ 168（约7天1h）。在每个 open_time 分组内：rank_rev = rank(-ret_prev)（上一根相对弱势更高分），rank_flow = rank(tbr_t)，factor_t = 0.5 * (rank_rev + rank_flow) 或组内 z-score( rank_rev * rank_flow )。缺失 volume=0 或 ret_prev 不可算的行剔除。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 对 factor 做分位排序，做多高分位（上一根相对弱势 + 当期主动买入占比偏强），做空低分位（上一根相对强势或续跌且主动流偏弱）；持有期为下一根1h bar（t+1 至 t+2 open_time）；适用于多币种UM永续相对强弱轮动与短周期反转增强。",
+    "formula_sketch": "按 symbol 在每条 1h bar 计算 qpt = quote_volume / count；在每个 open_time 上对 universe 内 symbol 做 qpt 横截面 percentile rank 得 qpt_cs_rank；再算 rank_mom = qpt_cs_rank - qpt_cs_rank.shift(6)（6 根 1h 排名变化）；universe 过滤：同 open_time 下 quote_volume 高于横截面 20% 分位，且 symbol 累计有效 bar 数 ≥ 168；最后在每个 open_time 对 rank_mom 做组内 z-score 或 quintile 分组。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 rank_mom 高分位（笔均 Quote 规模相对排名加速上升），做空低分位；持有期为下一根 1h bar；适用于多币种永续合约相对强弱轮动。",
     "risks": [
-      "quote_volume 分层导致低流动性 symbol 反转信号不可交易或滑点放大",
-      "新上市 symbol 历史 bar 不足导致 ret_prev/tbr 冷启动偏差",
-      "极端单边行情（全市场同向暴跌）下横截面反转因子整体失效",
-      "1h 面板中 symbol 同步性高时截面区分度下降、组合过度拥挤"
+      "quote_volume 分层导致小币 qpt 虚高但实际不可交易",
+      "新上市 symbol count 不稳定造成笔均 Quote 冷启动噪声",
+      "全市场同质放量时横截面排名动量区分度下降",
+      "幸存者偏差使历史 universe 高估因子稳定性"
     ]
   }
 ]
