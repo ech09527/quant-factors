@@ -1,18 +1,17 @@
 [
   {
-    "title": "横截面成交重心-主动流背离轮动",
-    "hypothesis": "Bar 内成交量加权均价（quote_volume/volume）反映真实成交重心在高低区间的位置；若主动买入占比（taker_buy_volume/volume）显著高于该重心所隐含的多空均衡，说明 aggressive buy 在相对低位或均价下方集中出现，存在知情或机构吸筹后的短周期延续；反之主动流弱于成交重心则暗示隐性派发，下一根 1h 相对走弱。",
+    "title": "横截面被动报量收位协同轮动",
+    "hypothesis": "在永续合约1h面上，若价格上涨主要由被动挂单（非taker端）成交承接，且收盘价位于当根K线区间上部，说明存在限价端被吸收的需求而非单纯追价；相对 peers 更强的「被动报量占比×收位强度」协同，预示下一小时相对强弱延续。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "universe 过滤：quote_volume 截面分位 >= 20%，且 symbol 累计有效 1h bar 数 >= 168。按 symbol 计算：avg_px = quote_volume / volume；range_pos = (avg_px - low) / (high - low + 1e-8)；taker_imb = taker_buy_volume / volume - 0.5；divergence = taker_imb - (range_pos - 0.5)。可选对 divergence 做 3 根 1h EMA 平滑。按 open_time 分组，对 universe 内各 symbol 的 divergence 做横截面 rank 或 z-score，得到 factor_cs。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 排序，做多 factor_cs 高分位（主动流强于成交重心隐含方向），做空低分位；持有期为下一根 1h bar（open_{t+1} 至 close_{t+1} 收益）；适用于多币种永续合约相对强弱轮动与多空配对。",
+    "formula_sketch": "universe：quote_volume 位于当日 open_time 横截面分位≥20%，且 symbol 累计 bar 数≥168。按 symbol 计算：passive_quote_ratio = (quote_volume - taker_buy_quote_volume) / quote_volume；close_loc = (close - low) / (high - low + 1e-8)；ret_sign = sign(close - open)；raw = close_loc * passive_quote_ratio * ret_sign（仅 ret_sign>0 时取 raw，否则取 -close_loc * passive_quote_ratio 以区分下跌协同）。在每个 open_time 上对 universe 内 symbol 的 raw 做横截面 rank 或 z-score 得 factor_cs。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 对 factor_cs 排序，做多高分位（高 passive_quote_ratio 且收位偏强、方向与涨跌一致），做空低分位；持有期为下一根 1h（open_time 顺延 1 bar）；适用于多币种永续相对强弱轮动与多空组合。",
     "risks": [
-      "低 quote_volume 标的 avg_px 噪声大，横截面排序易受流动性分层扭曲",
-      "新上市 symbol 历史 bar 不足导致 range_pos 与 taker_imb 估计不稳定",
-      "全市场极端共振行情下截面分化 collapse、因子区分度下降",
-      "taker 字段为聚合近似，无法区分 maker/taker 微观结构变化",
-      "同 bar 内 signal 与执行时点需严格对齐至 bar 收盘，避免 lookahead"
+      "低 quote_volume symbol 的 passive_quote_ratio 估计噪声大，横截面排序易被流动性分层扭曲",
+      "新上市 symbol 历史 bar 不足导致 close_loc 与 passive 占比不稳定",
+      "极端单边行情下全市场 passive/taker 结构同步偏移，截面区分度塌陷",
+      "全样本仅 head 抽样可见单 symbol，全量 523 symbol 横截面需验证幸存者偏差"
     ]
   }
 ]
