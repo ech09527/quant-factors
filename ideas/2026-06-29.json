@@ -1,18 +1,17 @@
 [
   {
-    "title": "横截面窄实体主动流集中度轮动",
-    "hypothesis": "当单根1h K线呈现窄实体（高低振幅内价格犹豫、方向未明）却伴随显著主动买入占比时，往往反映知情资金在盘整区间内积极吃单、积累头寸；在永续多币种市场中，这类「犹豫期的主动流集中」更可能先于短周期方向选择，从而在横截面上形成下一根bar的相对强弱分化。",
+    "title": "横截面净主动流单位振幅吸收轮动",
+    "hypothesis": "在同一 1h bar 内，净主动买入（以 quote 计）相对振幅的“吸收效率”反映多空在该价位区间的博弈结果：横截面上净主动流大但振幅偏小的标的，说明主动买盘在 peers 中更高效地承接卖压且价格尚未充分反应；下一根 bar 存在相对延续上涨的概率。反之，净主动卖出伴随极小振幅则预示相对弱势延续。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算：range = high - low；body_share = abs(close - open) / (range + eps)；indecision = 1 - body_share；taker_buy_ratio = taker_buy_volume / volume；raw = taker_buy_ratio * indecision（可选乘以 sign(close - open) 与Bar方向对齐）。universe 过滤：quote_volume 在当日 open_time 截面不低于20分位、count > 0、symbol 累计 bar 数 >= 168。在每个 open_time 上对 raw 做截面 rank 或 z-score（winsorize 极端值）。",
-    "expected_signal": "横截面：做多 open_time 截面 rank 最高组（窄实体+高主动买入占比），做空最低组；持有期为下一根 1h bar（open_time 对齐）；适用于多币种永续合约相对强弱轮动与多空组合。",
+    "formula_sketch": "按 symbol 逐 bar 计算：net_taker_quote = 2 * taker_buy_quote_volume - quote_volume；mid = (high + low) / 2；range_frac = (high - low) / (mid + 1e-8)；flow_intensity = net_taker_quote / (quote_volume + 1e-8)；absorption = flow_intensity / (range_frac + 1e-8)。universe 过滤：quote_volume 在 open_time 截面不低于 20 分位；symbol 累计有效 bar 数 >= 168；剔除 high <= low 或 quote_volume <= 0。按 open_time 分组，对 universe 内 absorption 做横截面 rank 或 winsorize 后 z-score。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 排序，做多 absorption 高分位（净主动买入相对振幅吸收强），做空低分位（净主动卖出且振幅压缩）；等权或流动性加权多空，持有至下一根 1h bar（open_time 对齐）；适用于多币种永续合约相对强弱轮动。",
     "risks": [
-      "high-low 极小导致 body_share 与 indecision 数值爆炸，横截面排序失真",
-      "全市场同向暴涨暴跌时截面分化消失、因子失效",
-      "低 quote_volume 标的 taker_buy_ratio 噪声大、流动性分层造成不可交易",
-      "新上市 symbol 历史不足导致 rolling 过滤与冷启动偏差",
-      "taker_buy 字段为聚合近似，极端行情下截面信号可能过拟合"
+      "低 quote_volume symbol 的 range_frac 不稳定，横截面分位易受流动性分层扭曲",
+      "新上市 symbol 历史 bar 不足导致 absorption 估计噪声大",
+      "极端行情下全市场同步放大振幅，截面 rank 区分度塌陷",
+      "taker_buy_quote_volume 与 quote_volume 口径不一致时可能引入幸存者偏差与不可交易标的"
     ]
   }
 ]
