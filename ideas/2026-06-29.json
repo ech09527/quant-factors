@@ -1,17 +1,17 @@
 [
   {
-    "title": "横截面Quote-基量增速差轮动",
-    "hypothesis": "quote_volume 与 volume 的同步变化隐含成交均价变动：当某 symbol 的 quote_volume 增速持续高于 volume 增速时，表明单位基量对应的报价金额抬升（主动抬价/大单溢价成交），反映知情或趋势资金愿意以更高均价承接；在 1h 多币种横截面上，这类「价量增速错配」应相对 peers 具有短期延续性，适用于 crypto 永续相对强弱轮动。",
+    "title": "横截面主动买入均价溢价轮动",
+    "hypothesis": "taker_buy_quote_volume / taker_buy_volume 刻画该 bar 内主动吃单成交均价；若主动买入均价显著高于 close，说明买方在 bar 内愿意以溢价抢筹，反映短期需求强度与信息优势；在 crypto 1h 多币种 universe 中，横截面上主动溢价更高的 symbol 下一 bar 更可能延续相对强势，反之溢价偏低或折价者相对偏弱。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 在 1h 面板上计算：vol_growth = volume / volume.shift(1) - 1；quote_growth = quote_volume / quote_volume.shift(1) - 1；spread = quote_growth - vol_growth（可选 3h 滚动均值平滑）。universe 过滤：每个 open_time 仅保留 quote_volume 位于当日横截面 ≥30 分位且 symbol 历史有效 bar 数 ≥168 的标的。按 open_time 分组，对 spread 做组内横截面 rank 或 z-score 得到因子值 factor_cs。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较，做多 factor_cs 高分位（quote 增速显著快于基量增速、均价抬升），做空低分位；持有期为下一根 1h bar（open_time t 信号，t+1 收益）；适用多币种永续合约相对强弱轮动与多空配对。",
+    "formula_sketch": "对每个 symbol、每个 1h bar：taker_buy_avg = taker_buy_quote_volume / max(taker_buy_volume, eps)；premium = (taker_buy_avg - close) / close；可选 3-bar EMA 平滑：premium_ema = EMA(premium, 3)。Universe 过滤：quote_volume 在当 open_time 横截面排名前 80%；symbol 累计有效 bar 数 >= 168；剔除 taker_buy_volume=0 或 count<100 的 bar。在每个 open_time 上对 universe 内 symbol 的 premium_ema 做横截面 rank 或 z-score，得到 cs_premium。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较 cs_premium；做多 cs_premium 高分位（Top 20%）、做空低分位（Bottom 20%），等权或 quote_volume 加权；持有期下一根 1h bar（open_time 至下一 open_time 收益）；适用于多币种永续相对强弱轮动与 1h 频率截面多空。",
     "risks": [
-      "低 quote_volume symbol 的 spread 估计噪声大，横截面分层后仍可能不可交易",
-      "新上市 symbol 缺少足够 shift/滚动窗口，冷启动期因子失真",
-      "极端行情（全网暴跌/暴涨）下截面 rank 同质化，因子区分度与收益衰减",
-      "quote_volume 与 volume 高度相关，spread 对异常值与零成交量 bar 敏感，需 winsorize"
+      "低 quote_volume symbol 的 taker_buy 均价噪声大，横截面排序易被流动性分层扭曲",
+      "新上市 symbol 历史 bar 不足导致 premium_ema 冷启动偏误",
+      "全市场同向极端行情下截面分化收窄、因子区分度失效",
+      "taker_buy 字段为聚合统计，无法区分 spoof/撤单后的真实意图，存在过拟合风险"
     ]
   }
 ]
