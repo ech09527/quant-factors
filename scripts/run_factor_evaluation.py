@@ -39,6 +39,9 @@ from scripts.write_evaluation_to_project import write_evaluation  # noqa: E402
 
 from scripts.bundle_evaluate_kernel import build_bundled_kernel_source
 
+DEFAULT_KERNEL_SLUG = "evaluate-factor-idea"
+DEFAULT_TARGET_FILE = "futures/um/klines/1h.parquet"
+
 
 def run_kernel_once(
     *,
