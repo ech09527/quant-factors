@@ -62,6 +62,7 @@ def enrich_idea(raw: dict[str, Any]) -> dict[str, Any]:
         "title": raw["title"],
         "title_hash": raw["title_hash"],
         "project_item_id": raw.get("project_item_id"),
+        "content_id": raw.get("content_id"),
         **parsed,
     }
     idea["formula_hash"] = formula_hash(idea["formula_sketch"])
