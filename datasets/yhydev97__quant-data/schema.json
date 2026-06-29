@@ -1,6 +1,6 @@
 {
   "slug": "yhydev97/quant-data",
-  "explored_at": "2026-06-28T13:00:13+00:00",
+  "explored_at": "2026-06-29T04:41:05+00:00",
   "kaggle_version": null,
   "input_path": "/kaggle/input/datasets",
   "expected_input_path": "/kaggle/input/yhydev97-quant-data",
@@ -10,7 +10,15 @@
     ],
     "data_file_count": 1,
     "inferred_kind": "加密货币永续合约 1 小时 K 线（Binance UM 格式）",
-    "symbol_count_in_sample": 1
+    "symbol_count_in_sample": 1,
+    "total_row_count": 10051729,
+    "symbol_count_full": 523,
+    "date_range_full": {
+      "column": "open_time",
+      "start": "2020-01-01",
+      "end": "2026-05-31",
+      "unit": "epoch_ms"
+    }
   },
   "files": [
     {
