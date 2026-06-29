@@ -1,0 +1,50 @@
+{
+  "status": "success",
+  "title": "单标的量价背离衰竭",
+  "title_hash": "ea40ba85f77f5185a36e5af6885eb709ce8bcc58a0c2fec9f0911b69a4eceb83",
+  "formula_hash": "b66d66abf8bff9d39dace0604cca1049c51fe90cf8bdb8078fd53f943a18db17",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T13:53:36.036765+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "SIGN(close / LAG(close, 6) OVER w - 1) * (1 - quote_volume / (AVG(quote_volume) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8))",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "quote_volume"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 8.653213207707549e-05,
+    "ic_ir": 0.0008604149695577177,
+    "mean_rank_ic": 0.00904206024801858,
+    "rank_ic_ir": 0.09092897306804675,
+    "n_periods": 29920,
+    "ic_positive_ratio": 0.4994652406417112
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
