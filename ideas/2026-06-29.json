@@ -1,18 +1,18 @@
 [
   {
-    "title": "横截面开盘锚位-净主动Quote流背离轮动",
-    "hypothesis": "在1h多标的面板中，当某symbol开盘价位于自身bar振幅上端（open_anchor高）但净主动Quote流（taker_buy_quote_volume减taker_sell_quote_volume）在universe内偏负，说明高位起点与主动订单流方向不一致，存在虚高开盘后的兑现压力；反之低位开盘伴随净主动Quote买入占优，更可能延续相对强势。横截面排序可捕捉这种「价格锚点-流方向」错配的相对收益差。",
+    "title": "横截面相对Quote turnover价格推进效率轮动",
+    "hypothesis": "在同一1h截面内，单位相对报价成交额所实现的Bar价格推进幅度反映信息到达效率：推进效率高者说明同等流动性消耗下价格发现更清晰，短期延续性更强；推进效率低者（高Quote消耗、低振幅）则反映筹码换手拥堵或假突破，相对走弱。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "1) 按symbol逐bar计算：open_anchor = (open - low) / (high - low + eps)；taker_sell_quote_volume = quote_volume - taker_buy_quote_volume；net_taker_quote = taker_buy_quote_volume - taker_sell_quote_volume；net_q_ratio = net_taker_quote / (quote_volume + eps)。2) 单标的背离度：div = open_anchor - 0.5 - 0.5 * net_q_ratio（或对 open_anchor、net_q_ratio 先做symbol内24h rolling z-score再组合）。3) Universe过滤：quote_volume >= 截面20%分位；symbol累计bar数 >= 168；剔除 (high-low)/close < 1e-4 的近似零振幅bar。4) 按 open_time 分组，对universe内symbol的div做横截面 rank 或 z-score 得 factor。5) 可选：对 factor 做 quote_volume 加权或分层中性化。",
-    "expected_signal": "横截面：做多低分位（低位开盘锚位且净主动Quote买入占优），做空高分位（高位开盘锚位且净主动Quote卖出占优）；信号在 open_time 收盘后生成，持有期为下一根1h（open-to-open或close-to-close）；适用于523个UM永续合约的多币种相对强弱轮动与多空配对。",
+    "formula_sketch": "按 symbol 在 1h 面板上计算：ret_move = abs(close/open - 1)；quote_turn_rel = quote_volume / SMA(quote_volume, 24)（按 symbol 时序滚动）；efficiency = ret_move / (quote_turn_rel + 1e-8)。Universe 过滤：每个 open_time 剔除 quote_volume 低于截面 20 分位的 symbol，且 symbol 历史 bar 数 >= 168。按 open_time 分组，对 universe 内 efficiency 做横截面 rank（或 z-score），可选对 ret_move 与 sign(close-open) 同号约束后再排序。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 排序，做多 efficiency 高分位（如前 20%），做空低分位（后 20%）；持有期为下一根 1h bar（open_time 顺延 1 期）；适用于多币种永续合约 1h 相对强弱轮动与多空组合。",
     "risks": [
-      "quote_volume低的symbol在横截面排序中噪声大且实际不可交易",
-      "新上市symbol历史bar不足导致open_anchor与net_q_ratio估计不稳定",
-      "极端单边行情中全市场同向波动、截面分化减弱导致因子失效",
-      "high-low极窄时open_anchor分母过小产生异常值干扰截面排序",
-      "幸存者偏差：退市或长期停牌symbol未纳入universe"
+      "低 quote_volume symbol 的 efficiency 估计噪声大，横截面分层后尾部不可交易",
+      "新上市 symbol SMA 冷启动导致 efficiency 失真",
+      "极端行情下全市场同步高换手，截面 rank 区分度塌陷",
+      "幸存者偏差使历史 universe 流动性结构偏乐观",
+      "abs 收益口径忽略方向，单边趋势市可能引入系统性偏误"
     ]
   }
 ]
