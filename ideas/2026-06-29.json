@@ -1,18 +1,18 @@
 [
   {
-    "title": "横截面笔数密度偏离轮动",
-    "hypothesis": "在加密货币永续 1h 面板上，count/quote_volume 反映单位成交额对应的成交笔数（交易碎片化程度）。当某 symbol 当前笔数密度相对其自身近 24 根滚动中位数显著偏低时，往往对应单笔成交额抬升、可能隐含更大单或机构型成交；在同一 open_time 横截面上，相对更低笔数密度偏离的标的短期延续性可能更强，而高碎片化偏离标的更易出现噪声交易后的均值回归。",
+    "title": "横截面主动买入Quote结构溢价",
+    "hypothesis": "在同一1h bar内，若某symbol的主动买入在quote_volume维度上的占比显著高于其在volume维度上的占比（相对universe peers），说明大单更倾向以较高名义金额成交、存在抬价抢筹行为；该微观结构差异在横截面上应预测下一小时相对强弱。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "1) 按 symbol 计算 density_t = count / quote_volume；2) 计算 density_dev_t = density_t / median(density, 窗口=24 根 1h) - 1（需 symbol 历史 bar 数 >= 168 且 quote_volume > 0）；3) universe 过滤：在每个 open_time 仅保留 quote_volume 不低于当日横截面 20 分位、且近 7 日 median(quote_volume) > 0 的 symbol；4) 按 open_time 分组，对 density_dev_t 做 winsorize 后计算横截面 rank 或 z-score，得到 cs_factor_t；5) 信号在 bar close 生成，用于下一根 1h 收益评估。",
-    "expected_signal": "横截面：在同一 open_time 跨 symbol 排序，做多 cs_factor 低分位（笔数密度相对自身偏低、单笔成交额偏大），做空高分位（碎片化异常升高）；持有期为下一根 1h bar；适用于多币种永续相对强弱轮动与多空组合。",
+    "formula_sketch": "universe过滤：quote_volume >= 当日open_time横截面20%分位，且symbol累计1h bar数 >= 72。\n按symbol逐bar计算：\n  buy_quote_share = taker_buy_quote_volume / quote_volume\n  buy_vol_share = taker_buy_volume / volume\n  struct_premium = buy_quote_share - buy_vol_share\n可选：struct_premium = EMA(struct_premium, span=6) 以降低单bar噪声。\n在每个 open_time 上，对universe内全部symbol的 struct_premium 做横截面 rank 或 z-score，得到 factor_cs。\n组合：按 factor_cs 排序构建多空（如做多top 20%、做空bottom 20%）。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较 struct_premium，做多高分位（主动买入Quote结构溢价更高）、做空低分位；持有期为下一根1h bar（open到open）；适用于Binance UM永续多币种1h相对强弱轮动。",
     "risks": [
-      "横截面：低 quote_volume symbol 的 count 噪声大，分位排序易受流动性分层扭曲",
-      "新上市或冷启动 symbol 的 24h 滚动中位数不稳定，需最小上市 bar 数过滤",
-      "极端行情下全市场 count 同步激增，截面分化收窄导致因子失效",
-      "幸存者偏差：universe 随上架/下架变化，历史回测需固定可交易集合",
-      "同 bar 内 count 与 quote_volume 高度相关，参数窗口过拟合风险"
+      "横截面流动性分层：低quote_volume symbol 的 taker_buy 结构噪声大、滑点高",
+      "新上市或冷启动 symbol 历史bar不足导致 struct_premium 不稳定",
+      "低价/高价币种的 quote-volume 与 volume 天然比例差异可能引入截面伪信号",
+      "极端单边行情下全市场同步抢筹，横截面区分度塌陷",
+      "抽样/幸存者偏差：退市或长期停牌合约未纳入universe"
     ]
   }
 ]
