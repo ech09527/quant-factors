@@ -133,26 +133,49 @@ def compute_parquet_full_stats(path: Path) -> dict[str, Any]:
     if not columns_to_read:
         return stats
 
-    try:
-        table = pf.read(columns=columns_to_read)
-    except Exception:
-        return stats
-
-    if "symbol" in columns_to_read:
-        sym_col = table.column("symbol")
-        stats["symbol_count_full"] = int(sym_col.unique().length())
-
     time_col = None
     for candidate in ("open_time", "close_time"):
         if candidate in columns_to_read:
             time_col = candidate
             break
 
-    if time_col:
-        numeric = pd.to_numeric(
-            pd.Series(table.column(time_col).to_pylist()), errors="coerce"
-        )
-        parsed, unit = parse_datetime_series(numeric)
+    symbols: set[str] = set()
+    numeric_min: float | None = None
+    numeric_max: float | None = None
+
+    try:
+        for row_group in range(pf.num_row_groups):
+            table = pf.read_row_group(row_group, columns=columns_to_read)
+            if "symbol" in columns_to_read:
+                symbols.update(
+                    str(value)
+                    for value in table.column("symbol").to_pylist()
+                    if value is not None
+                )
+            if time_col:
+                numeric = pd.to_numeric(
+                    pd.Series(table.column(time_col).to_pylist()), errors="coerce"
+                )
+                batch_min = numeric.min()
+                batch_max = numeric.max()
+                if pd.notna(batch_min):
+                    batch_min_f = float(batch_min)
+                    numeric_min = (
+                        batch_min_f if numeric_min is None else min(numeric_min, batch_min_f)
+                    )
+                if pd.notna(batch_max):
+                    batch_max_f = float(batch_max)
+                    numeric_max = (
+                        batch_max_f if numeric_max is None else max(numeric_max, batch_max_f)
+                    )
+    except Exception:
+        return stats
+
+    if "symbol" in columns_to_read and symbols:
+        stats["symbol_count_full"] = len(symbols)
+
+    if time_col and numeric_min is not None and numeric_max is not None:
+        parsed, unit = parse_datetime_series(pd.Series([numeric_min, numeric_max]))
         valid = parsed.dropna()
         if not valid.empty and unit:
             stats["date_range_full"] = {
@@ -171,7 +194,20 @@ def read_sample(path: Path) -> pd.DataFrame:
         if suffix == ".csv":
             return pd.read_csv(path, nrows=SAMPLE_ROWS, low_memory=False)
         if suffix in {".parquet", ".pq"}:
-            df = pd.read_parquet(path)
+            import pyarrow.parquet as pq
+
+            pf = pq.ParquetFile(path)
+            chunks: list[pd.DataFrame] = []
+            total_rows = 0
+            for row_group in range(pf.num_row_groups):
+                chunk = pf.read_row_group(row_group).to_pandas()
+                chunks.append(chunk)
+                total_rows += len(chunk)
+                if total_rows >= SAMPLE_ROWS:
+                    break
+            if not chunks:
+                return pd.DataFrame()
+            df = pd.concat(chunks, ignore_index=True)
             if len(df) > SAMPLE_ROWS:
                 return df.head(SAMPLE_ROWS).copy()
             return df

@@ -90,6 +90,21 @@ def select_dataset_slug(entries: list[dict[str, Any]], slug_filter: str | None) 
     return str(enabled[0]["slug"])
 
 
+def _print_kernel_diagnostics(output_dir: Path) -> None:
+    """打印 Kernel 产出中的诊断信息，便于 Actions 日志排查。"""
+    for name in (
+        "exploration_summary.json",
+        "schema.json",
+        "exploration_narrative_raw.txt",
+        "ideas_raw.txt",
+    ):
+        path = output_dir / name
+        if path.is_file():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            preview = text[:2000] + ("..." if len(text) > 2000 else "")
+            print(f"\n--- Kernel 产出预览: {name} ---\n{preview}\n")
+
+
 def bundle_kernel(kernel_dir: Path, repo: Path) -> None:
     prompts_dir = kernel_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
@@ -314,10 +329,17 @@ def run_kernel_once(
         push_kernel(kernel_dir, dry_run=dry_run)
         wait_for_kernel_logs(kernel, log_timeout, dry_run=dry_run)
         status = wait_for_kernel_complete(kernel, log_timeout, dry_run=dry_run)
+
+        if not dry_run:
+            try:
+                download_kernel_output(kernel, output_dir, dry_run=False)
+                _print_kernel_diagnostics(output_dir)
+            except subprocess.CalledProcessError as exc:
+                print(f"警告: 拉取 Kernel 产出失败: {exc}", file=sys.stderr)
+
         if status != "complete":
             raise RuntimeError(f"Kernel 未成功完成，status={status}")
 
-        download_kernel_output(kernel, output_dir, dry_run=dry_run)
         return status
 
     finally:
