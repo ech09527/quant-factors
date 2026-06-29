@@ -145,8 +145,8 @@ def write_minimal_validation_parquet(
     path: Path,
     *,
     sample_start_ms: int = 1_672_531_200_000,
-    n_symbols: int = 6,
-    n_hours: int = 220,
+    n_symbols: int = 40,
+    n_hours: int = 250,
 ) -> None:
     """写入用于 signal_sql 校验的最小 parquet（覆盖常见 universe 窗口长度）。"""
     rows: list[dict[str, Any]] = []

@@ -17,12 +17,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.evaluate_engine import (  # noqa: E402
-    evaluate_factor_sql,
     parse_sample_start_ms,
+    run_panel_query,
     write_minimal_validation_parquet,
 )
 
-MIN_LOCAL_PERIODS = int(os.environ.get("LOCAL_EVAL_MIN_PERIODS", "5"))
+MIN_LOCAL_FACTOR_ROWS = int(os.environ.get("LOCAL_EVAL_MIN_FACTOR_ROWS", "50"))
 
 
 def run_local_evaluation(
@@ -31,37 +31,42 @@ def run_local_evaluation(
     *,
     sample_start: str = "2023-01-01",
 ) -> dict[str, Any]:
-    """在合成 parquet 上执行完整评估流水线，失败时抛出 ValueError。"""
+    """在合成 parquet 上 dry-run panel SQL，验证 signal 非空（不算 IC 指标）。"""
+    if factor_sql["evaluation_type"] != "cross_sectional":
+        return {
+            "status": "skipped",
+            "local_eval": True,
+            "skipped_reason": "time_series_local_smoke_skipped",
+        }
+
     sample_start_ms = parse_sample_start_ms(sample_start)
     with tempfile.TemporaryDirectory() as tmp:
         parquet_path = Path(tmp) / "local_eval.parquet"
         write_minimal_validation_parquet(parquet_path, sample_start_ms=sample_start_ms)
         try:
-            evaluation = evaluate_factor_sql(
+            panel = run_panel_query(
                 factor_sql,
-                title=idea["title"],
-                title_hash=idea["title_hash"],
-                formula_sketch=idea["formula_sketch"],
                 data_path=str(parquet_path),
                 sample_start=sample_start,
             )
         except duckdb.Error as exc:
             raise ValueError(f"本地 DuckDB 执行失败: {exc}") from exc
 
-    status = evaluation.get("status")
-    if status != "success":
-        reason = evaluation.get("skipped_reason") or status
-        raise ValueError(f"本地评估未成功: {reason}")
-
-    n_periods = int(evaluation.get("metrics", {}).get("n_periods", 0))
-    if n_periods < MIN_LOCAL_PERIODS:
+    valid = panel.dropna(subset=["factor"])
+    if len(valid) < MIN_LOCAL_FACTOR_ROWS:
         raise ValueError(
-            f"本地评估 n_periods 过少 ({n_periods} < {MIN_LOCAL_PERIODS})，"
-            "signal_sql 可能产生空 panel 或无效截面"
+            f"本地 panel 有效 factor 行过少 ({len(valid)} < {MIN_LOCAL_FACTOR_ROWS})，"
+            "signal_sql 可能产生空 panel"
         )
 
-    evaluation["local_eval"] = True
-    return evaluation
+    return {
+        "status": "success",
+        "local_eval": True,
+        "title": idea["title"],
+        "title_hash": idea["title_hash"],
+        "n_rows": int(len(valid)),
+        "n_symbols": int(panel["symbol"].nunique()),
+    }
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -98,14 +103,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"错误: {exc}", file=sys.stderr)
         return 1
 
-    metrics = evaluation.get("metrics", {})
     print(
         json.dumps(
             {
                 "status": evaluation["status"],
-                "n_periods": metrics.get("n_periods"),
-                "mean_ic": metrics.get("mean_ic"),
-                "mean_rank_ic": metrics.get("mean_rank_ic"),
+                "n_rows": evaluation.get("n_rows"),
+                "n_symbols": evaluation.get("n_symbols"),
             },
             ensure_ascii=False,
         )

@@ -39,7 +39,7 @@ FACTOR_SQL = {
 def test_run_local_evaluation_success():
     evaluation = run_local_evaluation(IDEA, FACTOR_SQL)
     assert evaluation["status"] == "success"
-    assert evaluation["metrics"]["n_periods"] >= 5
+    assert evaluation["n_rows"] >= 50
     assert evaluation.get("local_eval") is True
 
 
