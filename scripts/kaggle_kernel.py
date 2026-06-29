@@ -148,15 +148,10 @@ def inject_kernel_inputs_inline(py_path: Path, payload: dict[str, Any]) -> None:
     serialized = json.dumps(payload, ensure_ascii=False)
     replacement = f"KERNEL_INPUTS_INLINE = {json.dumps(serialized)}  {KERNEL_INPUTS_MARKER}"
     text = py_path.read_text(encoding="utf-8")
-    new_text, count = re.subn(
-        r"^KERNEL_INPUTS_INLINE = .*$",
-        replacement,
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if count == 0:
+    match = re.search(r"^KERNEL_INPUTS_INLINE = .*$", text, flags=re.MULTILINE)
+    if not match:
         raise RuntimeError(f"无法在 {py_path} 中找到 KERNEL_INPUTS_INLINE 注入点")
+    new_text = text[: match.start()] + replacement + text[match.end() :]
     py_path.write_text(new_text, encoding="utf-8")
 
 
@@ -164,15 +159,11 @@ def remove_kernel_inputs_inline(py_path: Path) -> None:
     import re
 
     text = py_path.read_text(encoding="utf-8")
-    if KERNEL_INPUTS_MARKER not in text and "KERNEL_INPUTS_INLINE = None" in text:
+    match = re.search(r"^KERNEL_INPUTS_INLINE = .*$", text, flags=re.MULTILINE)
+    if not match:
         return
-    text = re.sub(
-        r"^KERNEL_INPUTS_INLINE = .*$",
-        f"KERNEL_INPUTS_INLINE = None  {KERNEL_INPUTS_MARKER}",
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
+    replacement = f"KERNEL_INPUTS_INLINE = None  {KERNEL_INPUTS_MARKER}"
+    text = text[: match.start()] + replacement + text[match.end() :]
     py_path.write_text(text, encoding="utf-8")
 
 
