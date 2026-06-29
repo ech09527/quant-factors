@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "横截面单位振幅报量深度轮动",
+  "title_hash": "4784d22658629bbf0674c1649988106a8666a4173a226153872745e29eb790ce",
+  "formula_hash": "d7f389dca4afc3aa51506c518c26dfe78f86d1b0117b3802fc190fdefc198e31",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T13:26:02.201739+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569206
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "CASE WHEN (high - low) / close > 1e-4 THEN (quote_volume / (high - low + 1e-8)) / (QUANTILE_CONT(quote_volume / (high - low + 1e-8), 0.5) OVER (w ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8) ELSE NULL END",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 72,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.00028616768669826725,
+    "ic_ir": -0.0029430737366226353,
+    "mean_rank_ic": -0.004131701599664868,
+    "rank_ic_ir": -0.042968801881273555,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.49964912280701756
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.49019280248604
+  }
+}
