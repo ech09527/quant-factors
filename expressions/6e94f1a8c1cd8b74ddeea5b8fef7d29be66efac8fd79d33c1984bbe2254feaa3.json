@@ -1,0 +1,21 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "CASE WHEN (high - low) / NULLIF(close, 0) >= 1e-4 THEN (open - low) / (high - low + 1e-8) - 0.5 - 0.5 * (2.0 * taker_buy_quote_volume - quote_volume) / (quote_volume + 1e-8) ELSE NULL END",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": [
+      "open",
+      "high",
+      "low",
+      "close"
+    ],
+    "min_symbol_bars": 168,
+    "cs_quantile_gte": {
+      "col": "quote_volume",
+      "q": 0.2
+    }
+  }
+}

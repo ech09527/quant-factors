@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "横截面开盘锚位-净主动Quote流背离轮动",
+  "title_hash": "6e94f1a8c1cd8b74ddeea5b8fef7d29be66efac8fd79d33c1984bbe2254feaa3",
+  "formula_hash": "659d703283f526da3d4df57acb7a223663c3e1fedae19202d0121c3c16034795",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T14:36:09.713101+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "CASE WHEN (high - low) / NULLIF(close, 0) >= 1e-4 THEN (open - low) / (high - low + 1e-8) - 0.5 - 0.5 * (2.0 * taker_buy_quote_volume - quote_volume) / (quote_volume + 1e-8) ELSE NULL END",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.004552313434118184,
+    "ic_ir": 0.043429618744566266,
+    "mean_rank_ic": 0.019306638198126863,
+    "rank_ic_ir": 0.17857596829900796,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.5133834586466165
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
