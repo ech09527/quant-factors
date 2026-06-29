@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "横截面上影拒绝相对轮动",
+  "title_hash": "000f1dea1577c5863efd666311d6314393a42e6a4ea61ffac681ea13cc1155f8",
+  "formula_hash": "ba6ace490382b195f8af44d4776992ccd2f32afd2e19ef74b77a876c0b00b0ab",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-29T12:47:57.642339+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(high - GREATEST(open, close)) / NULLIF(high - low, 0)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": 0.006875152521088031,
+    "ic_ir": 0.07168289116744846,
+    "mean_rank_ic": 0.01035109353604654,
+    "rank_ic_ir": 0.1018796531582465,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.5305597326649958
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
