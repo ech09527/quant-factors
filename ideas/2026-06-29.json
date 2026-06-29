@@ -1,17 +1,18 @@
 [
   {
-    "title": "横截面下影拒绝对称轮动",
-    "hypothesis": "在同一1h bar内，(low与实体下沿距离)/(high-low)相对上影对称项更能刻画低位承接与卖压衰竭；crypto永续多币种市场中，横截面上该「下影拒绝强度」更高的标的，短周期内相对强弱往往延续，反映跨symbol的相对买盘韧性差异。",
+    "title": "横截面Bar方向效率延续轮动",
+    "hypothesis": "在1h K线中，(close-open)/(high-low) 衡量单根Bar内价格沿开盘方向的推进效率；效率越高说明多空博弈结果越单边、路径越“干净”。在同一 open_time 上，效率相对更高的永续合约往往处于短期信息扩散或趋势自我强化阶段，下一根1h 相对 universe 仍可能延续强势；效率极低（震荡收阴/收阳但振幅大）的标的则更可能相对走弱。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "universe过滤：quote_volume>当日横截面中位数且symbol历史bar数>=168。按symbol计算：body_lo=min(open,close)，body_hi=max(open,close)，range=max(high-low,eps)，lower_reject=(body_lo-low)/range，upper_reject=(high-body_hi)/range，reject_skew=lower_reject-upper_reject。在每个open_time上对universe内symbol的reject_skew做横截面rank或z-score（可选winsorize 1%/99%）。",
-    "expected_signal": "横截面：做多reject_skew高分位（下影拒绝强于上影）、做空低分位；持有下一根1h bar至close；适用于523个UM永续symbol的多币种相对强弱轮动与多空配对。",
+    "formula_sketch": "universe 过滤：每个 open_time 仅保留 quote_volume 位于截面中位数以上（或 > 固定 USDT 阈值）且 symbol 历史累计 bar 数 >= 168 的标的；剔除 high==low 的零振幅 bar。\n按 symbol 逐 bar 计算：range = high - low；body_eff = (close - open) / (range + 1e-8)，取值约在 [-1,1]。\n在每个 open_time 上对 universe 内全部 symbol 的 body_eff 做横截面 rank（或 winsorize 后 z-score），得到 factor_cs。\n可选稳健化：对 factor_cs 做 quote_volume 加权 rank，或剔除 open_time 截面有效 symbol 数 < 30 的时刻。",
+    "expected_signal": "横截面：在同一 open_time 跨 symbol 比较 body_eff；做多 factor_cs 高分位（方向效率最高的一档，如 top 20%），做空低分位（bottom 20%）；等权或 quote_volume 加权构建多空组合；持有期为下一根 1h（open_time 对齐至 t+1 收益）；适用于多币种永续合约 1h 相对强弱轮动与截面动量增强场景。",
     "risks": [
-      "低quote_volume symbol横截面排序噪声大、实际不可交易",
-      "新上市symbol K线形态样本不足导致截面z-score失真",
-      "极端单边行情下全市场下影/sync形态趋同、截面区分度塌陷",
-      "high-low接近0时range归一化放大微结构噪声"
+      "极端单边行情下全市场 body_eff 同向偏高，截面区分度塌缩导致因子失效",
+      "低 quote_volume 或小市值 symbol 的 high-low 易被单笔成交扭曲，横截面排序噪声大",
+      "新上市 symbol 冷启动阶段 range/body 不稳定，需最小 bar 数过滤",
+      "幸存者偏差：universe 随时间变化会使历史回测高估可交易截面",
+      "1h 频率下隔夜或重大公告事件可能造成 open 跳空，body_eff 与真实趋势效率脱钩"
     ]
   }
 ]
