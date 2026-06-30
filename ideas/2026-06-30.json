@@ -1,44 +1,44 @@
 [
   {
-    "title": "横截面主动被动单笔Quote规模比延续轮动",
-    "hypothesis": "基于查询发现：2024-09（open_time 1725148800000–1727740800000）截面内主动单笔Quote规模/被动单笔Quote规模（tbq_cnt/pbq_cnt）与 contemporaneous 收益相关度可达 0.53（如 1726452000000  bar 的 ratio_ret_corr=0.529），且对下一根 1h 收益截面相关最高达 0.256（1725642000000 的 ratio_fwd_corr=0.256）；假设主动成交单笔报价显著高于被动的标的，反映知情/ aggressive 买盘愿意抬价成交，短周期横截面上应延续。",
+    "title": "横截面振幅扩张相对排名延续轮动",
+    "hypothesis": "基于查询发现：2025-01 全月按小时横截面中，当前Bar振幅相对近5Bar均值的扩张比(rng/rng5)处于 top20% 分位时 avg_ret=+0.0020，bot20% 时 avg_ret=-0.00126，且单小时内 corr(rng_expand, ret) 可达 0.57~0.67（如 1735754400000 小时 corr=0.667）。扩张伴随 avg_expand=1.54 vs 0.70，说明波动释放方向在截面内具有短期延续性，而非已有「扩缩反转」思路的均值回归。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 tbq_cnt=taker_buy_quote_volume/count、pbq_cnt=(quote_volume-taker_buy_quote_volume)/count，因子 raw=tbq_cnt/pbq_cnt（或 log 差）；每个 open_time 分组，对 raw 做 winsorize 后计算组内 rank 或 z-score；可选与 contemporaneous ret 排名做正交残差。组合：做多高 rank、做空低 rank，按 quote_volume 分层加权。",
-    "expected_signal": "横截面：做多主动/被动单笔 Quote 规模比 rank 高分位、做空低分位；在 tb_pb_ratio 截面离散度较高（如 cs_ratio_std>0.25）的时段预期更强。",
+    "formula_sketch": "按 symbol 计算 rng=(high-low)/open、rng5=rolling_mean(rng,5,lag1)、rng_expand=rng/rng5；每个 open_time 横截面对 rng_expand 做 rank 或 z-score；可选与 ret 同向加权。信号=扩张排名，截面多空对冲。",
+    "expected_signal": "横截面：做多 rng_expand 高分位（波动刚释放/扩张的标的），做空低分位（振幅压缩段）；适用于 1h 频率的短持有轮动，2025-01 样本中 top vs bottom 桶收益差约 33bp/Bar。",
     "risks": [
-      "同一 bar 内 ratio 与 ret 共线度高，需严格用 t 时刻因子预测 t+1 收益以避免同期泄露",
-      "count 极低或 pbq_cnt 接近 0 时比值爆炸，需流动性与最小笔数过滤",
-      "新 meme 币（如 2024-Q4 MOODENG/GOAT）单笔规模结构异质，截面 rank 可能被极端值主导"
+      "与已有振幅扩缩反转因子信号方向相反，需与组合中同类因子去重",
+      "低流动性 symbol 的 rng5 估计噪声大",
+      "极端行情下扩张可能是尾部风险而非趋势"
     ]
   },
   {
-    "title": "横截面相对振幅扩缩排名反转轮动",
-    "hypothesis": "基于查询发现：2025-02（open_time 1738368000000–1740960000000）截面 expand=rng/lag_rng 与 fwd_ret 的截面相关在多个时点显著为负（如 1739865600000 的 expand_fwd_corr=-0.429，1738828800000 为 -0.421）；同时 lag_rng 与 contemporaneous ret 截面相关可低至 -0.856（1740376800000），且 avg_rng_expand=0.63 表明扩缩交替频繁。假设上一 bar 振幅已大幅扩张、当前 bar 继续放大者处于“过载”状态，横截面上下一根 1h 收益倾向均值回归。",
+    "title": "横截面上下影线偏斜排名延续轮动",
+    "hypothesis": "基于查询发现：2024-05-01 01:00 UTC 截面 202 个 symbol 中，上影线占比减下影线占比的 shadow_skew 均值=+0.090（上影偏长），corr(shadow_skew, ret)=0.236；2025-01 全月按 skew 排名分桶后，high_skew(top20%) avg_ret=+0.00048、low_skew(bottom20%) avg_ret=-0.00075，avg_skew 分别为 +0.285 vs -0.279。上影偏斜更高的标的在同小时截面中收益略优，反映试探性上攻后仍保留相对强势。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 rng=(high-low)/open、lag_rng=shift(rng,1)，因子 raw=rng/lag_rng（lag_rng<=0 或缺失置 NA）；每个 open_time 分组，对 raw 做组内 rank 或分位；信号取负号：做多低扩缩 rank（压缩/温和扩张）、做空高 rank（激进扩张）。可叠加截面波动环境过滤（如组内 STDDEV(ret)>中位数）。",
-    "expected_signal": "横截面：做空高 rng/lag_rng rank（振幅加速扩张）、做多低 rank；预期在 avg_rng_expand 偏离 1 较远（<0.8 或 >1.5）的扩缩交替环境中反转信号更强。",
+    "formula_sketch": "按 symbol 计算 up_sh=(high-max(open,close))/(high-low)、lo_sh=(min(open,close)-low)/(high-low)、shadow_skew=up_sh-lo_sh；每个 open_time 分组内对 shadow_skew 做 rank 或分位；可叠加 ret 方向过滤。",
+    "expected_signal": "横截面：做多 shadow_skew 高分位，做空低分位；适用于中高波动环境（2024-Q1 月均 range_pct 1.5%~2.2%）的 hourly 轮动。",
     "risks": [
-      "lag_rng 对 trend 突破行情会产生持续高 expand，反转逻辑在单边趋势段可能失效",
-      "2025-02 样本仅为高波动子样本，全样本 2020–2026 稳健性需回测验证",
-      "不同 price tier 标的（quote_volume/open 差异大）的 rng 不可直接比，必须依赖截面 rank 而非原始比值"
+      "与上影/下影单一拒绝类因子部分相关，需正交化",
+      "high=low 的 Bar 需剔除",
+      "shadow_skew 对 tiny range Bar 敏感"
     ]
   },
   {
-    "title": "横截面价流方向协同排名延续轮动",
-    "hypothesis": "基于查询发现：2025-Q2（open_time 1743465600000–1746057600000）价格方向 sign(close-open) 与净主动流方向 sign(taker_buy_volume-volume/2) 一致率可低至 47.3%（1745758800000 的 agree_rate=0.473），但价流协同指标与 fwd_ret 截面相关在部分时点达 +0.198（1743904800000 的 agree_fwd_corr=0.198）。假设当收盘价方向与净主动基量方向同向时，反映成交推动与价格结果一致，短周期横截面延续；价流背离 rank 低者更偏均值回归或噪声。",
+    "title": "横截面被动Quote占比-笔数密度双高吸收轮动",
+    "hypothesis": "基于查询发现：2024-05~06 窗口内，同一 open_time 横截面同时处于 passive_q=(quote_volume-taker_buy_quote_volume)/quote_volume 与 cnt_vol=count/volume 双 top20% 的标的（hi_pass_hi_cnt，n=6056）avg_ret=-0.00209，而双 bottom20%（lo_pass_lo_cnt，n=5948）avg_ret=+0.00364，桶间差约 57bp/Bar；2024-05-01 01:00 截面 corr(passive_q, ret)=-0.241。高被动报量叠加成交碎片化往往对应价格推进乏力，截面排序上呈现吸收后偏弱。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 pdir=sign(close-open)、fdir=sign(taker_buy_volume-volume/2)，协同 raw=pdir*fdir（取值 ±1，close=open 置 0）；可选乘以 flow_int=abs(taker_buy_volume-volume/2)/volume 作为强度。每个 open_time 分组，对 raw 或 raw*flow_int 做组内 rank/z-score；做多高协同 rank、做空低协同 rank（或背离 rank）。",
-    "expected_signal": "横截面：做多价流方向协同 rank 高分位、做空低分位；在 agree_rate 接近 50%（方向噪声大）的 bar，协同 rank 的排序 alpha 预期更稳定。",
+    "formula_sketch": "按 symbol 计算 passive_q 与 cnt_vol=count/volume；每个 open_time 分组内分别 rank 或 z-score，构造 combo=rank(passive_q)+rank(cnt_vol) 或双高哑变量；对 combo 再做 rank。做多低 combo、做空高 combo。",
+    "expected_signal": "横截面：做空 passive_q 与 cnt_vol 双高分位（吸收过载），做多双低分位；适用于 1h _crypto 永续截面轮动，2024-05~06 样本双桶收益差显著。",
     "risks": [
-      "close=open 或 volume 极小时 sign 不稳定，需剔除零实体或低 quote_volume 样本",
-      "agree_fwd_corr 并非全时点显著，存在 regime 依赖（高波动 bar 可能削弱延续）",
-      "taker_buy_volume 仅为主动买入而非完整订单流，净流 proxy 与真实 net flow 存在偏差"
+      "quote_volume/count 在极低成交时段失真",
+      "与被动流、笔数密度类因子共线，需行业/市值中性",
+      "2020-Q1 早期 cnt_vol 中位数仅 0.0088，跨期尺度变化大（2024 截面 std(cnt_vol)≈4.68 vs 2020 0.44）"
     ]
   }
 ]
