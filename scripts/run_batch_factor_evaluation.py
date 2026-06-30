@@ -243,7 +243,22 @@ def evaluate_pending_batch(
 
     username: str | None = None
     if not dry_run:
-        username = setup_kaggle_for_evaluation()
+        try:
+            username = setup_kaggle_for_evaluation()
+        except RuntimeError as exc:
+            error = str(exc)
+            print(f"::error::{error}", file=sys.stderr)
+            for job in translated_jobs:
+                results.append(
+                    BatchItemResult(
+                        title=job.idea["title"],
+                        title_hash=job.idea["title_hash"],
+                        status="failed",
+                        error=error,
+                        pending_reason=job.idea.get("pending_reason"),
+                    )
+                )
+            return results, []
 
     print(f"阶段 2/3: 单次 Kaggle 批量评估 {len(translated_jobs)} 条")
     with tempfile.TemporaryDirectory(prefix="factor-eval-batch-") as tmp_dir:

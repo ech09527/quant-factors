@@ -39,6 +39,9 @@ jobs:
     timeout-minutes: 360
     env:
       GITHUB_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
       KAGGLE_KERNEL_SLUG: evaluate-factor-idea
       SAMPLE_START: ${{ inputs.sample_start || '2023-01-01' }}
       FORCE: ${{ inputs.force || 'false' }}
