@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "Alpha158-BETA20",
+  "title_hash": "cc215b2fd49c0bb192d22d3d3a2820beb91b059d02808b5cb44072007f81db5b",
+  "formula_hash": "fcb02cf917b680571d745198259ba7134a630d5db0df49cf29f1fafa0f404469",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-30T03:23:29.095320+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(-19 * LAG(close, 19) OVER w - 17 * LAG(close, 18) OVER w - 15 * LAG(close, 17) OVER w - 13 * LAG(close, 16) OVER w - 11 * LAG(close, 15) OVER w - 9 * LAG(close, 14) OVER w - 7 * LAG(close, 13) OVER w - 5 * LAG(close, 12) OVER w - 3 * LAG(close, 11) OVER w - 1 * LAG(close, 10) OVER w + 1 * LAG(close, 9) OVER w + 3 * LAG(close, 8) OVER w + 5 * LAG(close, 7) OVER w + 7 * LAG(close, 6) OVER w + 9 * LAG(close, 5) OVER w + 11 * LAG(close, 4) OVER w + 13 * LAG(close, 3) OVER w + 15 * LAG(close, 2) OVER w + 17 * LAG(close, 1) OVER w + 19 * close) / (1330.0 * close)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.0024127094493695393,
+    "ic_ir": -0.018445169902412215,
+    "mean_rank_ic": -0.016713251863876583,
+    "rank_ic_ir": -0.12239139536835084,
+    "n_periods": 29907,
+    "ic_positive_ratio": 0.4978767512622463
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
