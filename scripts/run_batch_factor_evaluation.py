@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,7 +24,7 @@ from scripts.run_factor_evaluation import (  # noqa: E402
     run_batch_kernel_evaluation,
     setup_kaggle_for_evaluation,
 )
-from scripts.translate_idea_to_sql import translate_idea  # noqa: E402
+from scripts.translate_idea_to_sql import resolve_agent_binary, translate_idea  # noqa: E402
 from scripts.write_evaluation_to_project import write_evaluation  # noqa: E402
 
 
@@ -92,7 +93,7 @@ def translate_one_idea(
         )
         print(f"翻译成功: {title} ({title_hash})")
         return TranslationResult(idea=idea, factor_sql=factor_sql)
-    except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+    except (RuntimeError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
         error = f"翻译 SQL 失败: {exc}"
         print(f"::warning::{title} ({title_hash}): {error}", file=sys.stderr)
         return TranslationResult(idea=idea, error=error)
@@ -194,6 +195,23 @@ def evaluate_pending_batch(
         return [], []
 
     print(f"阶段 1/3: 并行 Cursor 翻译（workers={cursor_workers}）")
+    try:
+        resolve_agent_binary()
+    except (RuntimeError, subprocess.CalledProcessError) as exc:
+        error = f"Cursor CLI 初始化失败: {exc}"
+        print(f"::error::{error}", file=sys.stderr)
+        for idea in pending:
+            results.append(
+                BatchItemResult(
+                    title=idea["title"],
+                    title_hash=idea["title_hash"],
+                    status="failed",
+                    error=error,
+                    pending_reason=idea.get("pending_reason"),
+                )
+            )
+        return results, []
+
     translations, _ = translate_pending_parallel(
         pending,
         sample_start=sample_start,

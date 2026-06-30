@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -19,34 +20,56 @@ from scripts.validate_sql import validate_factor_sql
 
 CURSOR_TIMEOUT = int(os.environ.get("CURSOR_TIMEOUT_SECONDS", "600"))
 MAX_TRANSLATION_ATTEMPTS = int(os.environ.get("TRANSLATION_MAX_ATTEMPTS", "3"))
+_AGENT_INSTALL_LOCK = threading.Lock()
+_RESOLVED_AGENT_BINARY: str | None = None
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def resolve_agent_binary() -> str:
+def _agent_binary_candidates() -> list[Path]:
     local_bin = Path.home() / ".local" / "bin"
-    candidates = [
+    return [
         local_bin / "agent",
         local_bin / "cursor-agent",
         Path.home() / ".cursor" / "bin" / "agent",
         Path.home() / ".cursor" / "bin" / "cursor-agent",
     ]
-    for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate.resolve())
 
-    print("安装 Cursor CLI...")
-    subprocess.run(
-        ["bash", "-c", "curl -fsSL https://cursor.com/install | bash"],
-        check=True,
-    )
-    os.environ["PATH"] = f"{local_bin}:{os.environ.get('PATH', '')}"
-    for candidate in candidates:
+
+def _find_agent_binary() -> str | None:
+    for candidate in _agent_binary_candidates():
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate.resolve())
-    raise RuntimeError("Cursor agent 安装后未找到可执行文件")
+    return None
+
+
+def resolve_agent_binary() -> str:
+    global _RESOLVED_AGENT_BINARY
+    cached = _RESOLVED_AGENT_BINARY or _find_agent_binary()
+    if cached:
+        _RESOLVED_AGENT_BINARY = cached
+        return cached
+
+    with _AGENT_INSTALL_LOCK:
+        cached = _RESOLVED_AGENT_BINARY or _find_agent_binary()
+        if cached:
+            _RESOLVED_AGENT_BINARY = cached
+            return cached
+
+        print("安装 Cursor CLI...")
+        subprocess.run(
+            ["bash", "-c", "curl -fsSL https://cursor.com/install | bash"],
+            check=True,
+        )
+        local_bin = Path.home() / ".local" / "bin"
+        os.environ["PATH"] = f"{local_bin}:{os.environ.get('PATH', '')}"
+        cached = _find_agent_binary()
+        if cached is None:
+            raise RuntimeError("Cursor agent 安装后未找到可执行文件")
+        _RESOLVED_AGENT_BINARY = cached
+        return cached
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
