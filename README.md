@@ -66,10 +66,10 @@ kaggle kernels output <用户名>/<kernel-slug> -p <输出目录>
 | 工作流 | 文件 | 作用 |
 |--------|------|------|
 | **A — 数据集目录** | `dataset-catalog.yml` | 探索 Kaggle 数据集，写入 `datasets/<slug>/schema.json` 与 README |
-| **B — 因子想法** | `factor-ideas.yml` | Runner 编排 Kaggle Kernel；Cursor Agent 自主查 K 线并生成想法；Runner 去重后写入 Project |
+| **B — 因子想法** | `factor-ideas.yml` | Runner 编排 Kaggle Kernel；Cursor Agent 自主查 K 线并生成想法；Runner 去重后写入 Project（**不提交 git**） |
 | **C — 因子评估** | `factor-evaluation.yml` | 拉取 N 条待评估想法 → Cursor 翻译 SQL → Kaggle 批量验证 → 写回 Project（**不提交 git**） |
 
-评估结果默认写入 **GitHub Project** 对应条目的 `## 评估结果` 章节，不再写入或提交 `evaluations/`、`expressions/`。待评估判定优先读取 Project body，并兼容仓库内已有的历史 `evaluations/*.json`。
+因子想法与评估结果均只写入 **GitHub Project**（Draft Issue），不再写入或提交 `ideas/`、`evaluations/`、`expressions/`。待评估判定优先读取 Project body，并兼容仓库内已有的历史 `evaluations/*.json`。
 
 **因子评估流程（工作流 C）**：
 
@@ -139,7 +139,6 @@ quant-factors/
 ├── explorations/
 │   ├── explore-dataset/        # Kaggle 探索 Kernel（工作流 A）
 │   └── generate-factor-ideas/  # Kaggle 因子想法 Kernel（工作流 B）
-├── ideas/                      # 因子想法 JSON 备份（工作流 B 可选写入）
 ├── schemas/
 │   ├── dataset-schema.json     # datasets/<slug>/schema.json 格式定义
 │   └── idea-schema.json        # 因子想法 JSON 格式定义
@@ -158,7 +157,6 @@ quant-factors/
 - **explorations/**：通用 Kaggle Kernel，由 Actions 通过 CLI 提交并拉取产出。
 - **scripts/**：去重、Schema 校验、Project 写入等非 LLM 逻辑。
 - **schemas/**：JSON Schema，约束探索产出与因子想法的结构化格式。
-- **ideas/**：可选的版本化想法备份，便于 diff 与去重。
 - 投研任务按目录组织，各 Kernel 目录附带 `kernel-metadata.json`。
 
 ## 相关链接

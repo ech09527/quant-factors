@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -561,77 +560,6 @@ def main(argv: list[str] | None = None) -> int:
     summary.ideas_skipped += len(result["skipped"])
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
-
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    ideas_backup = repo / "ideas" / f"{date}.json"
-    ideas_backup.parent.mkdir(parents=True, exist_ok=True)
-    ideas_backup.write_text(
-        json.dumps(collected_new, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
-    if os.environ.get("GITHUB_TOKEN"):
-        try:
-            subprocess.run(
-                ["git", "config", "user.name", "github-actions[bot]"],
-                cwd=repo,
-                check=True,
-            )
-            subprocess.run(
-                [
-                    "git",
-                    "config",
-                    "user.email",
-                    "github-actions[bot]@users.noreply.github.com",
-                ],
-                cwd=repo,
-                check=True,
-            )
-            subprocess.run(["git", "add", str(ideas_backup)], cwd=repo, check=True)
-            diff = subprocess.run(
-                ["git", "diff", "--cached", "--quiet"],
-                cwd=repo,
-                check=False,
-            )
-            if diff.returncode != 0:
-                subprocess.run(
-                    ["git", "commit", "-m", f"chore(ideas): backup factor ideas {date}"],
-                    cwd=repo,
-                    check=True,
-                )
-                branch = subprocess.run(
-                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                    cwd=repo,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                ).stdout.strip()
-                token_git = os.environ["GITHUB_TOKEN"]
-                remote = subprocess.run(
-                    ["git", "remote", "get-url", "origin"],
-                    cwd=repo,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                ).stdout.strip()
-                if remote.startswith("https://github.com/"):
-                    auth_url = remote.replace(
-                        "https://github.com/",
-                        f"https://x-access-token:{token_git}@github.com/",
-                        1,
-                    )
-                    subprocess.run(
-                        ["git", "pull", "--rebase", auth_url, branch],
-                        cwd=repo,
-                        check=False,
-                    )
-                    subprocess.run(
-                        ["git", "push", auth_url, f"HEAD:{branch}"],
-                        cwd=repo,
-                        check=True,
-                    )
-        except subprocess.CalledProcessError as exc:
-            print(f"警告: ideas 备份 commit 失败: {exc}", file=sys.stderr)
 
     return 0 if summary.ideas_written > 0 else 1
 
