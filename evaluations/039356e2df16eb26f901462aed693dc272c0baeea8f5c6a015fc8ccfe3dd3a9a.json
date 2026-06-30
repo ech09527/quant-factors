@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "Alpha158-KMID K线实体相对开盘动量",
+  "title_hash": "039356e2df16eb26f901462aed693dc272c0baeea8f5c6a015fc8ccfe3dd3a9a",
+  "formula_hash": "72f3c708ffe72e7bb9b6788dbdd08fddb0e2d07bfe67746e4898cea0c3fdaade",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-30T01:44:52.105295+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(close - open) / NULLIF(open, 0)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.013014084011935687,
+    "ic_ir": -0.10015708361055602,
+    "mean_rank_ic": -0.037675610623180686,
+    "rank_ic_ir": -0.2731219817613342,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.46305764411027567
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
