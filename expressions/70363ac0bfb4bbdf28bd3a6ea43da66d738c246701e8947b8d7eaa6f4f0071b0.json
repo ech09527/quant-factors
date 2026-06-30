@@ -1,0 +1,21 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "POWER(-10.0 * LAG(close, 4) OVER w - 5.0 * LAG(close, 3) OVER w + 5.0 * LAG(close, 1) OVER w + 10.0 * close, 2) / (50.0 * (5.0 * (POWER(LAG(close, 4) OVER w, 2) + POWER(LAG(close, 3) OVER w, 2) + POWER(LAG(close, 2) OVER w, 2) + POWER(LAG(close, 1) OVER w, 2) + POWER(close, 2)) - POWER(LAG(close, 4) OVER w + LAG(close, 3) OVER w + LAG(close, 2) OVER w + LAG(close, 1) OVER w + close, 2)) + 1e-8)",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": [
+      "open",
+      "high",
+      "low",
+      "close"
+    ],
+    "min_symbol_bars": 168,
+    "cs_quantile_gte": {
+      "col": "quote_volume",
+      "q": 0.2
+    }
+  }
+}
