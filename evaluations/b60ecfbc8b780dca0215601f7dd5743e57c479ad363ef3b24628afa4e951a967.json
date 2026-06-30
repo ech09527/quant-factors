@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "Alpha158-KLOW",
+  "title_hash": "b60ecfbc8b780dca0215601f7dd5743e57c479ad363ef3b24628afa4e951a967",
+  "formula_hash": "66d492f69093b1e7bf5bf1a2de2951336d032b81cb62162310d872b0ccf3554f",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-30T02:14:12.082306+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(LEAST(open, close) - low) / open",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.007307963849499367,
+    "ic_ir": -0.05996524258487344,
+    "mean_rank_ic": -0.027383583181991432,
+    "rank_ic_ir": -0.20717674880120698,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.477827903091061
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
