@@ -1,14 +1,14 @@
 # Factor Evaluation Batch Cron（Cloudflare Worker）
 
-每 15 分钟通过 GitHub `workflow_dispatch` 触发 `factor-evaluation-batch.yml`（批量因子验证）。
+每 15 分钟通过 GitHub `workflow_dispatch` 触发 `factor-evaluation.yml`（因子评估）。
 
 ## 架构
 
 ```
 Cloudflare Cron (*/15 * * * *)
   → Worker 从 Vault 读取 GITHUB_PAT (kv/github/quant-factors)
-  → POST /repos/.../actions/workflows/factor-evaluation-batch.yml/dispatches
-  → GitHub Actions 执行批量因子评估（并行 Cursor + 单次 Kaggle 批量计算）
+  → POST /repos/.../actions/workflows/factor-evaluation.yml/dispatches
+  → GitHub Actions 执行因子评估（并行 Cursor + 单次 Kaggle 批量计算）
 ```
 
 ## Vault 凭证

@@ -7,7 +7,7 @@ crons = ["*/15 * * * *"]
 
 [vars]
 GITHUB_REPO = "ech09527/quant-factors"
-GITHUB_WORKFLOW_FILE = "factor-evaluation-batch.yml"
+GITHUB_WORKFLOW_FILE = "factor-evaluation.yml"
 VAULT_ADDR = "https://vault.nocsdn.com"
 VAULT_GITHUB_PATH = "github/quant-factors"
 MAX_IDEAS = "5"

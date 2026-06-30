@@ -67,13 +67,11 @@ kaggle kernels output <用户名>/<kernel-slug> -p <输出目录>
 |--------|------|------|
 | **A — 数据集目录** | `dataset-catalog.yml` | 探索 Kaggle 数据集，写入 `datasets/<slug>/schema.json` 与 README |
 | **B — 因子想法** | `factor-ideas.yml` | Runner 编排 Kaggle Kernel；Cursor Agent 自主查 K 线并生成想法；Runner 去重后写入 Project |
-| **C — 因子评估（单条）** | `factor-evaluation.yml` | 单条想法：Cursor 翻译 SQL → Kaggle 评估 → 写回 Project（**不提交 git**） |
-| **C-Dispatch — 批量调度** | `factor-evaluation-dispatch.yml` | 扫描待评估想法，**一次性批量**运行评估（默认最多 5 条，结果写回 Project） |
-| **C-Batch — 手动批量** | `factor-evaluation-batch.yml` | 手动触发批量评估，可配置 `max_ideas` |
+| **C — 因子评估** | `factor-evaluation.yml` | 拉取 N 条待评估想法 → Cursor 翻译 SQL → Kaggle 批量验证 → 写回 Project（**不提交 git**） |
 
 评估结果默认写入 **GitHub Project** 对应条目的 `## 评估结果` 章节，不再写入或提交 `evaluations/`、`expressions/`。待评估判定优先读取 Project body，并兼容仓库内已有的历史 `evaluations/*.json`。
 
-**批量评估流程（工作流 C-Dispatch / C-Batch）**：
+**因子评估流程（工作流 C）**：
 
 ```
 1. Runner 拉取 pending 想法
@@ -94,19 +92,17 @@ gh workflow run factor-ideas.yml -f max_ideas=5
 gh workflow run factor-ideas.yml -f mode=explore_and_generate
 gh workflow run factor-ideas.yml -f mode=generate_only
 
-# 工作流 C：单条因子评估（指定 title_hash）
-gh workflow run factor-evaluation.yml -f title_hash=<64-char-hash>
-
-# 工作流 C-Batch：批量评估待验证想法（默认最多 5 条）
-gh workflow run factor-evaluation-batch.yml
-gh workflow run factor-evaluation-batch.yml -f max_ideas=10
-gh workflow run factor-evaluation-batch.yml -f max_ideas=0  # 不限制条数
+# 工作流 C：因子评估（默认最多 5 条待验证想法）
+gh workflow run factor-evaluation.yml
+gh workflow run factor-evaluation.yml -f max_ideas=10
+gh workflow run factor-evaluation.yml -f max_ideas=0  # 不限制条数
+gh workflow run factor-evaluation.yml -f force=true     # 强制重评
 ```
 
 **定时触发**：
 
 - **因子想法**：Cloudflare Worker（`workers/factor-ideas-cron/`）每 5 分钟调用 `factor-ideas.yml`（`max_ideas=3`、`mode=agent_generate`）
-- **批量因子验证**：Cloudflare Worker（`workers/factor-evaluation-batch-cron/`）每 15 分钟调用 `factor-evaluation-batch.yml`（`max_ideas=5`）
+- **因子评估**：Cloudflare Worker（`workers/factor-evaluation-batch-cron/`）每 15 分钟调用 `factor-evaluation.yml`（`max_ideas=5`）；`Factor Ideas` 工作流完成后也会自动触发
 
 凭证从 HashiCorp Vault 读取，见各 Worker 目录下的 README。
 
@@ -150,7 +146,7 @@ quant-factors/
 ├── scripts/                    # 确定性脚本（去重、校验、写入 Project 等）
 └── workers/
     ├── factor-ideas-cron/              # Cloudflare Worker：每 5 分钟触发 factor-ideas
-    └── factor-evaluation-batch-cron/   # Cloudflare Worker：每 15 分钟触发 factor-evaluation-batch
+    └── factor-evaluation-batch-cron/   # Cloudflare Worker：每 15 分钟触发 factor-evaluation
 └── .github/
     └── workflows/
         ├── relay-forward.yml   # AI Workflow 事件转发

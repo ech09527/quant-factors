@@ -1,17 +1,14 @@
-# 工作流 C：单条因子想法 → Cursor 翻译 SQL → Kaggle 评估 → 写回 Project
+# 工作流 C：拉取待评估想法 → Cursor 翻译 SQL → Kaggle 批量验证 → 写回 Project
 
 name: Factor Evaluation
 
 on:
   workflow_dispatch:
     inputs:
-      title_hash:
-        description: 想法 title_hash（必填）
-        required: true
-        type: string
-      idea_title:
-        description: 想法标题（日志用）
+      max_ideas:
+        description: 单次最多评估条数（0 表示不限制）
         required: false
+        default: "5"
         type: string
       sample_start:
         description: 样本起始日
@@ -23,10 +20,13 @@ on:
         required: false
         default: "false"
         type: string
+  workflow_run:
+    workflows: ["Factor Ideas"]
+    types: [completed]
 
 concurrency:
   group: factor-evaluation
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -34,7 +34,7 @@ permissions:
 jobs:
   evaluate:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     env:
       GITHUB_TOKEN: ${{ secrets.PROJECT_PAT || secrets.GITHUB_TOKEN }}
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
@@ -43,6 +43,7 @@ jobs:
       KAGGLE_KERNEL_SLUG: evaluate-factor-idea
       SAMPLE_START: ${{ inputs.sample_start || '2023-01-01' }}
       FORCE: ${{ inputs.force || 'false' }}
+      MAX_IDEAS: ${{ inputs.max_ideas || '5' }}
 
     steps:
       - name: Checkout
@@ -73,41 +74,36 @@ jobs:
             exit 1
           fi
 
-      - name: Fetch idea by title_hash
+      - name: Fetch ideas and pending list
         run: |
           export GITHUB_PROJECT_ID=$(jq -r .id config/github-project.json)
           python scripts/fetch_existing_ideas.py -o /tmp/all_ideas.json
-          python scripts/fetch_idea_by_hash.py \
+          python scripts/fetch_pending_evaluations.py \
             --ideas /tmp/all_ideas.json \
-            --title-hash "${{ inputs.title_hash }}" \
-            -o /tmp/idea.json
+            -o /tmp/pending.json
 
       - name: Setup Cursor auth
         env:
           CURSOR_AUTH_JSON: ${{ secrets.CURSOR_AUTH_JSON }}
         run: bash scripts/setup_cursor_auth.sh
 
-      - name: Translate and evaluate factor SQL with Cursor
+      - name: Batch translate and evaluate pending ideas
         env:
           CURSOR_TIMEOUT_SECONDS: "900"
           TRANSLATION_MAX_ATTEMPTS: "5"
-          SAMPLE_START: ${{ inputs.sample_start || '2023-01-01' }}
-        run: |
-          python scripts/translate_idea_to_sql.py \
-            --idea /tmp/idea.json \
-            -o /tmp/factor_sql.json \
-            --with-local-eval \
-            --sample-start "${SAMPLE_START}"
-
-      - name: Run Kaggle factor evaluation (full data)
-        env:
-          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
-          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
           KERNEL_LOG_TIMEOUT_SECONDS: "7200"
+          CURSOR_WORKERS: "2"
         run: |
-          ARGS=(--idea /tmp/idea.json --factor-sql /tmp/factor_sql.json --sample-start "${SAMPLE_START}")
+          COUNT=$(jq '.count' /tmp/pending.json)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "无待评估想法"
+            exit 0
+          fi
+          ARGS=(--pending /tmp/pending.json -o /tmp/batch_result.json --sample-start "${SAMPLE_START}")
+          if [ "${MAX_IDEAS}" != "0" ]; then
+            ARGS+=(--max-ideas "${MAX_IDEAS}")
+          fi
           if [ "${FORCE}" = "true" ]; then
             ARGS+=(--force)
           fi
-          python scripts/run_factor_evaluation.py "${ARGS[@]}"
+          python scripts/run_batch_factor_evaluation.py "${ARGS[@]}"
