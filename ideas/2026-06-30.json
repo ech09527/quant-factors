@@ -1,47 +1,44 @@
 [
   {
-    "title": "横截面主动Quote占比单Bar骤降吸收轮动",
-    "hypothesis": "基于查询发现：2024-Q2（1714521600000–1717200000000）横截面 taker_buy_quote_volume/quote_volume 的 1-Bar 变化量（taker_qr_delta）在 149,905 个有效样本上截面标准差达 0.079；delta 排名最低 20%（主动 Quote 占比骤降）标的 5-Bar 前向收益均值 0.029%，显著高于最高 20% 组的 0.013%。假设主动 Quote 流短期撤离反映被动挂单吸收卖压，价格尚未 fully 反映，横截面上“骤降最深”的标的存在短期修复溢价。",
+    "title": "横截面单位振幅笔数碎片化过载均值回归轮动",
+    "hypothesis": "基于查询发现：2022-Q2 高波动段（Bar 振幅中位数 2.05%、均值 2.43%）中，count/((high-low)/open) 横截面 rank 最低 20% 标的下一 Bar 收益 -0.005%，最高 20% 为 -0.051%，多空 spread 达 0.046%（corr=-0.010，n=71392）；对比 2023-Q4 低波动段振幅均值仅 1.20%。过度碎片化成交（单位价格振幅内成交笔数异常高）反映噪声交易/HFT 拥挤，横截面上应均值回归。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 taker_qr = taker_buy_quote_volume/quote_volume，taker_qr_delta = taker_qr - lag(taker_qr, 1)；每个 open_time 横截面分组，对 taker_qr_delta 做 rank 或 z-score；因子值取 -rank(taker_qr_delta)（骤降越深得分越高）；可选与 quote_volume 截面 rank 交互过滤低流动性尾部。",
-    "expected_signal": "横截面：做多 taker_qr_delta 最低分位（主动 Quote 占比单 Bar 骤降最深）、做空最高分位；适用于 1h 频率、4–6 Bar 持有期的 crypto UM 永续轮动。",
+    "formula_sketch": "按 symbol 计算 cnt_rng = count / NULLIF((high-low)/open, 0)；每个 open_time 分组，对 cnt_rng 做 winsorize 后计算组内 PERCENT_RANK 得 rank_cnt_rng；因子值 = rank_cnt_rng（或 1-rank 若做空过载端）；可选乘以振幅环境系数（24h 滚动 rng 均值 / 截面中位数）做波动分层。",
+    "expected_signal": "横截面：做多 rank_cnt_rng 低分位（笔数碎片化低）、做空高分位（单位振幅笔数过载）；高波动季度（如 2022-Q2）权重可上调。",
     "risks": [
-      "2024-Q2 单窗口验证，样本外稳定性待检",
-      "新上市 symbol 缺乏 lag 值，需足够历史 Bar",
-      "骤降可能伴随流动性枯竭而非吸收，需 quote_volume 过滤",
-      "与已有主动流占比变化类因子可能存在部分共线"
+      "2025-Q1 全样本 avg count/rng 达 162 万，小币 count 与 BTC 不可比，需 liquidity 分层或 rank 中性",
+      "1h 频率对 HFT 碎片化刻画粗糙",
+      "高波动段 spread 在低波动期可能衰减"
     ]
   },
   {
-    "title": "横截面方向效率-主动基量排名正向裂口延续轮动",
-    "hypothesis": "基于查询发现：2024-Q3（235 个 symbol、331,772 条 Bar）全样本收益与主动买入占比截面相关 0.40；进一步将 Bar 方向效率 dir_eff=(close-open)/(high-low) 与 taker_ratio 分别截面 rank 后，eff-taker 正向裂口 ≥0.35 的 89,068 条样本 4-Bar 前向收益 0.0128%，而 rank 对齐组（|gap|≤0.05）仅 0.0032%。假设“价格推进高效但主动基量排名偏低”反映知情/被动主导推进，横截面裂口最大者延续性更强。",
+    "title": "横截面实体-中轴收位背离延续轮动",
+    "hypothesis": "基于查询发现：2023-Q4 低波动段中，K 线实体方向（sign(close-open)）与收盘相对 Bar 中轴方向不一致的 conflict Bar（n=90376）下一 Bar 平均收益 0.024%，一致 Bar 仅 0.013%；signed 中轴距离 rank 最低 20% 下一 Bar 收益 0.032% vs 最高 20% 仅 0.014%。2022-Q2 高波动段 conflict 仍优于 agree（-0.032% vs -0.045%）。实体方向与中轴收位背离暗示 Bar 内 latent 方向压力尚未释放，横截面上或延续。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 dir_eff=(close-open)/(high-low)、taker_ratio=taker_buy_volume/volume；每个 open_time 分组，r_eff=rank(dir_eff)，r_taker=rank(taker_ratio)，gap=r_eff-r_taker；因子值=rank(gap) 或 z-score(gap)；可仅保留 gap>0 子样本做多端。",
-    "expected_signal": "横截面：做多 gap 高分位（方向效率 rank 显著高于主动基量 rank）、做空 gap 低分位；4-Bar 左右持有，适用于中高波动环境（如 2024-Q3 avg_amp≈1.42%）。",
+    "formula_sketch": "按 symbol 计算 signed_conflict = SIGN(close-open) * ABS((high+low)/2 - close) / NULLIF(high-low, 0)；每个 open_time 分组，对 signed_conflict 做组内 PERCENT_RANK 得 rank_conflict；亦可构造二元 conflict_flag = 1{SIGN(close-open) != SIGN((high+low)/2 - close)} 再组内 rank。",
+    "expected_signal": "横截面：做多 rank_conflict 低分位（实体-中轴背离且方向与实体同侧）或 conflict_flag 高分位；背离 Bar 在 2023-Q4 与 2022-Q2 两环境下均呈现相对正向下一 Bar 收益。",
     "risks": [
-      "裂口阈值 0.35 为探索性设定，存在过拟合风险",
-      "低振幅 Bar 上 dir_eff 分母不稳定，需 (high-low)/open 下限过滤",
-      "与 Bar 方向效率类因子部分重叠，需正交化检验",
-      "极端行情下主动流数据噪声增大"
+      "signed rank 线性 corr 仅 -0.006，信号主要体现在条件均值而非线性",
+      "窄实体 Bar 上 conflict 与 wick 因子共线",
+      "需排除 high=low 的零振幅 Bar"
     ]
   },
   {
-    "title": "单标的BTC主动买入占比极低分位均值回归",
-    "hypothesis": "基于查询发现：BTCUSDT 在 2024-Q3 的 1h Bar 上 taker_buy_volume/volume 自相关系数仅 -0.088（近无持续、略呈反转）；tr<0.42 极低分位时 3-Bar 前向收益 0.039%，tr>0.55 高分位仅 0.024%（n=1462，tr_std≈0.050）。假设 BTC 作为市场锚定资产，主动买入占比的短期极值更多反映情绪冲击而非趋势信息，极低分位后存在均值回归反弹。",
+    "title": "横截面Bar内缺口振幅归一延续轮动",
+    "hypothesis": "基于查询发现：2024-Q1 段（截面收益离散度均值 0.93%/Bar，中位 0.85%）中，gap_rng = (open-LAG(close))/(high-low) 横截面 rank 最低 20% 标的下一 Bar 收益 -0.0015%，最高 20% 为 -0.015%，Q1-Q5 spread 0.014%（n=132349）。大幅向上跳空（相对当 Bar 振幅归一化）的标的下一 Bar 表现更弱，反映缺口过度伸展后的横截面反转/修复压力。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol=BTCUSDT 计算 tr=taker_buy_volume/volume；在 24–72 Bar 滚动窗口内计算 tr 的历史分位 pctl(tr)；信号：pctl(tr)<0.15 做多，pctl(tr)>0.85 做空；持有 3–5 Bar，可叠加 volume 或 quote_volume 相对均值的过滤。",
-    "expected_signal": "时序：BTC 单标的，主动买入占比处于历史极低分位时做多、极高分位时做空；适用于 1h 频率短持有（3–5 Bar），非横截面轮动。",
+    "formula_sketch": "按 symbol 计算 gap_rng = (open - LAG(close,1)) / NULLIF(high-low, 0)；每个 open_time 分组，对 gap_rng 做 winsorize(|gap_rng|<5) 后计算组内 PERCENT_RANK 得 rank_gap；因子值 = rank_gap（做空高开缺口端）或 1-rank_gap（做多低开缺口端，视样本 spread 方向定）。",
+    "expected_signal": "横截面：做空 rank_gap 高分位（Bar 内向上缺口占振幅比例过大）、做多低分位；与已有「开盘缺口修复失败」因子互补——本因子用当 Bar 振幅而非前 Bar 区间归一化。",
     "risks": [
-      "仅 BTC 单标的验证，泛化至 ETH 等需单独检验",
-      "2024-Q3 单窗口，牛市/熊市 regime 切换可能失效",
-      "极低 tr 可能 coincides 于大跌 Bar，需与收益率条件分层",
-      "1h 频率下分位窗口与持有期存在双重选择偏差"
+      "spread 0.014% 较薄，需叠加流动性过滤",
+      "与横截面跳空相对振幅因子部分重叠",
+      "LAG(close) 在 symbol 首 Bar 缺失需处理"
     ]
   }
 ]
