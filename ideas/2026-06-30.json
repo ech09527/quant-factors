@@ -1,47 +1,47 @@
 [
   {
-    "title": "横截面主动买入均价溢价-收益排名反向裂口延续轮动",
-    "hypothesis": "基于查询发现：2024-Q3（1717200000000–1719792000000）横截面 hourly 平均 corr(ret, taker_px_premium)=-0.070，主动买入均价相对全Bar均价的溢价与 contemporaneous 收益弱负相关；prem_ret_gap=percent_rank(premium)-percent_rank(ret) 五分位中 Q2（avg_gap≈-0.235）下一Bar avg_fwd1=-0.000314，优于 Q5（avg_gap≈+0.611）的 -0.000415；prem_low_ret_high 桶 3-Bar avg_fwd3=-0.000162，显著优于 other 桶 -0.000400。假设价格强势上涨但主动买入发生在相对更低均价（溢价排名低于收益排名），反映“低成本主动吸收”，短期横截面延续。",
+    "title": "横截面典型价相对开盘偏离排名-下期收益均值回归轮动",
+    "hypothesis": "基于查询发现：2024-Q3（1725148800000–1727740800000）共719个截面时点、平均223个symbol，典型价偏离 tp_dev=(close-(high+low+close)/3)/open 的截面 rank 与下一根1h收益 rank 的平均 Spearman 相关系数为 -0.047；同期 pooled 层面 corr(tp_dev, ret)=0.859 显示同Bar内偏高收，但截面 rank 预示下一小时相对弱势，符合短线定价过度延伸后的横截面均值回归。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 taker_px_premium=(taker_buy_quote_volume/taker_buy_volume)/(quote_volume/volume)-1 与 ret=(close-open)/open；每个 open_time 分组，分别对 premium 与 ret 做 percent_rank 得 prem_rank、ret_rank；factor=prem_rank-ret_rank（或 z-score）；可选仅在该 hour 截面 STDDEV(ret)>阈值时启用；对 factor 做组内 rank 或 z-score 作为最终信号。",
-    "expected_signal": "横截面：做多 prem_rank 显著低于 ret_rank（裂口为负、绝对值大）的 symbol，做空 prem_rank 显著高于 ret_rank 的 symbol；适用于 1h 永续合约多币种轮动，可配合流动性分层中性化。",
+    "formula_sketch": "按 symbol 计算 tp_dev=(close-(high+low+close)/3)/open 及 ret_next=lead((close-open)/open,1)；每个 open_time 横截面内对 tp_dev 做 rank/percentile，对 ret_next 做 rank；因子值=f_tp=rank(tp_dev)；组合：做多低分位（close 低于典型价）、做空高分位（close 显著高于典型价）；可选与截面收益离散度 cs_ret_std 做 z-score 标准化。",
+    "expected_signal": "横截面：做多 tp_dev 低 rank（收盘低于典型价、相对低估），做空 tp_dev 高 rank（收盘显著高于典型价、相对高估）；预期下一根1h Bar 相对收益反转；适用于 1h 频率的多空轮动，流动性前80% symbol。",
     "risks": [
-      "premium 截面 std 仅约 0.00033，信号微弱且对 tick 精度敏感",
-      "高波动时段买卖均价计算易受极端成交影响",
-      "2024-Q3 样本整体偏负收益，延续方向需 out-of-sample 验证",
-      "新上市或低成交 symbol 的 taker_buy_volume 噪声大"
+      "1h 频率下典型价偏离与动量因子共线，需行业/市值中性",
+      "极端行情 Bar 典型价定义不稳定（high=low）",
+      "2024-Q3 样本外需验证，pooled 与同Bar相关不等于预测力",
+      "新上市 symbol 历史不足导致 rank 噪声"
     ]
   },
   {
-    "title": "横截面上影-单位振幅笔数密度双高协同延续轮动",
-    "hypothesis": "基于查询发现：2024-Q3 横截面 hourly 平均 corr(upper_shadow, count_density)=+0.039（count_density=count/((high-low)/open)）；上影占比与单位振幅笔数密度存在稳定同向离散。联合得分 upper_rank+cd_rank 五分位单调：Q1 avg_fwd1=-0.000491，Q5 avg_fwd1=-0.000227（相对改善约 54%）；high_upper_high_cd 桶（双高）avg_fwd=-0.000094，优于 other 桶 -0.000396。假设“上影偏长+成交碎片化”共同刻画 Bar 内高位博弈与密集换手，横截面双高者短期延续强势（或相对抗跌）。",
+    "title": "横截面收益-被动Quote排名正向裂口-下期均值回归轮动",
+    "hypothesis": "基于查询发现：2024-Q3 全样本719小时，收益 rank 减被动 Quote 占比 rank 的裂口 gap=rank(ret)-rank((quote_volume-taker_buy_quote_volume)/quote_volume) 与下一小时收益 rank 的平均相关系数为 -0.045（极值 -0.521~0.325）；2024-09-01 00:00 UTC 单截面219个 symbol 中 gap 标准差 0.493，62 个 symbol gap>0.3，同期 corr(gap,ret)=0.757 表明价格领涨但被动报量占比偏低，下一小时截面均值回归压力更大。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 upper_shadow=(high-GREATEST(open,close))/(high-low) 与 count_density=count/((high-low)/open)；每个 open_time 分组，分别 percent_rank 得 upper_rank、cd_rank；factor=upper_rank+cd_rank（或二元乘积/组内 z-score）；对 factor 在每个 open_time 做 rank 或分位标准化后作为选股信号。",
-    "expected_signal": "横截面：做多 upper_rank 与 cd_rank 均处高分位（联合得分 Top 分位）的 symbol，做空双低分位；预期下一 Bar 相对收益更高，适合与振幅环境因子做条件加权。",
+    "formula_sketch": "按 symbol 计算 ret=(close-open)/open、passive_q_ratio=(quote_volume-taker_buy_quote_volume)/quote_volume、ret_next=lead(ret,1)；每个 open_time 横截面 rank(ret) 与 rank(passive_q_ratio)，裂口 gap_r=rank(ret)-rank(passive_q_ratio)；因子值=f_gap=gap_r 或 rank(gap_r)；做多低 gap（被动报量占比相对收益偏高、有承接），做空高 gap（价涨但被动 Quote 排名低）。",
+    "expected_signal": "横截面：做空 gap 高分位（价强流弱、被动 Quote 排名滞后），做多 gap 低分位或负裂口（价弱但被动报量占比高）；预期下一根1h Bar 相对收益反转；高截面离散时段（cs_ret_std>0.008，127小时）信号方向一致（forward corr≈-0.043）。",
     "risks": [
-      "上影+高密度也可能对应出货而非延续，需分波动 regime 检验",
-      "count_density 在极低振幅 Bar 上数值爆炸，需振幅下限过滤",
-      "meme 币高笔数密度或主导截面排名",
-      "与已有上影类因子存在部分相关"
+      "与同Bar被动Quote-收益错配因子高度相关，需严格区分预测 horizon",
+      "passive_q_ratio 与 symbol 流动性结构相关，截面比较需控制 quote_volume 分层",
+      "极端 gap 样本稀疏（219 中约 28% >0.3），回测过拟合风险",
+      "taker/passive 划分不含 off-exchange 流，结构突变时失效"
     ]
   },
   {
-    "title": "横截面实体占比-净主动流排名正向裂口反转轮动",
-    "hypothesis": "基于查询发现：2024-Q3 横截面 hourly 平均 corr(body_ratio, net_taker_q)=-0.026，实体占比与净主动 Quote 流轻微背离；body_net_gap=percent_rank(body_ratio)-percent_rank(net_taker_q) 五分位中 Q4（实体 rank 高于净流 rank）下一Bar avg_fwd1=-0.000503，差于 Q2 的 -0.000283；极端桶 doji_net_buy（body_rank<0.2 且 net_rank>0.8，n=6130）avg_fwd=-0.000614，fat_body_net_sell（n=7104）avg_fwd=-0.000462，均劣于 other（-0.000366）。假设“价流同向但过度”或“窄实体+高净买入”反映情绪透支，横截面正向裂口大者短期均值回归。",
+    "title": "横截面中轴收位偏离排名-下期收益均值回归轮动",
+    "hypothesis": "基于查询发现：2024-Q3 719 个截面时点，中轴收位偏离 mid_dev=((close-(high+low)/2)/(high-low)) 的 rank 与下一小时收益 rank 平均相关系数 -0.041；同期同Bar 截面 corr(ret_r, mid_r)=0.727 显示收涨 Bar 收盘多在中轴之上，但 mid_dev rank 对下一小时呈反转信号，反映 Bar 内定价重心过度偏移后的横截面回吐。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 body_ratio=ABS(close-open)/(high-low) 与 net_taker_q=(2*taker_buy_quote_volume-quote_volume)/quote_volume；每个 open_time 分组，percent_rank 得 body_rank、net_rank；factor=body_rank-net_rank；对 factor 做组内 rank/z-score；做多低 factor（价强但净流弱，或窄实体净流强），做空高 factor。",
-    "expected_signal": "横截面：反转因子——做空 body_rank 显著高于 net_rank（大阳线伴随净卖出）及 doji_net_buy 型 symbol，做多裂口为负且适度者；与已有“正向裂口延续”因子方向相反，需独立检验。",
+    "formula_sketch": "按 symbol 计算 mid_dev=(close-(high+low)/2)/NULLIF(high-low,0)、ret_next=lead((close-open)/open,1)；每个 open_time 横截面内 rank(mid_dev) 得 f_mid；组合做多低 rank（收盘贴近或低于区间中轴）、做空高 rank（收盘远高于中轴）；可与 rank(amp) 做正交化或仅在 amp/open>阈值时启用。",
+    "expected_signal": "横截面：做多 mid_dev 低分位、做空 mid_dev 高分位；预期下一根1h Bar 相对收益均值回归；与典型价偏离因子互补（mid_dev 用区间几何中轴，tp_dev 用 OHLC 典型价）。",
     "risks": [
-      "裂口信号与趋势因子可能对冲，组合构建需控制暴露",
-      "大实体+净卖压可能是真突破而非反转",
-      "净主动流在 low quote_volume 时失真",
-      "五分位差异绝对值小，交易成本可能吞噬 alpha"
+      "mid_dev 与 tp_dev、CLV 类因子相关度高，需正交处理",
+      "窄振幅 Bar（high≈low）需剔除",
+      "2022-01 早期仅92个 symbol，截面广度不足",
+      "1h 级别 reversal 信号衰减快，换手与手续费敏感"
     ]
   }
 ]
