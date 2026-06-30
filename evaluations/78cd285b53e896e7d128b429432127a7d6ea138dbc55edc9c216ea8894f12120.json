@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "Alpha158-KLEN",
+  "title_hash": "78cd285b53e896e7d128b429432127a7d6ea138dbc55edc9c216ea8894f12120",
+  "formula_hash": "c0c37170c36d3ef28cd95517169ea2d06482f61ceee530a648d972ce23bdc268",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-30T02:03:28.746728+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(high - low) / open",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.002684995147077525,
+    "ic_ir": -0.017387327267425857,
+    "mean_rank_ic": -0.03519126361514166,
+    "rank_ic_ir": -0.19834659909390828,
+    "n_periods": 29925,
+    "ic_positive_ratio": 0.5038262322472848
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
