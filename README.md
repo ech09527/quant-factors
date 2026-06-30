@@ -103,7 +103,12 @@ gh workflow run factor-evaluation-batch.yml -f max_ideas=10
 gh workflow run factor-evaluation-batch.yml -f max_ideas=0  # 不限制条数
 ```
 
-**定时触发**：由 Cloudflare Worker（`workers/factor-ideas-cron/`）每日 UTC 06:00 调用 `workflow_dispatch`（`max_ideas=3`、`mode=agent_generate`）。凭证从 HashiCorp Vault 读取，见 `workers/factor-ideas-cron/README.md`。
+**定时触发**：
+
+- **因子想法**：Cloudflare Worker（`workers/factor-ideas-cron/`）每 5 分钟调用 `factor-ideas.yml`（`max_ideas=3`、`mode=agent_generate`）
+- **批量因子验证**：Cloudflare Worker（`workers/factor-evaluation-batch-cron/`）每 15 分钟调用 `factor-evaluation-batch.yml`（`max_ideas=5`）
+
+凭证从 HashiCorp Vault 读取，见各 Worker 目录下的 README。
 
 工作流 B 在 Kaggle Kernel 内由 Cursor Agent 自主查询 Parquet K 线并生成想法；Runner 负责拉取已有 Project 想法、注入约束、拉取 Kernel 产出、去重重试与写入 Project。
 
@@ -144,7 +149,8 @@ quant-factors/
 │   └── idea-schema.json        # 因子想法 JSON 格式定义
 ├── scripts/                    # 确定性脚本（去重、校验、写入 Project 等）
 └── workers/
-    └── factor-ideas-cron/      # Cloudflare Worker：每 5 分钟触发 factor-ideas 工作流
+    ├── factor-ideas-cron/              # Cloudflare Worker：每 5 分钟触发 factor-ideas
+    └── factor-evaluation-batch-cron/   # Cloudflare Worker：每 15 分钟触发 factor-evaluation-batch
 └── .github/
     └── workflows/
         ├── relay-forward.yml   # AI Workflow 事件转发
