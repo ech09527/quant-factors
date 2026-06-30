@@ -1,12 +1,12 @@
-# 工作流 C-Dispatch：扫描待评估想法，一次性批量运行 factor evaluation
+# 工作流 C-Batch：手动批量评估待验证因子想法
 
-name: Factor Evaluation Dispatch
+name: Factor Evaluation Batch
 
 on:
   workflow_dispatch:
     inputs:
       max_ideas:
-        description: 单次最多评估条数（0 表示不限制）
+        description: 最多评估条数（0 表示不限制）
         required: false
         default: "5"
         type: string
@@ -20,14 +20,9 @@ on:
         required: false
         default: "false"
         type: string
-  schedule:
-    - cron: "*/15 * * * *"
-  workflow_run:
-    workflows: ["Factor Ideas"]
-    types: [completed]
 
 concurrency:
-  group: factor-evaluation-dispatch
+  group: factor-evaluation
   cancel-in-progress: false
 
 permissions:
@@ -93,11 +88,6 @@ jobs:
           KERNEL_LOG_TIMEOUT_SECONDS: "7200"
           CURSOR_WORKERS: "2"
         run: |
-          COUNT=$(jq '.count' /tmp/pending.json)
-          if [ "$COUNT" -eq 0 ]; then
-            echo "无待评估想法"
-            exit 0
-          fi
           ARGS=(--pending /tmp/pending.json -o /tmp/batch_result.json --sample-start "${SAMPLE_START}")
           if [ "${MAX_IDEAS}" != "0" ]; then
             ARGS+=(--max-ideas "${MAX_IDEAS}")

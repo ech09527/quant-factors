@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,11 @@ if __package__ in (None, ""):
 
 from scripts.evaluate_engine import ENGINE_VERSION, formula_hash
 from scripts.parse_project_idea import infer_evaluation_type, parse_project_idea_body
+from scripts.write_evaluation_to_project import EVAL_SECTION_HEADER
+
+FORMULA_HASH_PATTERN = re.compile(r"\*\*formula_hash\*\*：`([^`]+)`")
+ENGINE_VERSION_PATTERN = re.compile(r"\| 引擎版本 \| ([^|]+) \|")
+SKIPPED_STATUS_PATTERN = re.compile(r"\*\*状态\*\*：skipped（([^）)]+)）")
 
 
 def repo_root() -> Path:
@@ -26,6 +32,48 @@ def load_evaluation(path: Path) -> dict[str, Any] | None:
         return json.load(handle)
 
 
+def parse_evaluation_from_body(body: str) -> dict[str, Any] | None:
+    """从 Project Draft Issue body 的「评估结果」章节解析已写入的评估摘要。"""
+    if EVAL_SECTION_HEADER not in body:
+        return None
+
+    section = body.split(EVAL_SECTION_HEADER, 1)[1]
+    formula_match = FORMULA_HASH_PATTERN.search(section)
+    if not formula_match:
+        return None
+
+    parsed: dict[str, Any] = {"formula_hash": formula_match.group(1).strip()}
+
+    skipped_match = SKIPPED_STATUS_PATTERN.search(section)
+    if skipped_match:
+        parsed["status"] = "skipped"
+        parsed["skipped_reason"] = skipped_match.group(1)
+        return parsed
+
+    engine_match = ENGINE_VERSION_PATTERN.search(section)
+    if engine_match:
+        parsed["engine_version"] = engine_match.group(1).strip()
+
+    if "| Mean IC |" in section:
+        parsed["status"] = "success"
+        return parsed
+
+    return None
+
+
+def load_previous_evaluation(
+    idea: dict[str, Any],
+    *,
+    evaluations_dir: Path,
+) -> dict[str, Any] | None:
+    body_eval = parse_evaluation_from_body(idea.get("body", ""))
+    if body_eval is not None:
+        return body_eval
+
+    eval_path = evaluations_dir / f"{idea['title_hash']}.json"
+    return load_evaluation(eval_path)
+
+
 def needs_evaluation(
     idea: dict[str, Any],
     *,
@@ -35,9 +83,7 @@ def needs_evaluation(
     if force:
         return True, "force"
 
-    th = idea["title_hash"]
-    eval_path = evaluations_dir / f"{th}.json"
-    prev = load_evaluation(eval_path)
+    prev = load_previous_evaluation(idea, evaluations_dir=evaluations_dir)
     if prev is None:
         return True, "never_evaluated"
 
@@ -63,6 +109,7 @@ def enrich_idea(raw: dict[str, Any]) -> dict[str, Any]:
         "title_hash": raw["title_hash"],
         "project_item_id": raw.get("project_item_id"),
         "content_id": raw.get("content_id"),
+        "body": raw.get("body") or "",
         **parsed,
     }
     idea["formula_hash"] = formula_hash(idea["formula_sketch"])

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -60,10 +59,6 @@ def format_metrics_table(evaluation: dict[str, Any]) -> str:
             return f"{value:.4f}"
         return str(value)
 
-    title_hash = evaluation.get("title_hash", "")
-    repo = os.environ.get("GITHUB_REPOSITORY", "ech09527/quant-factors")
-    base = f"https://github.com/{repo}/blob/main"
-
     return "\n".join(
         [
             EVAL_SECTION_HEADER,
@@ -79,8 +74,6 @@ def format_metrics_table(evaluation: dict[str, Any]) -> str:
             "",
             f"- **评估时间**：{evaluation.get('evaluated_at')}",
             f"- **formula_hash**：`{evaluation.get('formula_hash')}`",
-            f"- **表达式存档**：[expressions/{title_hash}.json]({base}/expressions/{title_hash}.json)",
-            f"- **完整结果**：[evaluations/{title_hash}.json]({base}/evaluations/{title_hash}.json)",
             "",
             "<details>",
             "<summary>因子 SQL</summary>",
