@@ -1,0 +1,21 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "(-59 * LAG(close, 59) OVER w - 57 * LAG(close, 58) OVER w - 55 * LAG(close, 57) OVER w - 53 * LAG(close, 56) OVER w - 51 * LAG(close, 55) OVER w - 49 * LAG(close, 54) OVER w - 47 * LAG(close, 53) OVER w - 45 * LAG(close, 52) OVER w - 43 * LAG(close, 51) OVER w - 41 * LAG(close, 50) OVER w - 39 * LAG(close, 49) OVER w - 37 * LAG(close, 48) OVER w - 35 * LAG(close, 47) OVER w - 33 * LAG(close, 46) OVER w - 31 * LAG(close, 45) OVER w - 29 * LAG(close, 44) OVER w - 27 * LAG(close, 43) OVER w - 25 * LAG(close, 42) OVER w - 23 * LAG(close, 41) OVER w - 21 * LAG(close, 40) OVER w - 19 * LAG(close, 39) OVER w - 17 * LAG(close, 38) OVER w - 15 * LAG(close, 37) OVER w - 13 * LAG(close, 36) OVER w - 11 * LAG(close, 35) OVER w - 9 * LAG(close, 34) OVER w - 7 * LAG(close, 33) OVER w - 5 * LAG(close, 32) OVER w - 3 * LAG(close, 31) OVER w - LAG(close, 30) OVER w + LAG(close, 29) OVER w + 3 * LAG(close, 28) OVER w + 5 * LAG(close, 27) OVER w + 7 * LAG(close, 26) OVER w + 9 * LAG(close, 25) OVER w + 11 * LAG(close, 24) OVER w + 13 * LAG(close, 23) OVER w + 15 * LAG(close, 22) OVER w + 17 * LAG(close, 21) OVER w + 19 * LAG(close, 20) OVER w + 21 * LAG(close, 19) OVER w + 23 * LAG(close, 18) OVER w + 25 * LAG(close, 17) OVER w + 27 * LAG(close, 16) OVER w + 29 * LAG(close, 15) OVER w + 31 * LAG(close, 14) OVER w + 33 * LAG(close, 13) OVER w + 35 * LAG(close, 12) OVER w + 37 * LAG(close, 11) OVER w + 39 * LAG(close, 10) OVER w + 41 * LAG(close, 9) OVER w + 43 * LAG(close, 8) OVER w + 45 * LAG(close, 7) OVER w + 47 * LAG(close, 6) OVER w + 49 * LAG(close, 5) OVER w + 51 * LAG(close, 4) OVER w + 53 * LAG(close, 3) OVER w + 55 * LAG(close, 2) OVER w + 57 * LAG(close, 1) OVER w + 59 * close) / (35990.0 * close)",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": [
+      "open",
+      "high",
+      "low",
+      "close"
+    ],
+    "min_symbol_bars": 168,
+    "cs_quantile_gte": {
+      "col": "quote_volume",
+      "q": 0.2
+    }
+  }
+}
