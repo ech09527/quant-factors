@@ -1,47 +1,44 @@
 [
   {
-    "title": "横截面笔均Quote规模-相对振幅排名反向裂口延续轮动",
-    "hypothesis": "基于查询发现：2024-Q1 至 2024-H1（open_time 1709251200000–1719792000000）中，横截面 rank(quote_volume/count) 处于低分位且 rank((high-low)/open) 处于高分位的 symbol，未来 4h 平均收益 +0.100%（587636 样本中该桶），而高 qpc 低 rng 桶仅 -0.014%；2024-Q1 单季 low_qpc_high_rng 桶未来 4h 达 +0.268%（n=2375）。碎片化小单成交（低笔均 Quote）伴随高相对振幅，反映分歧中换手再定价，后续延续强于“大单低波”组合。",
+    "title": "横截面净主动流-实体占比排名正向裂口延续轮动",
+    "hypothesis": "基于查询发现：2025-01 窗口内 net_taker 与同 Bar 收益相关系数达 0.354，而 body_ratio 与 net_taker 相关系数仅 -0.034（实体占比截面 std≈0.26），说明大量价格推进发生在「窄实体、高净主动流」的错配形态中；横截面上 net_taker rank 显著高于 body_ratio rank 的标的，更可能代表隐蔽 aggressive 流推动，下一 Bar 延续概率更高。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 qpc=quote_volume/count、rng=(high-low)/open；每个 open_time 横截面分别对 qpc、rng 做 PERCENT_RANK 得 rank_qpc、rank_rng；因子 raw=rank_rng-rank_qpc（裂口越大=低笔均Quote+高振幅）；可选对 raw 做 winsorize 后再次在每个 open_time 组内 rank 或 z-score；组合时做多高分位、做空低分位。",
-    "expected_signal": "横截面：做多 rank_rng-rank_qpc 高分位（碎片化成交+高振幅），做空低分位；适用于多 symbol 永续 1h 轮动，建议叠加流动性过滤（如 quote_volume 截面中位数以上）。",
+    "formula_sketch": "按 symbol 计算 body_ratio=|close-open|/(high-low)，net_taker=(taker_buy_volume-(volume-taker_buy_volume))/volume；每个 open_time 横截面分别对 net_taker、body_ratio 做 rank 或 z-score，因子=rank(net_taker)-rank(body_ratio)；按 open_time 分组，组内对裂口值再做 rank/分位，做多高分位、做空低分位。",
+    "expected_signal": "横截面：做多 net_taker rank 相对 body_ratio rank 正向裂口最大的标的、做空裂口最小者；适用于 1h 永续合约多标的轮动，预期下一 Bar 收益与因子同向。",
     "risks": [
-      "低 qpc 可能混入报价噪声或极小 tick 品种",
-      "高振幅段滑点与 funding 成本更高",
-      "2024-Q1 后样本外需再验证",
-      "新上市 symbol 历史笔均 Quote 不稳定"
+      "窄实体 Bar 流动性分层明显，小市值 symbol 易出现极端 rank",
+      "净主动流与收益同期相关可能含同 Bar 噪声，需严格 shift(1) 防 lookahead",
+      "2020-04 高波动段 net_taker-ret 相关更高(0.382)，因子可能在极端行情过拟合"
     ]
   },
   {
-    "title": "横截面振幅扩张-收益方向排名反向裂口反转轮动",
-    "hypothesis": "基于查询发现：2024-Q4（open_time 1733011200000–1735689600000）当 Bar 相对振幅扩张率 rng_exp=range_t/range_{t-1} 与当 Bar 收益同处横截面极端高位（expand_up，n=14655）时，未来 4h 平均收益 -0.174%；而扩张率高但收益处于低分位（expand_down，n=9277）未来 4h 为 +0.024%，呈明显非对称。上涨 Bar 上的振幅跃升更像追价耗尽，下跌 Bar 上的扩张则更偏恐慌释放后的修复失败/延续错配，适合反向裂口定价。",
+    "title": "横截面被动Quote占比-同Bar收益排名反向错配反转轮动",
+    "hypothesis": "基于查询发现：2025-01 窗口 passive_q_ratio=(quote_volume-taker_buy_quote_volume)/quote_volume 均值 51.1%、截面 std≈0.058，与同 Bar 收益相关系数 -0.354（被动占比越高收益越弱）；但 passive_q 与 next_ret 总体相关仅 -0.011，暗示同 Bar 定价已部分反映被动卖压。横截面上 passive_q rank 高而 ret rank 仍偏高的标的，存在被动挂单吸收后的短期反转空间。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 bar_ret=(close-open)/open、rng_exp=(high-low)/open ÷ LAG((high-low)/open)；每个 open_time 横截面 PERCENT_RANK 得 rank_exp、rank_ret；因子 raw=rank_exp-rank_ret（正向=扩张排名高于收益排名）；在每个 open_time 组内对 raw 做 rank 或 z-score；做多低分位（做空高裂口），做空高分位。",
-    "expected_signal": "横截面：raw 越高（振幅扩张排名显著高于收益排名，典型 expand_up  exhaustion）越偏空；raw 越低越偏多。适用于高波动季度（如 2024-03 全市场 avg_range_pct=0.022）的短持有反转/错配修复。",
+    "formula_sketch": "按 symbol 计算 passive_q_ratio 与同 Bar ret=(close-open)/open；每个 open_time 分组，组内分别 rank(passive_q_ratio) 与 rank(ret)，因子=rank(passive_q_ratio)-rank(ret)（反向错配）；对因子做 z-score 或分位排序，做多低分位（被动高但收益仍强→看反转）、做空高分位。",
+    "expected_signal": "横截面：被动 Quote 占比 rank 与同 Bar 收益 rank 正向错配越大，下一 Bar 反转越强；做多错配低分位、做空错配高分位，适用于 1h 截面轮动。",
     "risks": [
-      "趋势市中“扩张+上涨”可能延续而非反转",
-      "rng_exp 对前 Bar 零振幅敏感需设下限",
-      "与已有振幅扩张类因子可能部分共线",
-      "1h 频率下 4h 持有需与 funding 对齐"
+      "同 Bar ret 与 passive_q 同期计算，回测须 lag 因子至 next bar",
+      "被动 Quote 占比与 quote_volume 规模相关，需做流动性中性或分层",
+      "2024-Q1 仅 196 个 symbol 有数据，截面宽度随时间变化"
     ]
   },
   {
-    "title": "横截面主动买入占比-收益排名反向裂口吸收轮动",
-    "hypothesis": "基于查询发现：2024 全年（open_time 1704067200000–1719792000000）横截面 tbr=taker_buy_volume/volume 处于高分位（低被动占比）且当 Bar 收益处于低分位（low_pass_low_ret，高主动买入遇跌，n=9996）时，未来 4h 平均收益 +0.049%，而同环境下 tbr 高分位+收益高分位（low_pass_high_ret，追价买入，n=64010）未来 4h 为 -0.004%。主动流与价格方向错配时更像吸收/建仓，同向极端则偏耗尽。",
+    "title": "横截面主动买入占比跃迁-截面离散度条件延续轮动",
+    "hypothesis": "基于查询发现：2025-01 窗口 tbr_delta（主动买入占比单 Bar 变化）与 ret 相关系数 0.245，avg|tbr_delta|≈0.062；而 2020-04 高波动段截面 tbr_std=0.104、2024-05 仅 0.056，高离散环境下订单流信息含量更高。按 open_time 截面 tbr_std 处于高分位时，tbr_delta rank 对未来 Bar 的延续效应应更强。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 tbr=taker_buy_volume/volume、ret=(close-open)/open；每个 open_time 横截面 PERCENT_RANK 得 rank_tbr、rank_ret；因子 raw=rank_tbr-rank_ret（高=主动流排名高于收益排名，即流强价弱）；在每个 open_time 组内对 raw 做 rank 或 z-score；做多高分位（吸收型错配），做空低分位（同向追价型）。",
-    "expected_signal": "横截面：做多 rank_tbr-rank_ret 高分位 symbol、做空低分位；错配吸收逻辑在 2024-Q2 同期 Bar 级 corr(ret,tbr)=0.336 的正相关背景下，截面反向裂口应提供独立 alpha。",
+    "formula_sketch": "按 symbol 计算 tbr=taker_buy_volume/volume，tbr_delta=tbr-LAG(tbr,1)；每个 open_time 计算截面 cs_tbr_std=STDDEV(tbr)，并对 tbr_delta 做 rank；因子=rank(tbr_delta)*I(cs_tbr_std>截面中位数) 或 rank(tbr_delta)*rank(cs_tbr_std)；每个 open_time 组内对复合因子 z-score/分位排序。",
+    "expected_signal": "横截面：在高 cs_tbr_std 环境（如 2020-04 类高波动段）做多 tbr_delta 高分位、做空低分位；低离散环境（2024-05 cs_tbr_std≈0.056）信号衰减，可条件化建仓。",
     "risks": [
-      "与 Bar 方向-主动流错配类因子可能相关",
-      "极端行情下 taker 流噪声大",
-      "低流动性品种 tbr 估计方差高",
-      "需排除 volume 过低的 Bar 以避免除零与虚假排名"
+      "cs_tbr_std 与 symbol 数量相关（低 decile 仅 ~132 标的），截面宽度变化引入偏误",
+      "tbr_delta 对低成交 symbol 噪声大",
+      "与已有主动流加速度类因子可能共线，需正交化"
     ]
   }
 ]
