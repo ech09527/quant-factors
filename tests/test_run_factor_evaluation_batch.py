@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from scripts.bundle_evaluate_kernel import build_bundled_kernel_source
 from scripts.evaluate_engine import ENGINE_VERSION
 from scripts.run_factor_evaluation import (
     build_batch_kernel_inputs,
@@ -45,3 +46,11 @@ def test_load_batch_kernel_output_prefers_batch_file() -> None:
         loaded = load_batch_kernel_output(out_dir)
         assert len(loaded) == 1
         assert loaded[0]["title_hash"] == "a" * 64
+
+
+def test_bundled_kernel_does_not_import_evaluate_engine_module() -> None:
+    runner = ROOT / "explorations" / "evaluate-factor-idea" / "evaluate_factor_idea.py"
+    bundled = build_bundled_kernel_source(ROOT, runner)
+    assert "from evaluate_engine import" not in bundled
+    assert "def evaluate_factor_sql(" in bundled
+    assert "batch_evaluations.json" in bundled

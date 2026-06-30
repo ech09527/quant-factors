@@ -54,6 +54,10 @@ def build_bundled_kernel_source(repo: Path, runner_path: Path) -> str:
         "    from evaluate_engine import evaluate_factor_sql, resolve_kaggle_data_path\n\n",
         "",
     )
+    runner_src = runner_src.replace(
+        "    from evaluate_engine import ENGINE_VERSION, METRICS_VERSION, evaluate_factor_sql, formula_hash, resolve_kaggle_data_path\n\n",
+        "",
+    )
 
     return (
         "# Bundled kernel for Kaggle (generated at push time)\n"
