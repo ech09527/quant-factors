@@ -1,44 +1,47 @@
 [
   {
-    "title": "横截面Quote量能二阶加速度-截面离散度条件排名延续轮动",
-    "hypothesis": "基于查询发现：2025-Q1（open_time 1735689600000–1743465600000）各小时横截面内 quote 量能二阶加速度 qv_accel 与下期收益 ret_fwd 的相关在 -0.684 至 +0.593 间剧烈摆动，其中 33 个小时 corr>0.3、25 个小时 corr<-0.3，同期收益截面标准差最高达 0.098（1743094800000）。说明量能“加速/减速”的定价方向强烈依赖当期截面波动环境；高离散时段（如 cs_std≈0.032 时 contemporaneous corr 低至 -0.858，而 cs_std≈0.029 时升至 +0.937）应切换多空逻辑，而非全样本平均（avg_accel_fwd≈0.006）一刀切。",
+    "title": "横截面收益离散-主动流离散压缩环境下主动Quote占比排名延续轮动",
+    "hypothesis": "基于查询发现：2024-Q3（1722470400000–1725148800000）744 个小时Bar中，截面收益标准差与主动买入Quote占比标准差呈负相关（corr=-0.267），高振幅小时截面主动流离散更低（0.045 vs 0.061）。当某小时同时满足 ret_std 高于中位数且 tb_std 低于中位数（disp_ret_compress_tb，占样本 29%）时，主动Quote占比截面 rank 与下期 1h 收益相关性升至 0.0082，多空 spread（top20% tbq − bottom20% tbq）为 +0.000388，而其余环境仅为 -0.000168。假设在“收益分化但订单流共识”的拥挤时刻，主动Quote占比更高的标的更能延续当前截面强势。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 qv_d1=quote_volume/LAG(quote_volume,1)-1、qv_d2=quote_volume/LAG(quote_volume,2)-1，qv_accel=qv_d1-qv_d2；每个 open_time 分组计算 cs_std=STDDEV((close-open)/open) 及其组内 rank 或 z-score；对 qv_accel 做组内 rank；当 cs_std 组内分位>0.7 且该小时历史滚动 corr(qv_accel,ret_fwd)>0 时做多高 rank，分位>0.7 且滚动 corr<0 时做空高 rank；其余时段降权或中性。",
-    "expected_signal": "横截面：在高截面收益离散度环境下，按条件切换 Quote 量能二阶加速度 rank 的多空方向；预期高 rank 在“正相关 regime”延续、在“负相关 regime”反转。",
+    "formula_sketch": "按 symbol 计算 ret=(close-open)/open、tbq=taker_buy_quote_volume/quote_volume；每个 open_time 分组计算 ret_std=STDDEV(ret)、tb_std=STDDEV(tbq)；标记 env=1 当 ret_std>median(ret_std) 且 tb_std<median(tb_std)；组内 rank_tbq=PERCENT_RANK(tbq)；因子值=rank_tbq×env（或 env 内 z-score(rank_tbq)）；每个 open_time 横截面 rank/z-score 后作为选股信号。",
+    "expected_signal": "横截面：在 disp_ret_compress_tb 环境（约 30% 小时）做多 env 内主动Quote占比 rank 高分位、做空低分位；非该环境降权或中性。预期 IC 在压缩环境显著为正。",
     "risks": [
-      "regime 切换需滚动估计 corr，存在滞后与过拟合",
-      "新上市 symbol 量能序列短导致 qv_accel 噪声大",
-      "高离散小时样本占比低（2025-Q1 极端 cs_std 小时有限）"
+      "环境标记占比低导致有效样本稀疏",
+      "2024-Q3 牛市样本可能高估延续效应",
+      "小时级 ret_std/tb_std 对异常值敏感",
+      "新上市 symbol 在截面标准差估计中噪声大"
     ]
   },
   {
-    "title": "横截面三连阳Bar计数排名-下期收益均值回归轮动",
-    "hypothesis": "基于查询发现：2025-Q1 横截面三连阳计数 up_cnt3（近 3 根 Bar 中 close>open 的根数）与同期收益 ret 的 pooled corr 高达 0.377，显示短窗方向已充分定价；但 up_cnt3 与下期收益 ret_fwd 的全样本小时均值相关仅 -0.005，且小时级 corr 分布 p10=-0.15、p90=+0.14，整体呈轻微均值回归。avg_up_cnt3≈1.44 意味着多数标的处于偏强短期状态，高 up_cnt3 rank 更易拥挤。低波环境（2022-Q1 cs_std≈0.0028–0.0034）下 streak_fwd 在 -0.15~+0.17 间波动，仍不支持无脑追涨。",
+    "title": "横截面CLV-笔均Quote规模排名正向裂口下期延续轮动",
+    "hypothesis": "基于查询发现：2024 年 4 月（1711929600000–1714521600000）143990 条有效Bar中，CLV=(2×close-high-low)/(high-low) 与笔均Quote规模 qvc=quote_volume/count 的截面 rank 平均裂口达 0.339（CLV rank 与 tbq rank 裂口为 0.282）。当 CLV rank 显著高于 qvc rank（正向裂口 >0.25）时，下期 1h 平均收益 -0.00040，低于裂口 <-0.25 的 -0.00067，多空 spread +0.000274，corr(裂口, next_ret)=0.0085。假设“价格收在区间上沿但成交以小额碎片化Quote为主”代表散户追涨、大单缺席，强势仍可惯性延续；反向裂口则反映大单托底但价格未确认，动能不足。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 up_cnt3=SUM(I(close>open)) OVER (ROWS 2 PRECEDING..CURRENT)；每个 open_time 横截面对 up_cnt3 做 rank 或 z-score 得 score；因子值取 -score（或 1-rank_pct）以表达均值回归；可选仅在 cs_std 组内分位<0.5 的低离散时段放大权重。",
-    "expected_signal": "横截面：做空高 up_cnt3 rank（三连阳过热）、做多低 rank；预期下一 Bar 收益反向修正短期方向拥挤。",
+    "formula_sketch": "按 symbol 计算 clv=(2×close-high-low)/(high-low)、qvc=quote_volume/count、next_ret=lead(ret)；每个 open_time 分组：rank_clv=PERCENT_RANK(clv)、rank_qvc=PERCENT_RANK(qvc)；gap=rank_clv−rank_qvc；因子值=gap 或其 z-score；每个 open_time 对 gap 做横截面 rank 作为最终信号。",
+    "expected_signal": "横截面：做多 gap 高分位（CLV 排名领先于笔均Quote规模排名）、做空 gap 低分位；预期正 IC，在 2024-Apr 类震荡偏强月份更有效。",
     "risks": [
-      "强趋势行情中均值回归失效",
-      "up_cnt3 与同期 ret 高相关可能引入微结构同期偏差",
-      "小市值 alt 三连阳后延续性可能不同于主流币"
+      "CLV 在 high=low 时需剔除",
+      "笔均Quote规模与市值/流动性高度相关，需做流动性中性",
+      "裂口信号弱（IC~0.008）易过拟合",
+      "qvc 受 count 异常尖峰影响"
     ]
   },
   {
-    "title": "单标的BTC低波Regime下三连阳计数动能耗尽反转",
-    "hypothesis": "基于查询发现：BTCUSDT 全样本按 |hourly ret| 划分，low_vol（|ret|≤0.5%）Bar 达 42642 根、avg_abs_ret≈0.0019，而 high_vol（|ret|≥1.5%）仅 2025 根、avg_abs_ret≈0.0233；低波占绝对主导。与此同时，2025-Q1 全市场 up_cnt3 与同期 ret corr=0.377，低波小时（2022-Q1 cs_std<0.0034）streak_fwd 均值接近 0 且正负交替。假设 BTC 低波 Regime 下，本地三连阳计数升至 3 代表小时级动能透支，次 Bar 更易回落。",
+    "title": "横截面高振幅环境主动Quote占比排名延续低振幅反转轮动",
+    "hypothesis": "基于查询发现：2024-Q3 372 个高振幅小时（截面 avg_amp 高于中位数）vs 372 个低振幅小时，截面收益离散 0.00781>0.00601，但主动Quote占比离散反向压缩 0.045<0.061。在同一窗口内，主动Quote占比 rank 的多空 spread 在高振幅环境为 +0.000173（corr=+0.0034），低振幅环境为 -0.000186（corr=-0.0049），信号方向截然相反。假设高振幅时信息快速定价、主动流领先者可延续；低振幅时高主动买入占比更多反映被动补单或陷阱，应反向操作。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "仅 BTCUSDT：计算 abs_ret=|close/LAG(close)-1|，regime=low_vol 当 abs_ret<=0.005；up_cnt3 同上；信号=I(regime=low_vol AND up_cnt3=3)*(-1) 做多、I(regime=low_vol AND up_cnt3=0)*(+1) 做多（或连续分位阈值）；时序单标的持仓，不做横截面 rank。",
-    "expected_signal": "时序：BTC 低波 Regime 下，三连阳计数触顶做空/减多，计数清零后小幅做多博反弹；适用于 1h 频率的短持有反转。",
+    "formula_sketch": "按 symbol 计算 amp=(high-low)/open、tbq=taker_buy_quote_volume/quote_volume；每个 open_time 计算 h_amp=AVG(amp) 并标记 high_amp=(h_amp>median(h_amp))；组内 rank_tbq=PERCENT_RANK(tbq)；因子值=rank_tbq 若 high_amp  else -rank_tbq（或 ×(2×high_amp−1)）；每个 open_time 对因子做横截面 z-score/rank。",
+    "expected_signal": "横截面：高振幅小时做多 rank_tbq 高分位；低振幅小时做空 rank_tbq 高分位（即因子已翻转符号）；预期条件化后 IC 优于 unconditional 的 ~0 相关。",
     "risks": [
-      "仅单标的 BTC，泛化性弱",
-      "低波 Regime 边界（0.5%）敏感",
-      "2025-Q1 高离散事件（cs_std=0.098）下低波假设失效"
+      "振幅环境切换频繁导致换手上升",
+      "低振幅样本中信号微弱（|LS|<0.0002）",
+      "hourly h_amp 与单Bar amp 概念混用需统一",
+      "极端行情小时 symbol 数量不足影响 rank 稳定性"
     ]
   }
 ]
