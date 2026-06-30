@@ -1,44 +1,44 @@
 [
   {
-    "title": "横截面振幅扩张相对排名延续轮动",
-    "hypothesis": "基于查询发现：2025-01 全月按小时横截面中，当前Bar振幅相对近5Bar均值的扩张比(rng/rng5)处于 top20% 分位时 avg_ret=+0.0020，bot20% 时 avg_ret=-0.00126，且单小时内 corr(rng_expand, ret) 可达 0.57~0.67（如 1735754400000 小时 corr=0.667）。扩张伴随 avg_expand=1.54 vs 0.70，说明波动释放方向在截面内具有短期延续性，而非已有「扩缩反转」思路的均值回归。",
+    "title": "横截面Bar方向-主动流符号排名错配吸收轮动",
+    "hypothesis": "基于 2023-10~2023-11（open_time 1693526400000~1696118400000）查询：上涨 Bar 但主动买入占比<50%（价涨而被动卖压主导）共 18591 次，下一 Bar 平均收益 -0.014%；下跌 Bar 但主动买入>50% 下一 Bar 平均收益 +0.036%。同一 open_time 截面内 Bar 涨跌方向与 taker 流符号频繁背离，背离强度横截面排名高者短期更易均值回归。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 rng=(high-low)/open、rng5=rolling_mean(rng,5,lag1)、rng_expand=rng/rng5；每个 open_time 横截面对 rng_expand 做 rank 或 z-score；可选与 ret 同向加权。信号=扩张排名，截面多空对冲。",
-    "expected_signal": "横截面：做多 rng_expand 高分位（波动刚释放/扩张的标的），做空低分位（振幅压缩段）；适用于 1h 频率的短持有轮动，2025-01 样本中 top vs bottom 桶收益差约 33bp/Bar。",
+    "formula_sketch": "按 symbol 计算 dir=sign(close-open)、tbr=taker_buy_volume/volume、tbr_centered=tbr-0.5、错配强度 mismatch=(-dir)*tbr_centered（上涨 Bar 且 tbr<0.5 时为正）；每个 open_time 分组，对 mismatch 做组内 rank 或 z-score；因子值取 rank 或 -zscore，横截面多空按分位排序。",
+    "expected_signal": "横截面：做空 Bar 方向-主动流符号错配排名高分位（价涨流弱/价跌流强），做多错配排名低分位（价流同向协同）；适用于 1h 永续合约多 symbol 轮动。",
     "risks": [
-      "与已有振幅扩缩反转因子信号方向相反，需与组合中同类因子去重",
-      "低流动性 symbol 的 rng5 估计噪声大",
-      "极端行情下扩张可能是尾部风险而非趋势"
+      "1h 频率下错配可能在下一 Bar 内快速修复，换手与手续费敏感",
+      "极端行情（如插针）时 sign(close-open) 噪声大",
+      "新上市 symbol 历史 Bar 不足导致 rank 不稳定"
     ]
   },
   {
-    "title": "横截面上下影线偏斜排名延续轮动",
-    "hypothesis": "基于查询发现：2024-05-01 01:00 UTC 截面 202 个 symbol 中，上影线占比减下影线占比的 shadow_skew 均值=+0.090（上影偏长），corr(shadow_skew, ret)=0.236；2025-01 全月按 skew 排名分桶后，high_skew(top20%) avg_ret=+0.00048、low_skew(bottom20%) avg_ret=-0.00075，avg_skew 分别为 +0.285 vs -0.279。上影偏斜更高的标的在同小时截面中收益略优，反映试探性上攻后仍保留相对强势。",
+    "title": "横截面高截面离散环境下振幅排名条件延续轮动",
+    "hypothesis": "基于 2021-Q1 高波动段（open_time 1609459200000~1617235200000）查询：当小时截面收益离散度 cs_vol 处于全样本 75 分位以上时，振幅 (high-low)/close 排名前 15% 的 symbol 下一 Bar 平均收益 +0.24%（n=5105）；同振幅条件在低 cs_vol 环境下下一 Bar 收益仅 +0.000004%。高离散环境放大振幅 leader 的短期延续，低离散环境该效应消失。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 up_sh=(high-max(open,close))/(high-low)、lo_sh=(min(open,close)-low)/(high-low)、shadow_skew=up_sh-lo_sh；每个 open_time 分组内对 shadow_skew 做 rank 或分位；可叠加 ret 方向过滤。",
-    "expected_signal": "横截面：做多 shadow_skew 高分位，做空低分位；适用于中高波动环境（2024-Q1 月均 range_pct 1.5%~2.2%）的 hourly 轮动。",
+    "formula_sketch": "按 symbol 计算 ret=(close-open)/open、rng=(high-low)/close；每个 open_time 分组计算 cs_vol=std(ret)；仅保留 cs_vol>截面 75 分位的时点；在同一 open_time 内对 rng 做 rank 或 z-score；因子值=条件 rank，无信号时置 NaN 或 0。",
+    "expected_signal": "横截面：仅在截面波动离散度高的小时，做多 rng rank 高分位、做空低分位；低离散环境降仓或中性。",
     "risks": [
-      "与上影/下影单一拒绝类因子部分相关，需正交化",
-      "high=low 的 Bar 需剔除",
-      "shadow_skew 对 tiny range Bar 敏感"
+      "条件触发（cs_vol 阈值）降低覆盖率，组合波动可能上升",
+      "2021 高波动 regime 与 2023-2024 低波动段（如 BTC 振幅仅 0.49%）结构不同，存在过拟合",
+      "振幅 leader 可能集中于 meme/小市值，需流动性过滤"
     ]
   },
   {
-    "title": "横截面被动Quote占比-笔数密度双高吸收轮动",
-    "hypothesis": "基于查询发现：2024-05~06 窗口内，同一 open_time 横截面同时处于 passive_q=(quote_volume-taker_buy_quote_volume)/quote_volume 与 cnt_vol=count/volume 双 top20% 的标的（hi_pass_hi_cnt，n=6056）avg_ret=-0.00209，而双 bottom20%（lo_pass_lo_cnt，n=5948）avg_ret=+0.00364，桶间差约 57bp/Bar；2024-05-01 01:00 截面 corr(passive_q, ret)=-0.241。高被动报量叠加成交碎片化往往对应价格推进乏力，截面排序上呈现吸收后偏弱。",
+    "title": "横截面中轴收位-主动流排名反向裂口吸收轮动",
+    "hypothesis": "基于 2024-06（open_time 1717200000000~1719792000000）查询：收盘相对 Bar 中轴位置 close_vs_mid=(close-(high+low)/2)/((high-low)/2) 排名前 85% 且主动买入占比 tbr 排名后 15% 的组合，下一 Bar 平均收益 -0.065%（全窗口 149005 条 bar 级样本）；价格定位偏高但缺乏主动流确认，横截面裂口大者短期回落。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 passive_q 与 cnt_vol=count/volume；每个 open_time 分组内分别 rank 或 z-score，构造 combo=rank(passive_q)+rank(cnt_vol) 或双高哑变量；对 combo 再做 rank。做多低 combo、做空高 combo。",
-    "expected_signal": "横截面：做空 passive_q 与 cnt_vol 双高分位（吸收过载），做多双低分位；适用于 1h _crypto 永续截面轮动，2024-05~06 样本双桶收益差显著。",
+    "formula_sketch": "按 symbol 计算 close_vs_mid 与 tbr=taker_buy_volume/volume；每个 open_time 分组，分别对 close_vs_mid 与 tbr 做 rank（或 z-score）；裂口 gap=rank(close_vs_mid)-rank(tbr)；对 gap 再做 rank 或 z-score 作为因子值。",
+    "expected_signal": "横截面：做空 gap 高分位（价高中轴但主动流排名低），做多 gap 低分位或负裂口（价低中轴且主动流相对强）；适用于多 symbol 1h 轮动。",
     "risks": [
-      "quote_volume/count 在极低成交时段失真",
-      "与被动流、笔数密度类因子共线，需行业/市值中性",
-      "2020-Q1 早期 cnt_vol 中位数仅 0.0088，跨期尺度变化大（2024 截面 std(cnt_vol)≈4.68 vs 2020 0.44）"
+      "窄振幅 Bar 上 close_vs_mid 分母 (high-low) 极小，需设振幅下限过滤",
+      "与 CLV/收盘位置类因子存在共线性",
+      "lookahead 风险低但需确保仅用当前 Bar 数据"
     ]
   }
 ]
