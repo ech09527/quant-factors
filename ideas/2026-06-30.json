@@ -1,47 +1,44 @@
 [
   {
-    "title": "横截面收益离散-主动流离散压缩环境下主动Quote占比排名延续轮动",
-    "hypothesis": "基于查询发现：2024-Q3（1722470400000–1725148800000）744 个小时Bar中，截面收益标准差与主动买入Quote占比标准差呈负相关（corr=-0.267），高振幅小时截面主动流离散更低（0.045 vs 0.061）。当某小时同时满足 ret_std 高于中位数且 tb_std 低于中位数（disp_ret_compress_tb，占样本 29%）时，主动Quote占比截面 rank 与下期 1h 收益相关性升至 0.0082，多空 spread（top20% tbq − bottom20% tbq）为 +0.000388，而其余环境仅为 -0.000168。假设在“收益分化但订单流共识”的拥挤时刻，主动Quote占比更高的标的更能延续当前截面强势。",
+    "title": "横截面流动性分层笔数碎片化条件延续轮动",
+    "hypothesis": "基于查询发现：2024-Q1 按 quote_volume 五等分流动性分层后，笔数密度 count/volume 的截面 rank 与下期 1h 收益相关性在最低流动性层（tier1，n=26901）为 +0.0064，而最高层（tier5，n=26279）为 -0.0050，符号相反；同时 tier5 平均 cpv_rank=0.616 显著高于 tier1 的 0.403。假设小市值/低流动性合约中碎片化成交（高笔数密度）反映散户追涨延续，而大币中同样信号更可能是噪声交易后的均值回归。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 ret=(close-open)/open、tbq=taker_buy_quote_volume/quote_volume；每个 open_time 分组计算 ret_std=STDDEV(ret)、tb_std=STDDEV(tbq)；标记 env=1 当 ret_std>median(ret_std) 且 tb_std<median(tb_std)；组内 rank_tbq=PERCENT_RANK(tbq)；因子值=rank_tbq×env（或 env 内 z-score(rank_tbq)）；每个 open_time 横截面 rank/z-score 后作为选股信号。",
-    "expected_signal": "横截面：在 disp_ret_compress_tb 环境（约 30% 小时）做多 env 内主动Quote占比 rank 高分位、做空低分位；非该环境降权或中性。预期 IC 在压缩环境显著为正。",
+    "formula_sketch": "按 symbol 计算 cpv = count/volume；用过去 24h quote_volume 均值对 symbol 做流动性分层（NTILE(5)）；每个 open_time 组内对 cpv 做 rank 得 cpv_rank；因子值 = 低流动性层（tier≤2）取 +cpv_rank，高流动性层（tier≥4）取 -cpv_rank，中间层置 0 或中性；可选对 rank 做 z-score 标准化。",
+    "expected_signal": "横截面：低流动性层做多高 cpv_rank、做空低 cpv_rank；高流动性层反向操作；适用于 1h 频率多币永续截面轮动，需按流动性分层分别评估。",
     "risks": [
-      "环境标记占比低导致有效样本稀疏",
-      "2024-Q3 牛市样本可能高估延续效应",
-      "小时级 ret_std/tb_std 对异常值敏感",
-      "新上市 symbol 在截面标准差估计中噪声大"
+      "新上市 symbol 历史 quote_volume 不足导致分层不稳定",
+      "2024-Q1 相关性绝对值较小（~0.6bp 量级），需大样本验证",
+      "分层阈值随市场扩容需定期重估"
     ]
   },
   {
-    "title": "横截面CLV-笔均Quote规模排名正向裂口下期延续轮动",
-    "hypothesis": "基于查询发现：2024 年 4 月（1711929600000–1714521600000）143990 条有效Bar中，CLV=(2×close-high-low)/(high-low) 与笔均Quote规模 qvc=quote_volume/count 的截面 rank 平均裂口达 0.339（CLV rank 与 tbq rank 裂口为 0.282）。当 CLV rank 显著高于 qvc rank（正向裂口 >0.25）时，下期 1h 平均收益 -0.00040，低于裂口 <-0.25 的 -0.00067，多空 spread +0.000274，corr(裂口, next_ret)=0.0085。假设“价格收在区间上沿但成交以小额碎片化Quote为主”代表散户追涨、大单缺席，强势仍可惯性延续；反向裂口则反映大单托底但价格未确认，动能不足。",
+    "title": "横截面净主动流波动调整-振幅Regime排名正向裂口延续轮动",
+    "hypothesis": "基于查询发现：2024-Q2（高波动段，截面收益 std 中位数 0.0071、p75=0.0086）中，净主动 Quote 流经 24h 波动调整（net_tb_q/tb_std24）rank 与当期振幅相对历史波动（amp/ret_std24）rank 的裂口，与下期收益截面相关在全样本为 +0.0044，在截面离散度高环境（cs_ret_std>0.012）进一步升至 +0.0061，低离散环境仅 +0.0027。假设高波动 Regime 下「主动流冲击强于价格已扩张幅度」代表信息未完全定价，延续至下一 Bar。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 clv=(2×close-high-low)/(high-low)、qvc=quote_volume/count、next_ret=lead(ret)；每个 open_time 分组：rank_clv=PERCENT_RANK(clv)、rank_qvc=PERCENT_RANK(qvc)；gap=rank_clv−rank_qvc；因子值=gap 或其 z-score；每个 open_time 对 gap 做横截面 rank 作为最终信号。",
-    "expected_signal": "横截面：做多 gap 高分位（CLV 排名领先于笔均Quote规模排名）、做空 gap 低分位；预期正 IC，在 2024-Apr 类震荡偏强月份更有效。",
+    "formula_sketch": "按 symbol 计算 net_tb_q = (taker_buy_quote_volume - passive_quote)/quote_volume、amp = (high-low)/open、24h 滚动 tb_std24 与 ret_std24；得 ntqva = net_tb_q/tb_std24、amp_reg = amp/ret_std24；每个 open_time 横截面分别 rank 得 ntqva_rank 与 amp_reg_rank；因子 = ntqva_rank - amp_reg_rank（可选仅在 cs_ret_std 高于中位数时启用）；组内可做 z-score。",
+    "expected_signal": "横截面：做多裂口高分位（主动流冲击 rank 显著高于振幅 Regime rank）、做空低分位；信号在高截面波动环境（cs_ret_std>0.012）更强。",
     "risks": [
-      "CLV 在 high=low 时需剔除",
-      "笔均Quote规模与市值/流动性高度相关，需做流动性中性",
-      "裂口信号弱（IC~0.008）易过拟合",
-      "qvc 受 count 异常尖峰影响"
+      "net_tb_q 在极低 tb_std24 时数值不稳定，需下限截断",
+      "2024-Q2 为特定高波动窗口，其他季度需样本外检验",
+      "与已有振幅-主动流类因子存在共线性"
     ]
   },
   {
-    "title": "横截面高振幅环境主动Quote占比排名延续低振幅反转轮动",
-    "hypothesis": "基于查询发现：2024-Q3 372 个高振幅小时（截面 avg_amp 高于中位数）vs 372 个低振幅小时，截面收益离散 0.00781>0.00601，但主动Quote占比离散反向压缩 0.045<0.061。在同一窗口内，主动Quote占比 rank 的多空 spread 在高振幅环境为 +0.000173（corr=+0.0034），低振幅环境为 -0.000186（corr=-0.0049），信号方向截然相反。假设高振幅时信息快速定价、主动流领先者可延续；低振幅时高主动买入占比更多反映被动补单或陷阱，应反向操作。",
+    "title": "横截面上涨Quote量能占比-收益加速度排名正向裂口延续轮动",
+    "hypothesis": "基于查询发现：2025-Q1 滚动 12Bar 上涨 K 线 quote_volume 占比 up_qv_share12 截面中位数为 0.489（接近均衡），但其 rank 与单 Bar 收益加速度 rank（ret - ret_l1）之裂口与下期 1h 收益截面相关为 +0.0064；同期全样本 up_qv_share rank 与下期收益直接相关仅 -0.0010。假设当「价涨量能结构」rank 领先于「价格加速」rank 时，买盘结构已确认但价格尚未充分反应，存在短周期延续。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 amp=(high-low)/open、tbq=taker_buy_quote_volume/quote_volume；每个 open_time 计算 h_amp=AVG(amp) 并标记 high_amp=(h_amp>median(h_amp))；组内 rank_tbq=PERCENT_RANK(tbq)；因子值=rank_tbq 若 high_amp  else -rank_tbq（或 ×(2×high_amp−1)）；每个 open_time 对因子做横截面 z-score/rank。",
-    "expected_signal": "横截面：高振幅小时做多 rank_tbq 高分位；低振幅小时做空 rank_tbq 高分位（即因子已翻转符号）；预期条件化后 IC 优于 unconditional 的 ~0 相关。",
+    "formula_sketch": "按 symbol 计算 up_qv_share12 = SUM(quote_volume·1{ret>0}, 12)/SUM(quote_volume, 12)、ret_accel = ret - LAG(ret,1)；每个 open_time 横截面 rank 得 uqs_rank 与 ra_rank；因子 = uqs_rank - ra_rank；组内 z-score 或分位映射；可叠加 ret>0 条件过滤。",
+    "expected_signal": "横截面：做多 uqs_rank - ra_rank 高分位、做空低分位；适用于上涨结构确认后的 1h 截面轮动，裂口极端值（>0.3 或 <0.3）预期信号更强。",
     "risks": [
-      "振幅环境切换频繁导致换手上升",
-      "低振幅样本中信号微弱（|LS|<0.0002）",
-      "hourly h_amp 与单Bar amp 概念混用需统一",
-      "极端行情小时 symbol 数量不足影响 rank 稳定性"
+      "12Bar 窗口在低频新币上数据不足",
+      "2025-Q1 样本与 2024 高波动段机制可能不同",
+      "上涨量能占比与动量因子可能高度相关，需中性化处理"
     ]
   }
 ]
