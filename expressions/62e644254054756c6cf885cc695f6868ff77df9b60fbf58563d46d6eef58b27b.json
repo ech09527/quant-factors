@@ -1,0 +1,21 @@
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "(-9 * LAG(close, 9) OVER w - 7 * LAG(close, 8) OVER w - 5 * LAG(close, 7) OVER w - 3 * LAG(close, 6) OVER w - LAG(close, 5) OVER w + LAG(close, 4) OVER w + 3 * LAG(close, 3) OVER w + 5 * LAG(close, 2) OVER w + 7 * LAG(close, 1) OVER w + 9 * close) / (165.0 * close)",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": [
+      "open",
+      "high",
+      "low",
+      "close"
+    ],
+    "min_symbol_bars": 168,
+    "cs_quantile_gte": {
+      "col": "quote_volume",
+      "q": 0.2
+    }
+  }
+}
