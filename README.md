@@ -67,6 +67,20 @@ kaggle kernels output <用户名>/<kernel-slug> -p <输出目录>
 |--------|------|------|
 | **A — 数据集目录** | `dataset-catalog.yml` | 探索 Kaggle 数据集，写入 `datasets/<slug>/schema.json` 与 README |
 | **B — 因子想法** | `factor-ideas.yml` | Runner 编排 Kaggle Kernel；Cursor Agent 自主查 K 线并生成想法；Runner 去重后写入 Project |
+| **C — 因子评估（单条）** | `factor-evaluation.yml` | 单条想法：Cursor 翻译 SQL → Kaggle 评估 → 写回 Project（**不提交 git**） |
+| **C-Dispatch — 批量调度** | `factor-evaluation-dispatch.yml` | 扫描待评估想法，**一次性批量**运行评估（默认最多 5 条，结果写回 Project） |
+| **C-Batch — 手动批量** | `factor-evaluation-batch.yml` | 手动触发批量评估，可配置 `max_ideas` |
+
+评估结果默认写入 **GitHub Project** 对应条目的 `## 评估结果` 章节，不再写入或提交 `evaluations/`、`expressions/`。待评估判定优先读取 Project body，并兼容仓库内已有的历史 `evaluations/*.json`。
+
+**批量评估流程（工作流 C-Dispatch / C-Batch）**：
+
+```
+1. Runner 拉取 pending 想法
+2. Runner 并行调用 Cursor，逐条生成 factor_sql（默认 2 路并发）
+3. Runner 将所有 SQL 一次性提交 Kaggle Kernel，批量计算
+4. Runner 拉取 batch_evaluations.json，逐条写回 Project
+```
 
 **手动触发**（需已配置 Secrets）：
 
@@ -79,6 +93,14 @@ gh workflow run factor-ideas.yml
 gh workflow run factor-ideas.yml -f max_ideas=5
 gh workflow run factor-ideas.yml -f mode=explore_and_generate
 gh workflow run factor-ideas.yml -f mode=generate_only
+
+# 工作流 C：单条因子评估（指定 title_hash）
+gh workflow run factor-evaluation.yml -f title_hash=<64-char-hash>
+
+# 工作流 C-Batch：批量评估待验证想法（默认最多 5 条）
+gh workflow run factor-evaluation-batch.yml
+gh workflow run factor-evaluation-batch.yml -f max_ideas=10
+gh workflow run factor-evaluation-batch.yml -f max_ideas=0  # 不限制条数
 ```
 
 **定时触发**：由 Cloudflare Worker（`workers/factor-ideas-cron/`）每日 UTC 06:00 调用 `workflow_dispatch`（`max_ideas=3`、`mode=agent_generate`）。凭证从 HashiCorp Vault 读取，见 `workers/factor-ideas-cron/README.md`。

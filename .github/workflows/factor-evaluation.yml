@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   evaluate:
@@ -108,12 +108,3 @@ jobs:
             ARGS+=(--force)
           fi
           python scripts/run_factor_evaluation.py "${ARGS[@]}"
-
-      - name: Validate evaluation output
-        run: |
-          TITLE_HASH="${{ inputs.title_hash }}"
-          FORMULA_HASH=$(jq -r '.formula_hash' /tmp/idea.json)
-          python scripts/validate_evaluation.py \
-            "evaluations/${TITLE_HASH}.json" \
-            --title-hash "${TITLE_HASH}" \
-            --formula-hash "${FORMULA_HASH}"
