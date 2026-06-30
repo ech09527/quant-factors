@@ -1,0 +1,49 @@
+{
+  "status": "success",
+  "title": "Alpha158-BETA5",
+  "title_hash": "8194272b18a4019fde6d19d387845a9259d6a648674c187bf7f85826e8f987c5",
+  "formula_hash": "b829316eb6b6528741684b21778aa83d55be1b0bfac37c099745d595849e2315",
+  "expression_version": "1",
+  "engine_version": "0.1.0",
+  "metrics_version": "0.1.0",
+  "evaluation_type": "cross_sectional",
+  "evaluated_at": "2026-06-30T03:15:58.356782+00:00",
+  "data_range": {
+    "start": "2023-01-01",
+    "end": "2026-05-31",
+    "n_bars": 6569119
+  },
+  "factor_sql": {
+    "version": "1",
+    "dialect": "duckdb-factor-v1",
+    "evaluation_type": "cross_sectional",
+    "data_source": "yhydev97/quant-data",
+    "signal_sql": "(-2 * LAG(close, 4) OVER w - LAG(close, 3) OVER w + LAG(close, 2) OVER w + LAG(close, 1) OVER w + 2 * close) / (10.0 * close)",
+    "postprocess": "cs_rank",
+    "universe": {
+      "dropna": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "min_symbol_bars": 168,
+      "cs_quantile_gte": {
+        "col": "quote_volume",
+        "q": 0.2
+      }
+    }
+  },
+  "metrics": {
+    "mean_ic": -0.0065343199323876005,
+    "ic_ir": -0.049926080447032874,
+    "mean_rank_ic": -0.025086176210180645,
+    "rank_ic_ir": -0.18368499134446548,
+    "n_periods": 29922,
+    "ic_positive_ratio": 0.4873671546019651
+  },
+  "diagnostics": {
+    "skipped_periods_low_n": 1,
+    "avg_universe_size": 219.48731914324858
+  }
+}
