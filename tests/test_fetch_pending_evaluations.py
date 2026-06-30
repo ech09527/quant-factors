@@ -85,3 +85,52 @@ def test_needs_evaluation_uses_project_body() -> None:
     should_run, reason = needs_evaluation(enriched, evaluations_dir=Path("/nonexistent"))
     assert should_run is False
     assert reason == "already_validated"
+
+
+def test_parse_evaluation_from_body_failed_roundtrip() -> None:
+    idea = {
+        "title": "测试因子",
+        "hypothesis": "假设",
+        "data_sources": ["yhydev97/quant-data"],
+        "formula_sketch": "close / lag(close, 24) - 1",
+        "expected_signal": "横截面 rank",
+        "risks": ["过拟合"],
+    }
+    evaluation = {
+        "title_hash": "abc" * 21 + "a",
+        "status": "failed",
+        "engine_version": ENGINE_VERSION,
+        "formula_hash": formula_hash(idea["formula_sketch"]),
+        "evaluated_at": "2026-06-30T00:00:00Z",
+        "diagnostics": {"error": "横截面 IC 无有效 period（min_n=30）"},
+        "factor_sql": {"signal_sql": "close"},
+    }
+    body = format_idea_body(idea) + "\n\n" + format_metrics_table(evaluation)
+    parsed = parse_evaluation_from_body(body)
+    assert parsed is not None
+    assert parsed["status"] == "failed"
+    assert parsed["formula_hash"] == evaluation["formula_hash"]
+
+
+def test_needs_evaluation_skips_failed_project_body() -> None:
+    idea = {
+        "title": "测试因子",
+        "hypothesis": "假设",
+        "data_sources": ["yhydev97/quant-data"],
+        "formula_sketch": "close / lag(close, 24) - 1",
+        "expected_signal": "横截面 rank",
+        "risks": ["过拟合"],
+    }
+    evaluation = {
+        "title_hash": "abc" * 21 + "a",
+        "status": "failed",
+        "engine_version": ENGINE_VERSION,
+        "formula_hash": formula_hash(idea["formula_sketch"]),
+        "evaluated_at": "2026-06-30T00:00:00Z",
+        "diagnostics": {"error": "横截面 IC 无有效 period（min_n=30）"},
+    }
+    body = format_idea_body(idea) + "\n\n" + format_metrics_table(evaluation)
+    enriched = _idea_with_body(body)
+    should_run, reason = needs_evaluation(enriched, evaluations_dir=Path("/nonexistent"))
+    assert should_run is False
+    assert reason == "failed"

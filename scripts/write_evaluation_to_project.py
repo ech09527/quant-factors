@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,27 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def build_failed_evaluation(
+    *,
+    idea: dict[str, Any],
+    error: str,
+    factor_sql: dict[str, Any] | None = None,
+    engine_version: str | None = None,
+) -> dict[str, Any]:
+    from scripts.evaluate_engine import ENGINE_VERSION, formula_hash
+
+    return {
+        "status": "failed",
+        "title": idea["title"],
+        "title_hash": idea["title_hash"],
+        "formula_hash": idea.get("formula_hash") or formula_hash(idea["formula_sketch"]),
+        "engine_version": engine_version or ENGINE_VERSION,
+        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+        "factor_sql": factor_sql,
+        "diagnostics": {"error": error},
+    }
+
+
 def format_metrics_table(evaluation: dict[str, Any]) -> str:
     metrics = evaluation.get("metrics") or {}
     status = evaluation.get("status")
@@ -51,6 +73,35 @@ def format_metrics_table(evaluation: dict[str, Any]) -> str:
                 f"- **formula_hash**：`{evaluation.get('formula_hash')}`",
             ]
         )
+
+    if status == "failed":
+        error = (evaluation.get("diagnostics") or {}).get("error", "评估失败")
+        lines = [
+            EVAL_SECTION_HEADER,
+            "",
+            f"**状态**：failed（{error}）",
+            "",
+            f"- **评估时间**：{evaluation.get('evaluated_at')}",
+            f"- **formula_hash**：`{evaluation.get('formula_hash')}`",
+        ]
+        if evaluation.get("engine_version"):
+            lines.append(f"- **引擎版本**：{evaluation.get('engine_version')}")
+        factor_sql = evaluation.get("factor_sql")
+        if factor_sql:
+            lines.extend(
+                [
+                    "",
+                    "<details>",
+                    "<summary>因子 SQL</summary>",
+                    "",
+                    "```json",
+                    json.dumps(factor_sql, ensure_ascii=False, indent=2),
+                    "```",
+                    "",
+                    "</details>",
+                ]
+            )
+        return "\n".join(lines)
 
     def fmt_num(value: Any) -> str:
         if value is None:

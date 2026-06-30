@@ -25,7 +25,7 @@ from scripts.run_factor_evaluation import (  # noqa: E402
     setup_kaggle_for_evaluation,
 )
 from scripts.translate_idea_to_sql import resolve_agent_binary, translate_idea  # noqa: E402
-from scripts.write_evaluation_to_project import write_evaluation  # noqa: E402
+from scripts.write_evaluation_to_project import build_failed_evaluation, write_evaluation  # noqa: E402
 
 
 @dataclass
@@ -125,6 +125,20 @@ def translate_pending_parallel(
     return [item for item in translations if item is not None], []
 
 
+def write_failure_to_project(
+    idea: dict[str, Any],
+    *,
+    error: str,
+    factor_sql: dict[str, Any] | None,
+    token: str,
+    dry_run: bool,
+) -> None:
+    if dry_run:
+        return
+    evaluation = build_failed_evaluation(idea=idea, error=error, factor_sql=factor_sql)
+    write_evaluation(evaluation, idea=idea, token=token, dry_run=False)
+
+
 def write_batch_results_to_project(
     kernel_results: list,
     *,
@@ -152,6 +166,15 @@ def write_batch_results_to_project(
             continue
 
         if item.error:
+            evaluation = item.evaluation
+            if evaluation is None:
+                evaluation = build_failed_evaluation(
+                    idea=idea,
+                    error=item.error,
+                    factor_sql=item.factor_sql,
+                )
+            if not dry_run:
+                write_evaluation(evaluation, idea=idea, token=token, dry_run=False)
             results.append(
                 BatchItemResult(
                     title=title,
@@ -161,18 +184,20 @@ def write_batch_results_to_project(
                     pending_reason=pending_reason,
                 )
             )
+            print(f"已写回 Project（失败）: {title} ({title_hash})")
             continue
 
         evaluation = item.evaluation
         assert evaluation is not None
-        if not dry_run and evaluation.get("status") in ("success", "skipped"):
+        if not dry_run and evaluation.get("status") in ("success", "skipped", "failed"):
             write_evaluation(evaluation, idea=idea, token=token, dry_run=False)
 
+        status = "success" if evaluation.get("status") == "success" else str(evaluation.get("status"))
         results.append(
             BatchItemResult(
                 title=title,
                 title_hash=title_hash,
-                status="success" if evaluation.get("status") == "success" else str(evaluation.get("status")),
+                status=status,
                 pending_reason=pending_reason,
             )
         )
@@ -190,11 +215,12 @@ def evaluate_pending_batch(
     dry_run: bool,
     log_timeout: int,
     cursor_workers: int,
-) -> tuple[list[BatchItemResult], list[str]]:
+) -> tuple[list[BatchItemResult], list[str], bool]:
     if not pending:
-        return [], []
+        return [], [], False
 
     print(f"阶段 1/3: 并行 Cursor 翻译（workers={cursor_workers}）")
+    results: list[BatchItemResult] = []
     try:
         resolve_agent_binary()
     except (RuntimeError, subprocess.CalledProcessError) as exc:
@@ -210,7 +236,7 @@ def evaluate_pending_batch(
                     pending_reason=idea.get("pending_reason"),
                 )
             )
-        return results, []
+        return results, [], True
 
     translations, _ = translate_pending_parallel(
         pending,
@@ -218,11 +244,19 @@ def evaluate_pending_batch(
         cursor_workers=cursor_workers,
     )
 
-    results: list[BatchItemResult] = []
+    token = "" if dry_run else get_github_token()
     translated_jobs: list[BatchKernelJob] = []
     for translation in translations:
         idea = translation.idea
         if translation.error:
+            if not dry_run:
+                write_failure_to_project(
+                    idea,
+                    error=translation.error,
+                    factor_sql=None,
+                    token=token,
+                    dry_run=dry_run,
+                )
             results.append(
                 BatchItemResult(
                     title=idea["title"],
@@ -232,14 +266,15 @@ def evaluate_pending_batch(
                     pending_reason=idea.get("pending_reason"),
                 )
             )
+            print(f"已写回 Project（翻译失败）: {idea['title']} ({idea['title_hash']})")
             if not continue_on_error:
-                return results, []
+                return results, [], False
             continue
         assert translation.factor_sql is not None
         translated_jobs.append(BatchKernelJob(idea=idea, factor_sql=translation.factor_sql))
 
     if not translated_jobs:
-        return results, []
+        return results, [], False
 
     username: str | None = None
     if not dry_run:
@@ -258,7 +293,7 @@ def evaluate_pending_batch(
                         pending_reason=job.idea.get("pending_reason"),
                     )
                 )
-            return results, []
+            return results, [], True
 
     print(f"阶段 2/3: 单次 Kaggle 批量评估 {len(translated_jobs)} 条")
     with tempfile.TemporaryDirectory(prefix="factor-eval-batch-") as tmp_dir:
@@ -278,7 +313,11 @@ def evaluate_pending_batch(
     results.extend(project_results)
 
     succeeded_hashes = [item.title_hash for item in project_results if item.status == "success"]
-    return results, succeeded_hashes
+    infrastructure_failure = all(
+        item.error and item.error.startswith("Kernel 运行失败:")
+        for item in project_results
+    ) and bool(project_results)
+    return results, succeeded_hashes, infrastructure_failure
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -349,7 +388,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
-    results, succeeded_hashes = evaluate_pending_batch(
+    results, succeeded_hashes, infrastructure_failure = evaluate_pending_batch(
         pending,
         sample_start=args.sample_start,
         force=args.force,
@@ -365,6 +404,7 @@ def main(argv: list[str] | None = None) -> int:
         "failed": sum(1 for item in results if item.status == "failed"),
         "skipped": sum(1 for item in results if item.status == "skipped"),
         "succeeded_title_hashes": succeeded_hashes,
+        "infrastructure_failure": infrastructure_failure,
         "results": [asdict(item) for item in results],
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -376,7 +416,15 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
 
-    return 1 if summary["failed"] else 0
+    if infrastructure_failure:
+        print("::error::批量评估基础设施失败（Cursor/Kaggle 未正常完成）", file=sys.stderr)
+        return 1
+    if summary["failed"]:
+        print(
+            f"::warning::{summary['failed']} 条因子评估失败，已写回 Project，workflow 仍视为成功",
+            file=sys.stderr,
+        )
+    return 0
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ from scripts.write_evaluation_to_project import EVAL_SECTION_HEADER
 FORMULA_HASH_PATTERN = re.compile(r"\*\*formula_hash\*\*：`([^`]+)`")
 ENGINE_VERSION_PATTERN = re.compile(r"\| 引擎版本 \| ([^|]+) \|")
 SKIPPED_STATUS_PATTERN = re.compile(r"\*\*状态\*\*：skipped（([^）)]+)）")
+FAILED_STATUS_PATTERN = re.compile(r"\*\*状态\*\*：failed（([^）)]+)）")
 
 
 def repo_root() -> Path:
@@ -48,6 +49,12 @@ def parse_evaluation_from_body(body: str) -> dict[str, Any] | None:
     if skipped_match:
         parsed["status"] = "skipped"
         parsed["skipped_reason"] = skipped_match.group(1)
+        return parsed
+
+    failed_match = FAILED_STATUS_PATTERN.search(section)
+    if failed_match:
+        parsed["status"] = "failed"
+        parsed["failed_reason"] = failed_match.group(1)
         return parsed
 
     engine_match = ENGINE_VERSION_PATTERN.search(section)
@@ -99,6 +106,8 @@ def needs_evaluation(
         return False, "already_validated"
     if status == "skipped":
         return False, "skipped"
+    if status == "failed":
+        return False, "failed"
     return True, f"retry_after_{status}"
 
 
