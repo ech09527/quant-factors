@@ -1,44 +1,44 @@
 [
   {
-    "title": "横截面方向效率-收益排名错配反转轮动",
-    "hypothesis": "基于查询发现：2024-Q2（1711929600000–1714521600000）横截面中，Bar方向效率排名减同期收益排名之差（eff_ret_spread）>0.5 时，4小时前向收益均值为 -0.000828，显著低于截面均值 -0.000514（n=20079）；1小时窗口 corr(eff_ret_spread, fwd_ret)≈-0.0099。经济含义：单位振幅内价格推进效率已高但净收益排名偏低的标的，反映「用力推但涨不动」的耗尽状态，横截面上应相对走弱。",
+    "title": "横截面收益-主动流占比变化排名错配轮动",
+    "hypothesis": "基于查询发现：2024-Q1（1704067200000–1711929600000）横截面上，当小时收益 rank 显著高于主动买入占比变化（taker_delta）rank 时（Q1 组 ret_pr−td_pr≈−0.47），下一小时平均收益 3.94bps；而 rank 错配反向的 Q4 组（gap≈+0.18）仅 1.85bps，spread≈2.1bps。2021 高波动段（振幅均值 3.10%）同样呈现 Q1 6.56bps vs Q5 0.012bps 的极端分化。行为上，价格上涨但主动买入占比下降代表追涨主动性衰竭，截面错配应预示短期反转或相对弱势。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 dir_eff=|close-open|/(high-low)、ret=(close-open)/open；每个 open_time 横截面分别对 dir_eff 与 ret 做 PERCENT_RANK 得 eff_rank、ret_rank；spread=eff_rank-ret_rank；再在每个 open_time 内对 spread 做 rank 或 z-score；组合：做多低 spread 分位、做空高 spread 分位。",
-    "expected_signal": "横截面：spread 高分位（效率排名高、收益排名低）预期下一期相对跑输，低 spread 分位相对跑赢；适用于 1–4 小时调仓频率的 UM 永续多标的轮动。",
+    "formula_sketch": "按 symbol 计算 ret=(close−open)/open，taker_ratio=taker_buy_volume/volume，taker_delta=taker_ratio−lag(taker_ratio,1)；每个 open_time 横截面分组，ret_rank=rank(ret)，td_rank=rank(taker_delta)，factor=ret_rank−td_rank（或 z-score）；对 factor 做 winsorize 后，在每个 open_time 组内再次 rank/分位，用于多空排序。",
+    "expected_signal": "横截面：做多 factor 低分位（收益 rank 低于主动流变化 rank，价涨但主动流走弱），做空 factor 高分位（价跌但主动流走强）；适用于 1h 频率的多空轮动，高波动环境（如 2021-Q2）信号更强。",
     "risks": [
-      "2024-Q2 样本期 corr 绝对值较小，需多窗口样本外验证",
-      "低流动性 altcoin 的 high-low=0 需过滤",
-      "与 Bar 实体占比类因子存在共线性"
+      "2024-Q1 Q5 组 next_ret 2.45bps 未单调，极端分位可能受 meme 币扰动",
+      "taker_delta 对低 volume symbol 噪声大，需流动性过滤",
+      "主动买入占比与价格同向相关（corr≈0.27–0.53），因子与动量部分共线"
     ]
   },
   {
-    "title": "横截面振幅收益双高极端反转轮动",
-    "hypothesis": "基于查询发现：2025-01（1735689600000–1738368000000）横截面 hourly 分组中，amp_rank>0.85 且 ret_rank>0.85（高振幅+高收益联合极端）标的的下一小时前向收益均值为 -0.000865，低于截面均值 -0.000266；corr(amp_rank, fwd_ret)≈-0.0137。对比 2024-Q1 低波动环境（avg_abs_ret=0.0087）与 2022-05 高波动环境（avg_abs_ret=0.0134），极端双高更易出现在高波动段，反转信号可能随 regime 增强。",
+    "title": "横截面前Bar区间开盘分位锚定延续轮动",
+    "hypothesis": "基于查询发现：2024-Q1 当 open 落在前一根 K 线区间低位（open_in_prior≈0.25，Q1 组）时，下一小时平均收益 5.10bps；而 open 锚定在前 Bar 高位（open_in_prior≈0.79，Q5 组）仅 1.22bps，spread≈3.9bps。2023 低波动段（振幅均值 1.60%）Q1 组 3.27bps 仍优于 Q4 组 1.75bps。开盘相对前 Bar 区间分位反映隔夜/跨小时信息吸收位置，低位开盘后的截面相对强势可能源于空头止损或区间下沿支撑延续。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 amp=(high-low)/open、ret=(close-open)/open；每个 open_time 横截面对 amp、ret 分别 PERCENT_RANK 得 amp_rank、ret_rank；joint_score=amp_rank+ret_rank（或取 min/max 联合分位）；在每个 open_time 内对 joint_score 做 rank/z-score；组合：做空 joint_score 高分位、做多低分位。",
-    "expected_signal": "横截面：振幅与收益同时处于截面极端高位的标的，下一小时预期均值回归跑输；适用于高波动时段（如 cs_std_ret>p90≈0.0135）的短周期反转轮动。",
+    "formula_sketch": "按 symbol 计算 prev_low=lag(low,1)，prev_high=lag(high,1)，open_in_prior=(open−prev_low)/(prev_high−prev_low)；每个 open_time 横截面分组，factor=rank(open_in_prior) 或 z-score(open_in_prior)；组内对 factor 做分位标准化后用于排序。可选：与 ret 或 taker_ratio 交叉中性化。",
+    "expected_signal": "横截面：做多 open_in_prior 低分位（开盘贴近前 Bar 下沿），做空 open_in_prior 高分位（开盘贴近前 Bar 上沿）；适用于区间市/低波动环境（2023 段）与正常波动环境，预期 hourly 频率延续 1–3 根 K 线。",
     "risks": [
-      "强趋势行情中双高可能是动量延续而非反转",
-      "新上市 symbol 振幅基准不稳定",
-      "与 ROC/动量类因子需做正交化"
+      "2023 段 Q5 组 2.12bps 高于 Q4 组 1.75bps，非严格单调",
+      "前 Bar 区间极窄时 open_in_prior 不稳定",
+      "未区分跳空与区间内开盘，与缺口类因子可能重叠"
     ]
   },
   {
-    "title": "横截面涨跌Bar主动买入偏斜度轮动",
-    "hypothesis": "基于查询发现：2025-01 全样本上涨 Bar 主动买入 Quote 占比均值 0.512，下跌 Bar 仅 0.466（差约 4.6pp）；按 symbol 滚动 24 小时计算的涨跌 Bar 主动买入占比差（tbr_ud_asym）截面均值 0.047、标准差 0.028。横截面 asym_rank>0.9 标的下一小时 fwd_ret 均值 -0.000267，低于 asym_rank<0.1 的 -0.000323 与整体均值 -0.000266，显示「涨时更主动买、跌时更主动卖」偏斜过度的标的短期承压。",
+    "title": "单标的五Bar价动量-主动流均值背离反转",
+    "hypothesis": "基于查询发现：2021-Q2 高波动窗口（156829 条，avg_range=3.10%）中，当单标的过去 5 根 K 线累计收益 ret_sum5>2% 但主动买入占比 5 均 taker_ma5<0.47（样本 8728 条）时，下一小时平均收益 −3.37bps；反之 ret_sum5<−2% 且 taker_ma5>0.50 时，下一小时 +15.6bps（n 未单独统计但条件对称）。同期 ret_sum5 与 taker_ma5 截面相关仅 0.254，价量背离在该高波动段具有显著预测力。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 tbr=taker_buy_quote_volume/quote_volume；滚动 24 根 Bar 分别求 ret>0 与 ret<0 子样本的 tbr 均值，差值得 tbr_ud_asym；每个 open_time 横截面内对 tbr_ud_asym 做 rank 或 z-score；组合：做空高 asym 分位（涨买跌卖偏斜过大）、做多低 asym 分位。",
-    "expected_signal": "横截面：tbr_ud_asym 高分位标的下一小时预期相对走弱，低分位相对走强；适用于 523 个 UM 永续标的、1 小时频横截面轮动。",
+    "formula_sketch": "按 symbol 时序计算 ret_sum5=sum(ret,5)，taker_ma5=mean(taker_ratio,5)；背离信号 div=sign(ret_sum5)×(taker_ma5−0.5)，当 |ret_sum5|>阈值且 div 与 ret_sum5 异号时触发；单标的 factor=−sign(ret_sum5)×|ret_sum5|×|taker_ma5−0.5|（强背离取极值）。",
+    "expected_signal": "时序：对单 symbol 在强背离时做反转（价涨流弱→做空/减多，价跌流强→做多/减空）；主要适用于高波动 regime（2021 类环境），低波动段（2023 corr_taker_ret=0.402 更同步）信号可能衰减。",
     "risks": [
-      "24h 滚动窗口对刚上市 symbol 数据不足",
-      "单边牛市中偏斜度结构可能系统性上移",
-      "与已有主动买入占比类因子相关性需检验"
+      "条件触发样本集中在 2021 高波动期，样本外 regime 依赖性强",
+      "8728 条触发相对全量 156829 占比较低，统计功效有限",
+      "五 Bar 窗口与 1h 频率绑定，换频率需重新校准阈值"
     ]
   }
 ]
