@@ -1,47 +1,44 @@
 [
   {
-    "title": "横截面前Bar区间开盘低位分位修复轮动",
-    "hypothesis": "基于查询发现：2024-05（open_time 1714521600000–1717200000000）全样本 150725 条中，开盘在前一根 K 线高低区间内的相对分位 rank 与次 1h 收益 IC 为 -0.0136（4h 仍为 -0.0055）；低位十分位（rank≤0.1）次 Bar 平均收益 +6.17bp，而高位十分位（rank≥0.9）仅 +0.05bp，均值 open_in_prev_range=0.506。假设前 Bar 区间下沿附近开盘反映短期 overshoot，横截面上低位开盘标的更易出现均值修复式反弹。",
+    "title": "横截面实体占比-收益协同环境下实体排名延续轮动",
+    "hypothesis": "基于查询发现：2024-Q4（1730419200000–1733011200000）每个 open_time 截面内 body_share 与 ret 的平均相关系数 med=0.137；当截面协同度 body_ret_corr>0.1 时（子样本 avg_sync=0.452），实体占比 rank 对下一 Bar 收益的截面相关 avg_body_fwd=+0.0099、全样本 pooled=+0.012。假设在「价量方向一致」的截面环境下，大实体 Bar 反映共识推进而非噪声，高实体占比标的更易延续。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 open_in_prev_range = (open - prev_low) / (prev_high - prev_low)；每个 open_time 横截面分组，对 open_in_prev_range 做 rank/分位（或 z-score）；因子值取负 rank（低位开盘 → 高分），可选与截面收益离散度或流动性（quote_volume rank）交互加权。",
-    "expected_signal": "横截面：做多开盘处于前 Bar 区间低分位（rank 低）的 symbol、做空高分位；预期 1–4h 持有期负 IC 延续，适用于 200+ symbol 同时交易的截面环境（如 2024-05 横截面 ret 标准差约 0.74%）。",
+    "formula_sketch": "按 symbol 计算 body_share=|close-open|/(high-low)、ret=(close-open)/open；每个 open_time 分组计算截面 corr(body_share,ret) 得 sync_t；仅保留 sync_t>0.1 的 Bar；在每个 open_time 组内对 body_share 做 rank/percentile 得 r_body；因子值=r_body（或 z-score）；下期收益为 forward 1-bar return。",
+    "expected_signal": "横截面：在实体-收益高协同环境（sync>0.1）下，做多 r_body 高分位、做空低分位；适用于 523 个 UM 永续 1h 截面的轮动组合。",
     "risks": [
-      "与前 Bar 区间开盘分位锚定延续类因子逻辑相反，需样本外验证方向",
-      "前 Bar 区间极窄时 open_in_prev_range 噪声大",
-      "新上市 symbol 缺少足够 lag 数据",
-      "高波动事件中低位开盘可能演变为趋势延续而非修复"
+      "协同度阈值对样本量敏感，低 sync 时段信号可能消失",
+      "2024-Q4 高波动段（avg_range_pct≈2.0%）可能放大实体因子，需跨季度验证",
+      "新上市 symbol 历史 Bar 不足导致 sync 估计不稳定"
     ]
   },
   {
-    "title": "横截面上影单位影线Quote成交消耗延续轮动",
-    "hypothesis": "基于查询发现：2024-Q1（1704067200000–1706745600000）131608 条有效 Bar 中，当上影偏斜 rank≥0.85 且单位影线 Quote 消耗（quote_volume/(upper_wick+lower_wick)）rank≥0.85 时，次 1h 平均收益 +44.4bp；对称条件下影偏斜 rank≤0.15 且同等 Quote 消耗高位时仅 +3.2bp，非对称比约 14:1。假设上影区域吸收大量 Quote 成交代表上方供给被消化，横截面上此类标的更易延续上行。",
+    "title": "横截面笔数增速-振幅增速排名正向裂口下期均值回归轮动",
+    "hypothesis": "基于查询发现：2024-Q4 全样本 cnt_growth 与 amp_growth 的 Pearson 相关高达 0.668，但 cnt_growth 与同期 ret 相关为 -0.059；截面 rank 差 spread=r_cnt_g-r_amp_g 对下一 Bar 收益的时均相关 avg_spread_fwd=-0.0057（pooled=-0.0031），raw_spread 均值 -0.051。假设笔数激增而振幅扩张滞后代表成交碎片化/对敲式过载，截面排名正向裂口后价格倾向均值回归。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 upper_wick、lower_wick、wick_skew=upper_wick-lower_wick、qv_per_wick=quote_volume/(upper_wick+lower_wick)（过滤影线占比过小的 Bar）；每个 open_time 横截面分别对 wick_skew 与 qv_per_wick 做 rank；构造上影条件因子 score = rank(qv_per_wick) × I(wick_skew 高分位)，或 score = rank(qv_per_wick) - rank(-wick_skew) 刻画上/下影非对称；组内 z-score 后多空排序。",
-    "expected_signal": "横截面：做多上影偏斜且单位影线 Quote 消耗高的 symbol、做空下影对称但消耗高而收益弱的对照组；预期次 1h 正收益，适用于影线结构清晰（(upper+lower_wick)>5%）的活跃合约。",
+    "formula_sketch": "按 symbol 计算 cnt_g=(count/lag(count)-1)、amp_g=((high-low)/lag(high-low)-1)；每个 open_time 分组分别对 cnt_g、amp_g 做 rank 得 r_cnt_g、r_amp_g；因子值=spread_rank=r_cnt_g-r_amp_g（或 z-score）；可选过滤 |cnt_g|<3 且 |amp_g|<3；预测目标为 LEAD(ret,1)。",
+    "expected_signal": "横截面：spread_rank 越高（笔数增速排名领先振幅增速），下一 Bar 预期收益越低；做空高 spread_rank 分位、做多低分位。",
     "risks": [
-      "与上影拒绝/笔数密度类因子部分重叠，需正交化",
-      "wick 占比阈值敏感，实体极小的 Bar 可能失真",
-      "极端行情下上影消耗可能是派发而非吸收",
-      "quote_volume 与 symbol 价位规模相关，需截面标准化"
+      "cnt_g 与 amp_g 高度共线（0.668），rank 差信号较弱需叠加流动性过滤",
+      "低波动季度（如 2022-Q4 avg_range_pct≈1.29%）碎片化现象可能减弱",
+      "count 字段异常或停牌 Bar 会导致增速极端值"
     ]
   },
   {
-    "title": "单标的短Bar收益相对五Bar均值偏离反转",
-    "hypothesis": "基于查询发现：BTCUSDT 在 2024-06（1717200000000–1719792000000）718 条样本中，当前 Bar 收益减前五 Bar 收益均值（ret - mom5/5）与次 1h 收益 IC 为 -0.027；当偏离 >+1% 时次 Bar 平均收益 -11.9bp，偏离 <-1% 时为 -9.0bp，均呈反转。假设单一大标的在 1h 频率下短周期价格冲刺相对近期均值过度延伸后会均值回归。",
+    "title": "横截面笔均Quote规模-单位笔数振幅排名正向裂口下期均值回归轮动",
+    "hypothesis": "基于查询发现：2024-Q3（1722470400000–1725148800000）avg_qpc=187.26（quote_volume/count）、avg_rpc=0.000166（(high-low)/count）；截面 rank 差 r_qpc-r_rpc 与同期 ret 的时均相关 med=-0.016，对下一 Bar 收益 avg_qpc_rpc_fwd=-0.0072。假设单笔 Quote 规模扩张快于单位笔数价格推进（高 qpc、低 rpc）反映「贵而不动」的被动承接过载，下期横截面倾向反转。",
     "data_sources": [
       "yhydev97/quant-data"
     ],
-    "formula_sketch": "按 symbol 计算 ret=(close-open)/open，mom5=sum(ret, 5 bars lagged)，diverge=ret - mom5/5；在单 symbol 时间序列上对 diverge 做 rolling z-score 或历史分位；信号 = -zscore(diverge)，超阈值开反向仓。",
-    "expected_signal": "时序：在 BTCUSDT 等超高流动性主合约上，diverge 极端正值做空、极端负值做多，持有 1h；适用于 2024-06 类中等波动阶段，不直接用于横截面排序。",
+    "formula_sketch": "按 symbol 计算 qpc=quote_volume/count、rpc=(high-low)/count；每个 open_time 分组分别 rank 得 r_qpc、r_rpc；因子值=spread_rank=r_qpc-r_rpc（或 z-score）；预测 LEAD(ret,1)；可与同期 r_ret 做正交化以剥离同 Bar 收益暴露。",
+    "expected_signal": "横截面：spread_rank 越高，下一 Bar 预期收益越低；适用于 210+ symbol 的 2024-Q3 类中等波动环境（avg_range_pct≈1.62%）轮动。",
     "risks": [
-      "仅 BTC 单标的验证，泛化至 altcoin 需重估",
-      "强趋势行情中偏离可持续，反转 IC 可能失效",
-      "五 Bar 窗口与 1h 持有期存在过拟合风险",
-      "与五 Bar 价动量-主动流背离因子相关但不含订单流维度"
+      "qpc 与 rpc 量纲差异大，必须用截面 rank 而非原始差值",
+      "小 count 标的 rpc/qpc 噪声大，需最低 count 或 quote_volume 门槛",
+      "与已有笔均Quote-笔数密度错配因子部分相关，需检验增量 IC"
     ]
   }
 ]
