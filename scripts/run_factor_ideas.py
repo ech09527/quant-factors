@@ -304,6 +304,11 @@ def run_kernel_once(
     explore_backup = backup_file(explore_py) if explore_py.is_file() else ""
     main_backup = backup_file(main_py)
     cursor_auth = os.environ.get("CURSOR_AUTH_JSON", "").strip()
+    if not cursor_auth:
+        raise RuntimeError(
+            "未设置 CURSOR_AUTH_JSON：请在 GitHub Actions Secrets 中配置，"
+            "Runner 每次运行时会将其嵌入 kernel_inputs 供 Kaggle 使用"
+        )
 
     try:
         bundle_kernel(kernel_dir, repo)
@@ -316,8 +321,7 @@ def run_kernel_once(
             target_file=target_file,
             repo=repo,
         )
-        if cursor_auth:
-            inputs_payload["cursor_auth_json"] = cursor_auth
+        inputs_payload["cursor_auth_json"] = cursor_auth
         agent_timeout = os.environ.get("AGENT_CURSOR_TIMEOUT_SECONDS", "").strip()
         if agent_timeout:
             inputs_payload["agent_cursor_timeout_seconds"] = int(agent_timeout)
