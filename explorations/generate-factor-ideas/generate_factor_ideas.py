@@ -33,9 +33,11 @@ def load_kernel_inputs() -> dict[str, Any]:
 
 
 def setup_cursor_auth(inputs: dict[str, Any]) -> bool:
-    auth = os.environ.get("CURSOR_AUTH_JSON", "").strip()
+    # 优先使用 Runner 每次 push 时嵌入的 kernel_inputs（来自 GitHub Secret），
+    # 避免 Kaggle Notebook Secret 过期后与 GitHub 不同步。
+    auth = str(inputs.get("cursor_auth_json") or "").strip()
     if not auth:
-        auth = str(inputs.get("cursor_auth_json") or "").strip()
+        auth = os.environ.get("CURSOR_AUTH_JSON", "").strip()
     if not auth:
         injected = SCRIPT_DIR / ".cursor_auth_injected.json"
         if injected.is_file():

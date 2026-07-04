@@ -80,6 +80,10 @@ jobs:
           KERNEL_LOG_TIMEOUT_SECONDS: "7200"
           AGENT_CURSOR_TIMEOUT_SECONDS: "1800"
         run: |
+          if [ -z "${CURSOR_AUTH_JSON}" ]; then
+            echo "::error::未配置 CURSOR_AUTH_JSON secret；每次运行需从 GitHub Secret 读取最新 Cursor 认证并注入 Kaggle Kernel"
+            exit 1
+          fi
           ARGS=(--existing /tmp/existing.json --max-ideas "${MAX_IDEAS}" --mode "${KERNEL_MODE}")
           if [ -n "${{ inputs.dataset_slug }}" ]; then
             ARGS+=(--slug "${{ inputs.dataset_slug }}")
