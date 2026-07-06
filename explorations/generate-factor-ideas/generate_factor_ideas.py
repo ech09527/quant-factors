@@ -33,24 +33,50 @@ def load_kernel_inputs() -> dict[str, Any]:
 
 
 def setup_cursor_auth(inputs: dict[str, Any]) -> bool:
-    # 优先使用 Runner 每次 push 时嵌入的 kernel_inputs（来自 GitHub Secret），
-    # 避免 Kaggle Notebook Secret 过期后与 GitHub 不同步。
+    # 与 scripts/cursor_auth.py 保持同步；Kaggle 上通过 bundle 复制该模块。
+    cursor_auth_py = SCRIPT_DIR / "cursor_auth.py"
+    if cursor_auth_py.is_file():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cursor_auth", cursor_auth_py)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            if module.setup_cursor_auth(inputs=inputs):
+                return True
+            print(
+                "警告: 未找到 Cursor 凭据（CURSOR_AUTH_JSON / CURSOR_API_KEY / auth.json），"
+                "跳过 Cursor 步骤"
+            )
+            return False
+
     auth = str(inputs.get("cursor_auth_json") or "").strip()
     if not auth:
         auth = os.environ.get("CURSOR_AUTH_JSON", "").strip()
-    if not auth:
-        injected = SCRIPT_DIR / ".cursor_auth_injected.json"
-        if injected.is_file():
-            auth = injected.read_text(encoding="utf-8").strip()
-    if not auth:
-        print("警告: 未设置 CURSOR_AUTH_JSON，跳过 Cursor 步骤")
-        return False
-    config_dir = Path.home() / ".config" / "cursor"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    auth_path = config_dir / "auth.json"
-    auth_path.write_text(auth, encoding="utf-8")
-    auth_path.chmod(0o600)
-    return True
+    if auth:
+        config_dir = Path.home() / ".config" / "cursor"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        auth_path = config_dir / "auth.json"
+        auth_path.write_text(auth, encoding="utf-8")
+        auth_path.chmod(0o600)
+        return True
+
+    api_key = str(inputs.get("cursor_api_key") or "").strip()
+    if not api_key:
+        api_key = os.environ.get("CURSOR_API_KEY", "").strip()
+    if api_key:
+        os.environ["CURSOR_API_KEY"] = api_key
+        return True
+
+    auth_path = Path.home() / ".config" / "cursor" / "auth.json"
+    if auth_path.is_file():
+        return True
+
+    print(
+        "警告: 未找到 Cursor 凭据（CURSOR_AUTH_JSON / CURSOR_API_KEY / auth.json），"
+        "跳过 Cursor 步骤"
+    )
+    return False
 
 
 def resolve_agent_binary() -> str:
