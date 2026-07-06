@@ -85,6 +85,7 @@ jobs:
       - name: Setup Cursor auth
         env:
           CURSOR_AUTH_JSON: ${{ secrets.CURSOR_AUTH_JSON }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
         run: bash scripts/setup_cursor_auth.sh
 
       - name: Batch translate and evaluate pending ideas

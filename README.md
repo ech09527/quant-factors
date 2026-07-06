@@ -108,7 +108,7 @@ gh workflow run factor-evaluation.yml -f force=true     # 强制重评
 
 工作流 B 在 Kaggle Kernel 内由 Cursor Agent 自主查询 Parquet K 线并生成想法；Runner 负责拉取已有 Project 想法、注入约束、拉取 Kernel 产出、去重重试与写入 Project。
 
-**Cursor 认证（工作流 B）**：每次 `factor-ideas.yml` 运行时，Runner 从 GitHub Actions Secret 读取 `CURSOR_AUTH_JSON`（本地 `~/.config/cursor/auth.json` 的完整 JSON），并在 `kernels push` 前嵌入 `kernel_inputs.cursor_auth_json`。Kaggle Kernel 优先使用该字段，确保每次运行都使用 GitHub 上的最新凭证。Kaggle Notebook Secret 中的同名变量仅作兜底（本地调试或未配置 GitHub Secret 时）。
+**Cursor 认证（工作流 B/C）**：凭据优先级为 **`CURSOR_AUTH_JSON` > `CURSOR_API_KEY` > `~/.config/cursor/auth.json`**。每次 `factor-ideas.yml` 运行时，Runner 从 GitHub Actions Secret 读取最新凭据，并在 `kernels push` 前嵌入 `kernel_inputs`（`cursor_auth_json` 或 `cursor_api_key`），Kaggle Kernel 优先使用该字段。**勿在 Kaggle Notebook Secret 中写死凭据**；本地调试时可依赖环境变量或已有 `auth.json`。
 
 **所需 Secrets**（在仓库 Settings → Secrets and variables → Actions 中配置）：
 
@@ -117,13 +117,14 @@ gh workflow run factor-evaluation.yml -f force=true     # 强制重评
 | `KAGGLE_API_TOKEN` | 工作流 A/B：Kaggle API（推荐） |
 | `KAGGLE_USERNAME` | 工作流 A/B：Kernel 所有者（与 token 联用） |
 | `KAGGLE_KEY` | 工作流 A/B：旧版 Kaggle Key（可选） |
-| `CURSOR_AUTH_JSON` | 工作流 B/C：Cursor CLI 认证 JSON（B 每次注入 Kaggle；C 写入 Runner） |
+| `CURSOR_AUTH_JSON` | 工作流 B/C：Cursor CLI 认证 JSON（优先级最高；B 每次注入 Kaggle） |
+| `CURSOR_API_KEY` | 工作流 B/C：Cursor API Key（`CURSOR_AUTH_JSON` 未配置时的备选） |
 | `PROJECT_PAT` | 工作流 B：Project GraphQL 读写（推荐） |
 | `AI_WORKFLOW_DISPATCH_TOKEN` | Issue 事件转发（`relay-forward.yml`） |
 
 GitHub Project ID 见 `config/github-project.json`（非 Secret）。
 
-> **说明**：更新 Cursor 登录后只需刷新 GitHub Actions Secret `CURSOR_AUTH_JSON`，下次工作流 B 运行会自动把最新凭证传给 Kaggle，无需在 Kaggle Web UI 重复配置。
+> **说明**：更新 Cursor 登录后只需刷新 GitHub Actions Secret（`CURSOR_AUTH_JSON` 或 `CURSOR_API_KEY`），下次工作流 B 运行会自动把最新凭据传给 Kaggle，无需在 Kaggle Web UI 重复配置。
 
 环境变量说明见 `config/project.env.example`；GitHub Project 元数据见 `config/github-project.json`。
 

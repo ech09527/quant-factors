@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.build_kernel_inputs import build_inputs, slug_to_dir  # noqa: E402
+from scripts.cursor_auth import build_kernel_cursor_inputs  # noqa: E402
 from scripts.fetch_existing_ideas import title_hash  # noqa: E402
 from scripts.kaggle_kernel import (  # noqa: E402
     PLACEHOLDER_USERNAME,
@@ -125,6 +126,7 @@ def bundle_kernel(kernel_dir: Path, repo: Path) -> None:
         repo / "scripts" / "prompts" / "generate-ideas-agent.txt",
         prompts_dir / "generate-ideas-agent.txt",
     )
+    shutil.copy2(repo / "scripts" / "cursor_auth.py", kernel_dir / "cursor_auth.py")
     query_py = kernel_dir / "query_klines.py"
     repo_query = repo / "explorations" / "generate-factor-ideas" / "query_klines.py"
     if repo_query.is_file() and repo_query.resolve() != query_py.resolve():
@@ -303,11 +305,11 @@ def run_kernel_once(
     metadata_backup = backup_file(metadata_path)
     explore_backup = backup_file(explore_py) if explore_py.is_file() else ""
     main_backup = backup_file(main_py)
-    cursor_auth = os.environ.get("CURSOR_AUTH_JSON", "").strip()
-    if not cursor_auth:
+    cursor_inputs = build_kernel_cursor_inputs()
+    if not cursor_inputs:
         raise RuntimeError(
-            "未设置 CURSOR_AUTH_JSON：请在 GitHub Actions Secrets 中配置，"
-            "Runner 每次运行时会将其嵌入 kernel_inputs 供 Kaggle 使用"
+            "未找到 Cursor 凭据：请在 GitHub Actions Secrets 中配置 CURSOR_AUTH_JSON "
+            "或 CURSOR_API_KEY，Runner 每次运行时会将其嵌入 kernel_inputs 供 Kaggle 使用"
         )
 
     try:
@@ -321,7 +323,7 @@ def run_kernel_once(
             target_file=target_file,
             repo=repo,
         )
-        inputs_payload["cursor_auth_json"] = cursor_auth
+        inputs_payload.update(cursor_inputs)
         agent_timeout = os.environ.get("AGENT_CURSOR_TIMEOUT_SECONDS", "").strip()
         if agent_timeout:
             inputs_payload["agent_cursor_timeout_seconds"] = int(agent_timeout)
