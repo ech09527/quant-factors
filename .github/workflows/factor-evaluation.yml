@@ -20,9 +20,6 @@ on:
         required: false
         default: "false"
         type: string
-  workflow_run:
-    workflows: ["Factor Ideas"]
-    types: [completed]
 
 concurrency:
   group: factor-evaluation

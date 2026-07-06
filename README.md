@@ -102,7 +102,7 @@ gh workflow run factor-evaluation.yml -f force=true     # 强制重评
 **定时触发**：
 
 - **因子想法**：Cloudflare Worker（`workers/factor-ideas-cron/`）每 5 分钟调用 `factor-ideas.yml`（`max_ideas=3`、`mode=agent_generate`）
-- **因子评估**：Cloudflare Worker（`workers/factor-evaluation-batch-cron/`）每 15 分钟调用 `factor-evaluation.yml`（`max_ideas=5`）；`Factor Ideas` 工作流完成后也会自动触发
+- **因子评估**：Cloudflare Worker（`workers/factor-evaluation-batch-cron/`）每 15 分钟调用 `factor-evaluation.yml`（`max_ideas=5`），或手动 `gh workflow run factor-evaluation.yml`
 
 凭证从 HashiCorp Vault 读取，见各 Worker 目录下的 README。
 

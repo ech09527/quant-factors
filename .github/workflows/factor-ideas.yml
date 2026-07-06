@@ -22,7 +22,7 @@ on:
 
 concurrency:
   group: factor-ideas
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
