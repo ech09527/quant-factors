@@ -91,6 +91,7 @@ jobs:
           TRANSLATION_MAX_ATTEMPTS: "5"
           KERNEL_LOG_TIMEOUT_SECONDS: "7200"
           CURSOR_WORKERS: "2"
+          CURSOR_MODEL: auto
         run: |
           COUNT=$(jq '.count' /tmp/pending.json)
           if [ "$COUNT" -eq 0 ]; then

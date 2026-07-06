@@ -80,6 +80,7 @@ jobs:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           KERNEL_LOG_TIMEOUT_SECONDS: "7200"
           AGENT_CURSOR_TIMEOUT_SECONDS: "1800"
+          CURSOR_MODEL: auto
         run: |
           ARGS=(--existing /tmp/existing.json --max-ideas "${MAX_IDEAS}" --mode "${KERNEL_MODE}")
           if [ -n "${{ inputs.dataset_slug }}" ]; then

@@ -134,26 +134,46 @@ def resolve_agent_binary() -> str:
     raise RuntimeError("Cursor agent 安装后未找到可执行文件")
 
 
+def resolve_cursor_model(inputs: dict[str, Any] | None = None) -> str:
+    cursor_auth_py = SCRIPT_DIR / "cursor_auth.py"
+    if cursor_auth_py.is_file():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cursor_auth", cursor_auth_py)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module.resolve_cursor_model(inputs=inputs)
+    return os.environ.get("CURSOR_MODEL", "auto").strip() or "auto"
+
+
 def run_cursor_agent(
     prompt: str,
     output_path: Path,
     *,
     timeout: int | None = None,
     cwd: Path | None = None,
+    inputs: dict[str, Any] | None = None,
 ) -> str:
     agent_bin = resolve_agent_binary()
     effective_timeout = timeout if timeout is not None else CURSOR_TIMEOUT
+    model = resolve_cursor_model(inputs=inputs)
     cmd = [
         "timeout",
         str(effective_timeout),
         agent_bin,
         "-p",
         "--force",
+        "--model",
+        model,
         "--output-format",
         "text",
         prompt,
     ]
-    print(f"调用 Cursor agent（超时 {effective_timeout}s，cwd={cwd or Path.cwd()}）...")
+    print(
+        f"调用 Cursor agent（model={model}，超时 {effective_timeout}s，"
+        f"cwd={cwd or Path.cwd()}）..."
+    )
     result = subprocess.run(
         cmd,
         capture_output=True,
@@ -529,6 +549,7 @@ def run_agent_generate(inputs: dict[str, Any]) -> int:
         WORKING / "ideas_raw.txt",
         timeout=int(inputs.get("agent_cursor_timeout_seconds") or AGENT_CURSOR_TIMEOUT),
         cwd=WORKING,
+        inputs=inputs,
     )
 
     try:
@@ -580,7 +601,11 @@ def run_legacy_generate(inputs: dict[str, Any]) -> int:
                 "{{EXPLORATION_SUMMARY}}": summary_text,
             },
         )
-        narrative = run_cursor_agent(explore_prompt, WORKING / "exploration_narrative_raw.txt")
+        narrative = run_cursor_agent(
+            explore_prompt,
+            WORKING / "exploration_narrative_raw.txt",
+            inputs=inputs,
+        )
         (WORKING / "exploration_narrative.md").write_text(narrative + "\n", encoding="utf-8")
         print("语义探索完成")
     else:
@@ -602,7 +627,7 @@ def run_legacy_generate(inputs: dict[str, Any]) -> int:
         },
     )
 
-    run_cursor_agent(idea_prompt, WORKING / "ideas_raw.txt")
+    run_cursor_agent(idea_prompt, WORKING / "ideas_raw.txt", inputs=inputs)
     try:
         finalize_ideas_output()
     except (ValueError, FileNotFoundError) as exc:

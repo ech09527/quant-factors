@@ -15,6 +15,7 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts.cursor_auth import resolve_cursor_model
 from scripts.run_local_factor_evaluation import run_local_evaluation
 from scripts.validate_sql import validate_factor_sql
 
@@ -128,17 +129,20 @@ def build_prompt(
 
 def run_cursor(prompt: str) -> str:
     agent_bin = resolve_agent_binary()
+    model = resolve_cursor_model()
     cmd = [
         "timeout",
         str(CURSOR_TIMEOUT),
         agent_bin,
         "-p",
         "--force",
+        "--model",
+        model,
         "--output-format",
         "text",
         prompt,
     ]
-    print(f"调用 Cursor agent（超时 {CURSOR_TIMEOUT}s）...")
+    print(f"调用 Cursor agent（model={model}，超时 {CURSOR_TIMEOUT}s）...")
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(

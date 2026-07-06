@@ -13,6 +13,7 @@ from scripts.cursor_auth import (  # noqa: E402
     build_kernel_cursor_inputs,
     resolve_cursor_api_key,
     resolve_cursor_auth_json,
+    resolve_cursor_model,
     setup_cursor_auth,
 )
 
@@ -86,17 +87,42 @@ def test_setup_returns_false_when_no_credentials(monkeypatch, tmp_path: Path) ->
 def test_build_kernel_inputs_from_auth_json(monkeypatch) -> None:
     monkeypatch.setenv("CURSOR_AUTH_JSON", json.dumps({"source": "github-secret"}))
     monkeypatch.delenv("CURSOR_API_KEY", raising=False)
+    monkeypatch.delenv("CURSOR_MODEL", raising=False)
 
     assert build_kernel_cursor_inputs() == {
-        "cursor_auth_json": json.dumps({"source": "github-secret"})
+        "cursor_auth_json": json.dumps({"source": "github-secret"}),
+        "cursor_model": "auto",
     }
 
 
 def test_build_kernel_inputs_from_api_key(monkeypatch) -> None:
     monkeypatch.delenv("CURSOR_AUTH_JSON", raising=False)
     monkeypatch.setenv("CURSOR_API_KEY", "sk-github-key")
+    monkeypatch.delenv("CURSOR_MODEL", raising=False)
 
-    assert build_kernel_cursor_inputs() == {"cursor_api_key": "sk-github-key"}
+    assert build_kernel_cursor_inputs() == {
+        "cursor_api_key": "sk-github-key",
+        "cursor_model": "auto",
+    }
+
+
+def test_resolve_cursor_model_prefers_kernel_inputs(monkeypatch) -> None:
+    monkeypatch.setenv("CURSOR_MODEL", "gpt-5.2")
+    inputs = {"cursor_model": "auto"}
+
+    assert resolve_cursor_model(inputs=inputs) == "auto"
+
+
+def test_resolve_cursor_model_falls_back_to_env(monkeypatch) -> None:
+    monkeypatch.setenv("CURSOR_MODEL", "gpt-5.2")
+
+    assert resolve_cursor_model() == "gpt-5.2"
+
+
+def test_resolve_cursor_model_defaults_to_auto(monkeypatch) -> None:
+    monkeypatch.delenv("CURSOR_MODEL", raising=False)
+
+    assert resolve_cursor_model() == "auto"
 
 
 def test_kernel_setup_prefers_injected_auth_json(monkeypatch, tmp_path: Path) -> None:
