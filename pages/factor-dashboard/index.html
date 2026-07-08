@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quant Factors 控制台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="layout locked" id="app-layout">
+      <header class="header">
+        <div class="stats" id="stats">
+          <span class="stat-item">
+            <span class="stat-label">因子想法</span>
+            <strong id="stat-ideas">-</strong>
+          </span>
+          <span class="stat-item">
+            <span class="stat-label">自定义算子</span>
+            <strong id="stat-operators">-</strong>
+          </span>
+          <span class="stat-item">
+            <span class="stat-label">已激活算子</span>
+            <strong id="stat-active-ops">-</strong>
+          </span>
+        </div>
+      </header>
+
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="ideas" role="tab" aria-selected="true">因子想法</button>
+        <button class="tab" data-tab="validations" role="tab" aria-selected="false">验证结果</button>
+        <button class="tab" data-tab="profiles" role="tab" aria-selected="false">验证配置</button>
+        <button class="tab" data-tab="jupyter" role="tab" aria-selected="false">Jupyter 服务器</button>
+        <button class="tab" data-tab="operators" role="tab" aria-selected="false">自定义算子</button>
+      </nav>
+
+      <section class="panel" id="panel-ideas">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <label>
+              生成数量
+              <input id="generate-count" type="number" min="1" max="5" value="3" />
+            </label>
+            <button id="ideas-generate" type="button" class="btn-primary">生成想法</button>
+          </div>
+          <button id="ideas-refresh" type="button">刷新</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>标题</th>
+                <th>来源</th>
+                <th>更新时间</th>
+              </tr>
+            </thead>
+            <tbody id="ideas-body"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="ideas-pager"></div>
+      </section>
+
+      <section class="panel hidden" id="panel-validations">
+        <div class="toolbar validations-toolbar">
+          <div class="toolbar-left">
+            <label>
+              排序指标
+              <select id="validations-sort">
+                <option value="updated_at">更新时间</option>
+                <option value="mean_rank_ic">Mean Rank IC</option>
+                <option value="mean_ic">Mean IC</option>
+                <option value="rank_ic_ir">Rank IC IR</option>
+                <option value="ic_ir">IC IR</option>
+                <option value="n_periods">期数</option>
+                <option value="evaluated_at">评估时间</option>
+              </select>
+            </label>
+            <label>
+              方向
+              <select id="validations-order">
+                <option value="desc">降序</option>
+                <option value="asc">升序</option>
+              </select>
+            </label>
+            <label class="checkbox-label">
+              <input id="validations-abs" type="checkbox" checked />
+              按绝对值
+            </label>
+            <label>
+              Top N
+              <input id="validations-limit" type="number" min="1" max="200" value="30" />
+            </label>
+            <label>
+              状态
+              <select id="validations-status">
+                <option value="" selected>全部</option>
+                <option value="success">success</option>
+                <option value="failed">failed</option>
+                <option value="skipped">skipped</option>
+                <option value="pending">pending</option>
+                <option value="running">running</option>
+              </select>
+            </label>
+            <label>
+              验证配置
+              <select id="validations-profile">
+                <option value="">全部</option>
+              </select>
+            </label>
+          </div>
+          <div class="toolbar-right">
+            <button type="button" id="validations-preset-rank-ic" class="btn-secondary">Top 30 |Mean Rank IC|</button>
+            <button type="button" id="validations-preset-mean-ic" class="btn-secondary">Top 30 |Mean IC|</button>
+            <button type="button" id="validations-apply">查询</button>
+            <button type="button" id="validations-refresh">刷新</button>
+          </div>
+        </div>
+        <p class="muted validations-hint" id="validations-hint"></p>
+        <div class="table-wrap">
+          <table class="validation-table sortable-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>因子</th>
+                <th>验证配置</th>
+                <th data-sort="mean_ic">Mean IC</th>
+                <th data-sort="mean_rank_ic">Mean Rank IC</th>
+                <th data-sort="ic_ir">IC IR</th>
+                <th data-sort="rank_ic_ir">Rank IC IR</th>
+                <th data-sort="n_periods">期数</th>
+                <th>IC 胜率</th>
+                <th data-sort="evaluated_at">评估时间</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody id="validations-body"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="validations-pager"></div>
+      </section>
+
+      <section class="panel hidden" id="panel-profiles">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <p class="muted profile-hint">管理验证目标（如前向收益、前向波动率）。禁用后不会为新想法自动创建任务。</p>
+          </div>
+          <div class="toolbar-right">
+            <button type="button" id="profiles-create" class="btn-primary">新建配置</button>
+            <button type="button" id="profiles-refresh">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="validation-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>名称</th>
+                <th>Label 类型</th>
+                <th>周期</th>
+                <th>排序</th>
+                <th>状态</th>
+                <th>说明</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="profiles-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="panel-jupyter">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <p class="muted profile-hint">管理验证批处理使用的 Jupyter / Kaggle Server。Workflow 按 sort_order 选择已启用实例。</p>
+          </div>
+          <div class="toolbar-right">
+            <button type="button" id="jupyter-create" class="btn-primary">新建服务器</button>
+            <button type="button" id="jupyter-refresh">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="validation-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>名称</th>
+                <th>Base URL</th>
+                <th>排序</th>
+                <th>状态</th>
+                <th>最近使用</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="jupyter-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="panel-operators">
+        <div class="toolbar">
+          <label>
+            状态
+            <select id="operators-status">
+              <option value="">全部</option>
+              <option value="active">active</option>
+              <option value="pending">pending</option>
+            </select>
+          </label>
+          <button id="operators-refresh" type="button">刷新</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>名称</th>
+                <th>签名</th>
+                <th>状态</th>
+                <th>创建时间</th>
+              </tr>
+            </thead>
+            <tbody id="operators-body"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="operators-pager"></div>
+      </section>
+    </div>
+
+    <dialog id="detail-dialog">
+      <article id="detail-content"></article>
+      <form method="dialog">
+        <button class="close-btn">关闭</button>
+      </form>
+    </dialog>
+
+    <dialog id="profile-dialog">
+      <form id="profile-form" class="profile-form">
+        <h2 id="profile-form-title">新建验证配置</h2>
+        <label>
+          Key
+          <input id="profile-key" name="key" pattern="[a-z][a-z0-9_]*" required />
+          <span class="field-hint">小写字母开头，如 fwd_vol_2</span>
+        </label>
+        <label>
+          名称
+          <input id="profile-name" name="name" required />
+        </label>
+        <label>
+          Label 类型
+          <select id="profile-label-kind" name="label_kind" required>
+            <option value="forward_return">前向收益 (forward_return)</option>
+            <option value="forward_volatility">前向波动 (forward_volatility)</option>
+          </select>
+        </label>
+        <label>
+          周期 (bars)
+          <input id="profile-horizon" name="horizon_bars" type="number" min="1" max="168" value="1" required />
+        </label>
+        <label>
+          排序
+          <input id="profile-sort-order" name="sort_order" type="number" value="0" />
+        </label>
+        <label>
+          说明
+          <textarea id="profile-description" name="description" rows="3"></textarea>
+        </label>
+        <label class="checkbox-label">
+          <input id="profile-enabled" name="enabled" type="checkbox" checked />
+          启用
+        </label>
+        <p id="profile-form-error" class="auth-error hidden"></p>
+        <div class="profile-form-actions">
+          <button type="submit" class="btn-primary">保存</button>
+          <button type="button" id="profile-form-cancel">取消</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="jupyter-dialog">
+      <form id="jupyter-form" class="profile-form jupyter-form">
+        <h2 id="jupyter-form-title">新建 Jupyter Server</h2>
+        <label>
+          Key
+          <input id="jupyter-key" name="key" pattern="[a-z][a-z0-9_-]*" required />
+          <span class="field-hint">如 kaggle-kkb-prod</span>
+        </label>
+        <label>
+          名称
+          <input id="jupyter-name" name="name" required />
+        </label>
+        <label>
+          Base URL
+          <input id="jupyter-base-url" name="base_url" type="url" required placeholder="https://.../proxy" />
+        </label>
+        <label>
+          WS Base URL
+          <input id="jupyter-ws-base-url" name="ws_base_url" type="url" placeholder="wss://.../proxy（留空则从 Base URL 自动推导）" />
+        </label>
+        <label>
+          Auth Token
+          <input id="jupyter-auth-token" name="auth_token" required placeholder="Kaggle 填 embedded-path-auth" />
+        </label>
+        <label>
+          Auth Header / Scheme
+          <div class="inline-fields">
+            <input id="jupyter-auth-header" name="auth_header" value="Authorization" />
+            <input id="jupyter-auth-scheme" name="auth_scheme" value="token" />
+          </div>
+        </label>
+        <label>
+          HTTP 代理（可选）
+          <input id="jupyter-proxy-url" name="proxy_url" placeholder="http://user:pass@host:port" />
+        </label>
+        <label>
+          Kernel 名称
+          <input id="jupyter-kernel-name" name="kernel_name" value="python3" />
+        </label>
+        <label>
+          运行时配置（JSON）
+          <textarea id="jupyter-runtime-config" name="runtime_config" rows="6" spellcheck="false"></textarea>
+          <span class="field-hint">Kaggle 内核执行时读取，如 target_file（K 线路径）、data_path（绝对路径覆盖）、dataset_slug</span>
+        </label>
+        <label>
+          排序
+          <input id="jupyter-sort-order" name="sort_order" type="number" value="0" />
+        </label>
+        <label class="checkbox-label">
+          <input id="jupyter-enabled" name="enabled" type="checkbox" checked />
+          启用
+        </label>
+        <p id="jupyter-form-error" class="auth-error hidden"></p>
+        <div class="profile-form-actions">
+          <button type="submit" class="btn-primary">保存</button>
+          <button type="button" id="jupyter-form-cancel">取消</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast hidden" id="toast"></div>
+
+    <div id="auth-gate" class="auth-gate hidden">
+      <form id="auth-form" class="auth-card">
+        <h2>登录</h2>
+        <p class="auth-hint">请输入访问密码</p>
+        <input
+          id="auth-password"
+          type="password"
+          autocomplete="current-password"
+          placeholder="密码"
+          required
+        />
+        <button type="submit" class="btn-primary">进入</button>
+        <p id="auth-error" class="auth-error hidden"></p>
+      </form>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

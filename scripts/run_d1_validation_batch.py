@@ -412,13 +412,32 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"count": 0, "message": "no claimed jobs"}, ensure_ascii=False))
         return 0
 
-    report_items, summary = run_batch(
-        jobs=claimed_jobs,
-        sample_start=args.sample_start,
-        log_timeout=args.log_timeout,
-        dry_run=args.dry_run,
-        jupyter_server_key=args.jupyter_server_key,
-    )
+    report_items: list[dict[str, Any]] = []
+    summary: dict[str, Any]
+    try:
+        report_items, summary = run_batch(
+            jobs=claimed_jobs,
+            sample_start=args.sample_start,
+            log_timeout=args.log_timeout,
+            dry_run=args.dry_run,
+            jupyter_server_key=args.jupyter_server_key,
+        )
+    except Exception as exc:
+        summary = {
+            "count": len(claimed_jobs),
+            "success": 0,
+            "failed": len(claimed_jobs),
+            "skipped": 0,
+            "error": str(exc),
+        }
+        report_items = [
+            {
+                "validation_id": int(job["validation_id"]),
+                "status": "failed",
+                "error_reason": str(exc)[:500],
+            }
+            for job in claimed_jobs
+        ]
     if report_items and not args.dry_run:
         report_results(report_items)
 
@@ -426,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return 0
+    return 0 if summary.get("failed", 0) == 0 else 1
 
 
 if __name__ == "__main__":
