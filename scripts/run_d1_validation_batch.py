@@ -93,16 +93,29 @@ def fetch_pending_jobs(limit: int) -> list[dict[str, Any]]:
     return items
 
 
-def claim_jobs(ids: list[int]) -> set[int]:
+def claim_jobs(jobs: list[dict[str, Any]]) -> dict[tuple[int, str], int]:
     payload = api_request(
         "/api/workflow/validation-jobs/claim",
         method="POST",
-        body={"ids": ids},
+        body={
+            "jobs": [
+                {
+                    "idea_id": int(job["idea_id"]),
+                    "profile_key": str(job["profile_key"]),
+                }
+                for job in jobs
+            ]
+        },
     )
-    claimed_ids = payload.get("ids")
-    if not isinstance(claimed_ids, list):
-        return set()
-    return {int(x) for x in claimed_ids if isinstance(x, int) or str(x).isdigit()}
+    claimed_jobs = payload.get("jobs")
+    if not isinstance(claimed_jobs, list):
+        return {}
+    result: dict[tuple[int, str], int] = {}
+    for item in claimed_jobs:
+        idea_id = int(item["idea_id"])
+        profile_key = str(item["profile_key"])
+        result[(idea_id, profile_key)] = int(item["validation_id"])
+    return result
 
 
 def report_results(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -402,12 +415,19 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["VALIDATION_EXECUTION_BACKEND"] = args.backend.strip().lower()
     jobs = fetch_pending_jobs(max(1, args.max_items))
     if not jobs:
-        print(json.dumps({"count": 0, "message": "no pending jobs"}, ensure_ascii=False))
+        print(json.dumps({"count": 0, "message": "no validation jobs"}, ensure_ascii=False))
         return 0
 
-    ids = [int(item["validation_id"]) for item in jobs]
-    claimed = claim_jobs(ids)
-    claimed_jobs = [item for item in jobs if int(item["validation_id"]) in claimed]
+    claimed_map = claim_jobs(jobs)
+    claimed_jobs: list[dict[str, Any]] = []
+    for job in jobs:
+        key = (int(job["idea_id"]), str(job["profile_key"]))
+        validation_id = claimed_map.get(key)
+        if validation_id is None:
+            continue
+        job_copy = dict(job)
+        job_copy["validation_id"] = validation_id
+        claimed_jobs.append(job_copy)
     if not claimed_jobs:
         print(json.dumps({"count": 0, "message": "no claimed jobs"}, ensure_ascii=False))
         return 0

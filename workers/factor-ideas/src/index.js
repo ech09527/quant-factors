@@ -729,55 +729,115 @@ __name(parseJsonArray2, "parseJsonArray");
 async function reclaimStaleValidationJobs(db, maxAgeMinutes = 10) {
   const result = await db.prepare(
     `UPDATE idea_validations
-       SET status = 'pending', updated_at = datetime('now')
+       SET status = 'failed',
+           error_reason = COALESCE(error_reason, 'stale running reclaimed'),
+           updated_at = datetime('now')
        WHERE status = 'running'
          AND updated_at < datetime('now', ?)`
   ).bind(`-${maxAgeMinutes} minutes`).run();
   return { reclaimed: Number(result.meta.changes ?? 0) };
 }
 __name(reclaimStaleValidationJobs, "reclaimStaleValidationJobs");
+const VALIDATION_WORKFLOW_JOB_FROM = `
+    FROM ideas i
+    CROSS JOIN validation_profiles vp
+    LEFT JOIN idea_validations iv
+      ON iv.idea_id = i.id AND iv.profile_key = vp.key
+    WHERE vp.enabled = 1
+      AND (iv.id IS NULL OR iv.status NOT IN ('success', 'skipped'))
+      AND (
+        iv.id IS NULL
+        OR iv.status != 'running'
+        OR iv.updated_at < datetime('now', '-10 minutes')
+      )`;
+async function countValidationWorkflowJobs(db) {
+  const countRow = await db.prepare(`SELECT COUNT(*) AS total ${VALIDATION_WORKFLOW_JOB_FROM}`).first();
+  return Number(countRow?.total ?? 0);
+}
+__name(countValidationWorkflowJobs, "countValidationWorkflowJobs");
 async function listPendingValidationWorkflowJobs(db, limit) {
   await reclaimStaleValidationJobs(db);
-  const countRow = await db.prepare("SELECT COUNT(*) AS total FROM idea_validations WHERE status = 'pending'").first();
+  const total = await countValidationWorkflowJobs(db);
   const result = await db.prepare(
     `SELECT
-         iv.id AS validation_id, iv.idea_id, iv.profile_key, iv.status,
-         vp.name AS profile_name, vp.label_kind, vp.horizon_bars,
-         i.title, i.title_hash, i.factor_expr, i.hypothesis, i.formula_sketch,
-         i.expected_signal, i.data_sources
-       FROM idea_validations iv
-       JOIN ideas i ON i.id = iv.idea_id
-       JOIN validation_profiles vp ON vp.key = iv.profile_key
-       WHERE iv.status = 'pending'
-       ORDER BY iv.created_at ASC, iv.id ASC
+         COALESCE(iv.id, 0) AS validation_id,
+         i.id AS idea_id,
+         vp.key AS profile_key,
+         COALESCE(iv.status, 'queued') AS status,
+         vp.name AS profile_name,
+         vp.label_kind,
+         vp.horizon_bars,
+         i.title,
+         i.title_hash,
+         i.factor_expr,
+         i.hypothesis,
+         i.formula_sketch,
+         i.expected_signal,
+         i.data_sources
+       ${VALIDATION_WORKFLOW_JOB_FROM}
+       ORDER BY
+         CASE WHEN iv.id IS NULL THEN 0 WHEN iv.status = 'failed' THEN 1 ELSE 2 END,
+         i.id ASC,
+         vp.sort_order ASC,
+         vp.key ASC
        LIMIT ?`
   ).bind(limit).all();
   return {
     items: (result.results ?? []).map(rowToWorkflowJob),
-    total: Number(countRow?.total ?? 0),
+    total,
     limit
   };
 }
 __name(listPendingValidationWorkflowJobs, "listPendingValidationWorkflowJobs");
-async function claimValidationWorkflowJobs(db, ids) {
-  if (ids.length === 0) {
-    return { claimed: 0, ids: [] };
+async function claimValidationWorkflowJobs(db, jobs) {
+  if (jobs.length === 0) {
+    return { claimed: 0, ids: [], jobs: [] };
   }
   let claimed = 0;
   const claimedIds = [];
-  for (const id of ids) {
-    const result = await db.prepare(
-      `UPDATE idea_validations
-         SET status = 'running', updated_at = datetime('now')
-         WHERE id = ? AND status = 'pending'`
-    ).bind(id).run();
-    const changes = Number(result.meta.changes ?? 0);
-    claimed += changes;
-    if (changes > 0) {
-      claimedIds.push(id);
+  const claimedJobs = [];
+  for (const job of jobs) {
+    const ideaId = Number(job.idea_id);
+    const profileKey = String(job.profile_key ?? "").trim();
+    if (!Number.isFinite(ideaId) || ideaId <= 0 || !profileKey) {
+      continue;
     }
+    const existing = await db.prepare(
+      `SELECT id, status, updated_at
+         FROM idea_validations
+         WHERE idea_id = ? AND profile_key = ?
+         LIMIT 1`
+    ).bind(ideaId, profileKey).first();
+    let validationId = 0;
+    if (existing) {
+      const status = String(existing.status);
+      if (status === "success" || status === "skipped" || status === "running") {
+        continue;
+      }
+      const result = await db.prepare(
+        `UPDATE idea_validations
+           SET status = 'running', error_reason = NULL, updated_at = datetime('now')
+           WHERE id = ? AND status NOT IN ('success', 'skipped', 'running')`
+      ).bind(existing.id).run();
+      if (Number(result.meta.changes ?? 0) === 0) {
+        continue;
+      }
+      validationId = Number(existing.id);
+    } else {
+      const insert = await db.prepare(
+        `INSERT INTO idea_validations (idea_id, profile_key, status, updated_at)
+           VALUES (?, ?, 'running', datetime('now'))`
+      ).bind(ideaId, profileKey).run();
+      validationId = Number(insert.meta.last_row_id ?? 0);
+      if (validationId <= 0) {
+        continue;
+      }
+    }
+    claimed += 1;
+    claimedIds.push(validationId);
+    claimedJobs.push({ validation_id: validationId, idea_id: ideaId, profile_key: profileKey });
   }
-  return { claimed, ids: claimedIds };
+  return { claimed, ids: claimedIds, jobs: claimedJobs };
 }
 __name(claimValidationWorkflowJobs, "claimValidationWorkflowJobs");
 async function reportValidationWorkflowResults(db, items) {
@@ -1285,16 +1345,33 @@ async function handleApiPost(request, env, pathname) {
   }
   const VALIDATION_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "success", "failed", "skipped"]);
   if (pathname === "/api/workflow/validation-jobs/claim") {
-    let ids = [];
+    let jobs = [];
     try {
       const body = await request.json();
-      if (Array.isArray(body.ids)) {
-        ids = body.ids.map(Number).filter((id2) => Number.isFinite(id2) && id2 > 0);
+      if (Array.isArray(body.jobs)) {
+        jobs = body.jobs.map((item) => ({
+          idea_id: Number(item.idea_id),
+          profile_key: String(item.profile_key ?? "")
+        })).filter((item) => Number.isFinite(item.idea_id) && item.idea_id > 0 && item.profile_key);
+      } else if (Array.isArray(body.ids)) {
+        const ids = body.ids.map(Number).filter((id2) => Number.isFinite(id2) && id2 > 0);
+        if (ids.length > 0) {
+          const placeholders = ids.map(() => "?").join(", ");
+          const rows = await env.DB.prepare(
+            `SELECT id AS validation_id, idea_id, profile_key
+               FROM idea_validations
+               WHERE id IN (${placeholders})`
+          ).bind(...ids).all();
+          jobs = (rows.results ?? []).map((row) => ({
+            idea_id: Number(row.idea_id),
+            profile_key: String(row.profile_key)
+          }));
+        }
       }
     } catch {
       return wrap(env, request, badRequest("invalid json body"));
     }
-    const result2 = await claimValidationWorkflowJobs(env.DB, ids);
+    const result2 = await claimValidationWorkflowJobs(env.DB, jobs);
     return wrap(env, request, jsonResponse(result2));
   }
   if (pathname === "/api/workflow/validation-jobs/report") {
