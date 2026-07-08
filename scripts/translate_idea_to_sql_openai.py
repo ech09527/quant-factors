@@ -22,6 +22,7 @@ from scripts.validate_sql import validate_factor_sql
 MAX_TRANSLATION_ATTEMPTS = int(os.environ.get("TRANSLATION_MAX_ATTEMPTS", "3"))
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+WORKFLOW_HTTP_USER_AGENT = "quant-factors-workflow/1.0"
 
 
 def repo_root() -> Path:
@@ -104,6 +105,7 @@ def call_openai(prompt: str) -> str:
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
+            "User-Agent": WORKFLOW_HTTP_USER_AGENT,
         },
         method="POST",
     )

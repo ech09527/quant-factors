@@ -12,6 +12,8 @@ from typing import Any
 
 from scripts.bundle_evaluate_kernel import build_jupyter_inline_eval_code
 
+WORKFLOW_HTTP_USER_AGENT = "quant-factors-workflow/1.0"
+
 
 @dataclass
 class JupyterClientConfig:
@@ -44,6 +46,7 @@ class JupyterClient:
     def _headers(self) -> dict[str, str]:
         return {
             "Content-Type": "application/json",
+            "User-Agent": WORKFLOW_HTTP_USER_AGENT,
             self.config.auth_header: f"{self.config.auth_scheme} {self.config.auth_token}",
         }
 

@@ -20,6 +20,9 @@ sys.path.insert(0, str(REPO_ROOT))
 from scripts.jupyter_client import JupyterClient, JupyterClientConfig
 from scripts.translate_idea_to_sql_openai import translate_idea as translate_idea_with_model
 
+# Cloudflare workers.dev 会拒绝 Python-urllib 默认 UA（error 1010）
+WORKFLOW_HTTP_USER_AGENT = "quant-factors-workflow/1.0"
+
 
 def api_base() -> str:
     value = os.environ.get("FACTOR_API_BASE_URL", "").strip().rstrip("/")
@@ -48,6 +51,7 @@ def api_request(path: str, *, method: str = "GET", body: dict[str, Any] | None =
     headers = {
         "Authorization": f"Bearer {api_token()}",
         "Content-Type": "application/json",
+        "User-Agent": WORKFLOW_HTTP_USER_AGENT,
     }
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
