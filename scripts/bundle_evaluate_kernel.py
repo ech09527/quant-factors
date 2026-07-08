@@ -95,7 +95,11 @@ import traceback
 
 _payload = json.loads({payload_literal})
 _sample_start = _payload.get("sample_start", "2023-01-01")
-_target_file = _payload.get("target_file", "futures/um/klines/1h.parquet")
+_runtime_config = _payload.get("runtime_config") or {{}}
+if not isinstance(_runtime_config, dict):
+    _runtime_config = {{}}
+_target_file = _runtime_config.get("target_file") or _payload.get("target_file", "futures/um/klines/1h.parquet")
+_data_path_override = _runtime_config.get("data_path")
 _jobs = _payload.get("jobs", [])
 _evaluations = []
 for _job in _jobs:
@@ -106,8 +110,11 @@ for _job in _jobs:
     _label_kind = _job.get("label_kind")
     _horizon_bars = _job.get("horizon_bars")
     try:
-        _dataset_slug = _factor_sql.get("data_source") or ((_idea.get("data_sources") or [""])[0])
-        _data_path = resolve_kaggle_data_path(str(_dataset_slug), _target_file)
+        if _data_path_override:
+            _data_path = str(_data_path_override)
+        else:
+            _dataset_slug = _runtime_config.get("dataset_slug") or _factor_sql.get("data_source") or ((_idea.get("data_sources") or [""])[0])
+            _data_path = resolve_kaggle_data_path(str(_dataset_slug), _target_file)
         _evaluation = evaluate_factor_sql(
             _factor_sql,
             title=str(_idea.get("title", "")),

@@ -10,7 +10,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from scripts.bundle_evaluate_kernel import build_bundled_kernel_source
+from scripts.bundle_evaluate_kernel import (
+    build_bundled_kernel_source,
+    build_jupyter_inline_eval_code,
+)
 from scripts.evaluate_engine import ENGINE_VERSION
 from scripts.run_factor_evaluation import (
     build_batch_kernel_inputs,
@@ -52,5 +55,26 @@ def test_bundled_kernel_does_not_import_evaluate_engine_module() -> None:
     runner = ROOT / "explorations" / "evaluate-factor-idea" / "evaluate_factor_idea.py"
     bundled = build_bundled_kernel_source(ROOT, runner)
     assert "from evaluate_engine import" not in bundled
+    assert "from scripts." not in bundled
     assert "def evaluate_factor_sql(" in bundled
+    assert "DEFAULT_VALIDATION_PROFILES" in bundled
     assert "batch_evaluations.json" in bundled
+
+
+def test_jupyter_inline_eval_code_is_self_contained() -> None:
+    code = build_jupyter_inline_eval_code(
+        {
+            "sample_start": "2023-01-01",
+            "runtime_config": {
+                "target_file": "futures/um/klines/1h.parquet",
+                "data_path": "/kaggle/input/custom/data.parquet",
+            },
+            "jobs": [],
+        }
+    )
+    assert "from scripts." not in code
+    assert "def evaluate_factor_sql(" in code
+    assert "DEFAULT_VALIDATION_PROFILES" in code
+    assert "__QF_EVAL_JSON__" in code
+    assert "_runtime_config" in code
+    assert "_data_path_override" in code

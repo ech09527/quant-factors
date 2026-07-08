@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.cookiejar
 import json
 import urllib.error
 import urllib.parse
@@ -26,12 +27,33 @@ class JupyterClientConfig:
     connect_mode: str = "batch_api"
     ws_base_url: str | None = None
     kernel_name: str = "python3"
+    runtime_config: dict[str, Any] | None = None
+
+
+def parse_runtime_config(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            raise ValueError("runtime_config 必须是 JSON 对象")
+        return parsed
+    raise ValueError("runtime_config 必须是 JSON 对象")
 
 
 class JupyterClient:
     def __init__(self, config: JupyterClientConfig) -> None:
         self.config = config
-        handlers: list[urllib.request.BaseHandler] = []
+        self.cookie_jar = http.cookiejar.CookieJar()
+        self._xsrf_token: str | None = None
+        handlers: list[urllib.request.BaseHandler] = [
+            urllib.request.HTTPCookieProcessor(self.cookie_jar),
+        ]
         if config.proxy_url:
             handlers.append(
                 urllib.request.ProxyHandler(
@@ -43,12 +65,26 @@ class JupyterClient:
             )
         self.opener = urllib.request.build_opener(*handlers)
 
-    def _headers(self) -> dict[str, str]:
-        return {
+    def _warmup_xsrf(self) -> None:
+        if self._xsrf_token:
+            return
+        self.request_json("/api/status")
+        for cookie in self.cookie_jar:
+            if cookie.name == "_xsrf":
+                self._xsrf_token = cookie.value
+                return
+
+    def _headers(self, *, method: str = "GET") -> dict[str, str]:
+        headers = {
             "Content-Type": "application/json",
             "User-Agent": WORKFLOW_HTTP_USER_AGENT,
             self.config.auth_header: f"{self.config.auth_scheme} {self.config.auth_token}",
         }
+        if method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+            self._warmup_xsrf()
+            if self._xsrf_token:
+                headers["X-XSRFToken"] = self._xsrf_token
+        return headers
 
     def request_json(
         self,
@@ -64,7 +100,7 @@ class JupyterClient:
         req = urllib.request.Request(
             url,
             data=data,
-            headers=self._headers(),
+            headers=self._headers(method=method),
             method=method,
         )
         try:
@@ -107,15 +143,22 @@ class JupyterClient:
         *,
         jobs: list[dict[str, Any]],
         sample_start: str,
-        target_file: str = "futures/um/klines/1h.parquet",
+        target_file: str | None = None,
+        runtime_config: dict[str, Any] | None = None,
         timeout_seconds: int = 7200,
     ) -> list[dict[str, Any]]:
         marker = "__QF_EVAL_JSON__"
-        payload = {
+        config = dict(runtime_config or self.config.runtime_config or {})
+        if target_file and "target_file" not in config:
+            config["target_file"] = target_file
+        payload: dict[str, Any] = {
             "sample_start": sample_start,
-            "target_file": target_file,
             "jobs": jobs,
         }
+        if config:
+            payload["runtime_config"] = config
+            if config.get("target_file"):
+                payload["target_file"] = config["target_file"]
         code = build_jupyter_inline_eval_code(payload, marker=marker)
         result = self.execute_code_via_kernel_ws(code=code, timeout_seconds=timeout_seconds)
         payload = self._extract_marker_json(result.get("output", ""), marker)
@@ -171,10 +214,16 @@ class JupyterClient:
 
         proxy_host = None
         proxy_port = None
+        proxy_auth: tuple[str, str] | None = None
         if self.config.proxy_url:
             parsed_proxy = urllib.parse.urlparse(self.config.proxy_url)
             proxy_host = parsed_proxy.hostname
             proxy_port = parsed_proxy.port
+            if parsed_proxy.username:
+                proxy_auth = (
+                    urllib.parse.unquote(parsed_proxy.username),
+                    urllib.parse.unquote(parsed_proxy.password or ""),
+                )
 
         headers = [f"{self.config.auth_header}: {self.config.auth_scheme} {self.config.auth_token}"]
         ws = websocket.create_connection(
@@ -183,6 +232,7 @@ class JupyterClient:
             timeout=timeout_seconds,
             http_proxy_host=proxy_host,
             http_proxy_port=proxy_port,
+            http_proxy_auth=proxy_auth,
         )
         try:
             message = {

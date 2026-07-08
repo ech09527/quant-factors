@@ -17,7 +17,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.jupyter_client import JupyterClient, JupyterClientConfig
+from scripts.jupyter_client import JupyterClient, JupyterClientConfig, parse_runtime_config
 from scripts.translate_idea_to_sql_openai import translate_idea as translate_idea_with_model
 
 # Cloudflare workers.dev 会拒绝 Python-urllib 默认 UA（error 1010）
@@ -150,6 +150,7 @@ def call_jupyter_evaluate_batch(
         connect_mode=str(server.get("connect_mode", "batch_api")).strip() or "batch_api",
         ws_base_url=(str(server.get("ws_base_url")).strip() if server.get("ws_base_url") else None),
         kernel_name=str(server.get("kernel_name", "python3")).strip() or "python3",
+        runtime_config=parse_runtime_config(server.get("runtime_config")),
     )
     if not config.base_url:
         raise RuntimeError("jupyter server 缺少 base_url")
@@ -162,6 +163,7 @@ def call_jupyter_evaluate_batch(
         return client.evaluate_batch_via_kernel_channels(
             jobs=jobs,
             sample_start=sample_start,
+            runtime_config=config.runtime_config,
             timeout_seconds=timeout_seconds,
         )
     return client.evaluate_batch(
