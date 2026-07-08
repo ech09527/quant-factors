@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ech09527/quant-factors/schemas/validation-profile-schema.json",
+  "title": "ValidationProfile",
+  "description": "因子验证配置：定义 label（与因子做 IC 的目标序列）",
+  "type": "object",
+  "required": ["key", "name", "label_kind", "horizon_bars"],
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "name": { "type": "string" },
+    "label_kind": {
+      "type": "string",
+      "enum": ["forward_return", "forward_volatility"]
+    },
+    "horizon_bars": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 168
+    },
+    "description": { "type": "string" },
+    "sort_order": { "type": "integer" },
+    "enabled": { "type": "boolean" }
+  }
+}

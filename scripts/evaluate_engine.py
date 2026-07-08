@@ -12,8 +12,18 @@ from jinja2 import Template
 
 try:
     from scripts.compute_metrics import METRICS_VERSION, compute_metrics
+    from scripts.validation_profiles import (
+        DEFAULT_PROFILE_KEY,
+        build_label_expr,
+        get_validation_profile,
+    )
 except ImportError:
     from compute_metrics import METRICS_VERSION, compute_metrics
+    from validation_profiles import (
+        DEFAULT_PROFILE_KEY,
+        build_label_expr,
+        get_validation_profile,
+    )
 
 ENGINE_VERSION = "0.1.0"
 TEMPLATE_VERSION = "0.1.0"
@@ -109,11 +119,32 @@ def validate_postprocess(factor_sql: dict[str, Any]) -> None:
         raise ValueError("time_series 因子 postprocess 必须为 none")
 
 
+def resolve_label_expr(
+    *,
+    validation_profile_key: str | None = None,
+    label_kind: str | None = None,
+    horizon_bars: int | None = None,
+) -> tuple[str, dict[str, Any]]:
+    if label_kind is not None and horizon_bars is not None:
+        profile = {
+            "key": validation_profile_key or "custom",
+            "label_kind": label_kind,
+            "horizon_bars": int(horizon_bars),
+        }
+    else:
+        profile = get_validation_profile(validation_profile_key or DEFAULT_PROFILE_KEY)
+    expr = build_label_expr(profile["label_kind"], profile["horizon_bars"])
+    return expr, profile
+
+
 def render_panel_sql(
     factor_sql: dict[str, Any],
     *,
     data_path: str,
     sample_start_ms: int,
+    validation_profile_key: str | None = None,
+    label_kind: str | None = None,
+    horizon_bars: int | None = None,
 ) -> str:
     validate_postprocess(factor_sql)
     postprocess = factor_sql["postprocess"]
@@ -124,6 +155,11 @@ def render_panel_sql(
     needs_window_universe = bool(enriched_exprs)
     enriched_select_sql = ",\n    ".join(enriched_exprs)
     window_universe_sql = " AND ".join(window_filters) if window_filters else "TRUE"
+    label_expr, _profile = resolve_label_expr(
+        validation_profile_key=validation_profile_key,
+        label_kind=label_kind,
+        horizon_bars=horizon_bars,
+    )
     return load_template().render(
         data_path=data_path.replace("'", "''"),
         sample_start_ms=sample_start_ms,
@@ -133,6 +169,7 @@ def render_panel_sql(
         needs_window_universe=needs_window_universe,
         signal_sql=factor_sql["signal_sql"],
         postprocess_expr=postprocess_expr,
+        label_expr=label_expr,
     )
 
 
@@ -211,12 +248,18 @@ def run_panel_query(
     *,
     data_path: str,
     sample_start: str = "2023-01-01",
+    validation_profile_key: str | None = None,
+    label_kind: str | None = None,
+    horizon_bars: int | None = None,
     connection: duckdb.DuckDBPyConnection | None = None,
 ) -> pd.DataFrame:
     sql = render_panel_sql(
         factor_sql,
         data_path=data_path,
         sample_start_ms=parse_sample_start_ms(sample_start),
+        validation_profile_key=validation_profile_key,
+        label_kind=label_kind,
+        horizon_bars=horizon_bars,
     )
     con = connection or duckdb.connect()
     try:
@@ -247,10 +290,18 @@ def evaluate_factor_sql(
     data_path: str,
     sample_start: str = "2023-01-01",
     save_panel_path: Path | None = None,
+    validation_profile_key: str | None = None,
+    label_kind: str | None = None,
+    horizon_bars: int | None = None,
 ) -> dict[str, Any]:
     """执行完整评估并返回 evaluation 字典。"""
     evaluation_type = factor_sql["evaluation_type"]
     evaluated_at = datetime.now(timezone.utc).isoformat()
+    _label_expr, validation_profile = resolve_label_expr(
+        validation_profile_key=validation_profile_key,
+        label_kind=label_kind,
+        horizon_bars=horizon_bars,
+    )
 
     if evaluation_type == "time_series":
         return {
@@ -262,6 +313,7 @@ def evaluate_factor_sql(
             "engine_version": ENGINE_VERSION,
             "metrics_version": METRICS_VERSION,
             "evaluation_type": evaluation_type,
+            "validation_profile_key": validation_profile["key"],
             "evaluated_at": evaluated_at,
             "skipped_reason": "time_series_not_supported_in_mvp",
             "data_range": {"start": sample_start, "end": sample_start, "n_bars": 0},
@@ -280,6 +332,9 @@ def evaluate_factor_sql(
         factor_sql,
         data_path=data_path,
         sample_start=sample_start,
+        validation_profile_key=validation_profile["key"],
+        label_kind=validation_profile.get("label_kind"),
+        horizon_bars=validation_profile.get("horizon_bars"),
     )
     if save_panel_path is not None:
         save_panel_path.parent.mkdir(parents=True, exist_ok=True)
@@ -301,6 +356,7 @@ def evaluate_factor_sql(
         "engine_version": ENGINE_VERSION,
         "metrics_version": METRICS_VERSION,
         "evaluation_type": evaluation_type,
+        "validation_profile_key": validation_profile["key"],
         "evaluated_at": evaluated_at,
         "data_range": summarize_data_range(panel, sample_start),
         "factor_sql": factor_sql,

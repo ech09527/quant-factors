@@ -1,0 +1,13 @@
+name = "quant-factors-factor-validation-d1-cron"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[triggers]
+crons = ["*/2 * * * *"]
+
+[vars]
+GITHUB_REPO = "ech09527/quant-factors"
+GITHUB_WORKFLOW_FILE = "factor-evaluation-d1.yml"
+MAX_VALIDATION_ITEMS = "10"
+SAMPLE_START = "2023-01-01"
+JUPYTER_SERVER_KEY = "kaggle-kkb-prod"

@@ -1,0 +1,81 @@
+name: Factor Validation D1
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_items:
+        description: 单次最多处理的验证任务数
+        required: false
+        default: "10"
+        type: string
+      sample_start:
+        description: 样本起始日
+        required: false
+        default: "2023-01-01"
+        type: string
+      jupyter_server_key:
+        description: 指定 D1 中的 Jupyter Server key（可选）
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: factor-validation-d1
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      FACTOR_API_BASE_URL: ${{ secrets.FACTOR_API_BASE_URL }}
+      FACTOR_API_TOKEN: ${{ secrets.FACTOR_API_TOKEN }}
+      VALIDATION_EXECUTION_BACKEND: jupyter
+      JUPYTER_SERVER_KEY: ${{ inputs.jupyter_server_key || '' }}
+      MAX_VALIDATION_ITEMS: ${{ inputs.max_items || '10' }}
+      SAMPLE_START: ${{ inputs.sample_start || '2023-01-01' }}
+      KERNEL_LOG_TIMEOUT_SECONDS: "7200"
+      TRANSLATION_MAX_ATTEMPTS: "3"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt pyyaml duckdb pandas numpy jinja2 jsonschema
+
+      - name: Validate required secrets
+        run: |
+          test -n "${OPENAI_API_KEY}" || (echo "::error::missing OPENAI_API_KEY" && exit 1)
+          test -n "${FACTOR_API_BASE_URL}" || (echo "::error::missing FACTOR_API_BASE_URL" && exit 1)
+          test -n "${FACTOR_API_TOKEN}" || (echo "::error::missing FACTOR_API_TOKEN" && exit 1)
+
+      - name: Run D1 validation batch
+        run: |
+          ARGS=(
+            --max-items "${MAX_VALIDATION_ITEMS}"
+            --sample-start "${SAMPLE_START}"
+            -o /tmp/d1_validation_summary.json
+          )
+          if [ -n "${JUPYTER_SERVER_KEY}" ]; then
+            ARGS+=(--jupyter-server-key "${JUPYTER_SERVER_KEY}")
+          fi
+          python scripts/run_d1_validation_batch.py "${ARGS[@]}"
+
+      - name: Print summary
+        if: always()
+        run: |
+          if [ -f /tmp/d1_validation_summary.json ]; then
+            cat /tmp/d1_validation_summary.json
+          fi
