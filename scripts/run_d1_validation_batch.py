@@ -35,6 +35,14 @@ def api_token() -> str:
     return value
 
 
+def workflow_proxy_url() -> str | None:
+    for key in ("WORKFLOW_HTTP_PROXY", "HTTPS_PROXY", "HTTP_PROXY"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    return None
+
+
 def api_request(path: str, *, method: str = "GET", body: dict[str, Any] | None = None) -> dict[str, Any]:
     url = f"{api_base()}{path}"
     headers = {
@@ -43,8 +51,20 @@ def api_request(path: str, *, method: str = "GET", body: dict[str, Any] | None =
     }
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    handlers: list[urllib.request.BaseHandler] = []
+    proxy_url = workflow_proxy_url()
+    if proxy_url:
+        handlers.append(
+            urllib.request.ProxyHandler(
+                {
+                    "http": proxy_url,
+                    "https": proxy_url,
+                }
+            )
+        )
+    opener = urllib.request.build_opener(*handlers)
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with opener.open(req, timeout=60) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
@@ -120,7 +140,8 @@ def call_jupyter_evaluate_batch(
         auth_header=str(server.get("auth_header", "Authorization")).strip() or "Authorization",
         auth_scheme=str(server.get("auth_scheme", "token")).strip() or "token",
         auth_token=str(server.get("auth_token", "")).strip(),
-        proxy_url=(str(server.get("proxy_url")).strip() if server.get("proxy_url") else None),
+        proxy_url=(str(server.get("proxy_url")).strip() if server.get("proxy_url") else None)
+            or workflow_proxy_url(),
         evaluate_path=str(server.get("evaluate_path", "/api/quant-factors/evaluate-batch")).strip(),
         connect_mode=str(server.get("connect_mode", "batch_api")).strip() or "batch_api",
         ws_base_url=(str(server.get("ws_base_url")).strip() if server.get("ws_base_url") else None),
