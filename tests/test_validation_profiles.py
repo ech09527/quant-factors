@@ -94,7 +94,9 @@ def test_evaluate_with_multiple_profiles():
     assert eval_2["validation_profile_key"] == "fwd_ret_2"
     assert eval_1["metrics"]["n_periods"] >= 100
     assert eval_2["metrics"]["n_periods"] >= 100
-    assert eval_1["metrics"]["mean_ic"] != eval_2["metrics"]["mean_ic"] or True
+    assert eval_1["metrics"]["validation_profile_key"] == "fwd_ret_1"
+    assert eval_2["metrics"]["validation_profile_key"] == "fwd_ret_2"
+    assert eval_1["metrics"]["mean_ic"] != eval_2["metrics"]["mean_ic"]
 
 
 def test_get_validation_profile_unknown():

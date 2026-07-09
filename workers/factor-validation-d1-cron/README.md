@@ -1,11 +1,13 @@
 # Factor Validation D1 Cron（Cloudflare Worker）
 
-每 **2 分钟** 通过 GitHub `workflow_dispatch` 触发 `factor-evaluation-d1.yml`（D1 验证批处理）。
+**当前状态：定时触发已暂停。** 仍可通过 `POST` 手动触发 GHA 验证工作流。
+
+原先每 **2 分钟** 通过 GitHub `workflow_dispatch` 触发 `factor-evaluation-d1.yml`（D1 验证批处理）。
 
 ## 架构
 
 ```
-Cloudflare Cron (*/2 * * * *)
+（Cron 已暂停）手动 POST 或 GitHub Actions workflow_dispatch
   → Worker 使用 Secret GITHUB_PAT
   → POST /repos/.../actions/workflows/factor-evaluation-d1.yml/dispatches
   → GitHub Actions 执行 run_d1_validation_batch.py

@@ -2,14 +2,13 @@ name = "quant-factors-factor-evaluation-cron"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
-[triggers]
-crons = ["*/15 * * * *"]
+# Cron 已暂停：恢复时在下方取消注释并 deploy
+# [triggers]
+# crons = ["*/15 * * * *"]
 
 [vars]
 GITHUB_REPO = "ech09527/quant-factors"
 GITHUB_WORKFLOW_FILE = "factor-evaluation.yml"
-VAULT_ADDR = "https://vault.nocsdn.com"
-VAULT_GITHUB_PATH = "github/quant-factors"
 MAX_IDEAS = "5"
 SAMPLE_START = "2023-01-01"
 FORCE = "false"

@@ -2,6 +2,8 @@
 
 name: Factor Evaluation
 
+# 无 schedule 定时触发；仅 workflow_dispatch 手动触发（Cloudflare Cron 已停用）。
+
 on:
   workflow_dispatch:
     inputs:

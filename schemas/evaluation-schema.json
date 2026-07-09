@@ -34,6 +34,10 @@
       "type": "string",
       "enum": ["cross_sectional", "time_series"]
     },
+    "validation_profile_key": {
+      "type": "string",
+      "description": "验证配置 key，如 fwd_ret_1 / fwd_vol_24"
+    },
     "evaluated_at": { "type": "string", "format": "date-time" },
     "skipped_reason": { "type": "string" },
     "data_range": {

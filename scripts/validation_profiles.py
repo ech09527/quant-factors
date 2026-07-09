@@ -64,6 +64,51 @@ def get_validation_profile(key: str | None = None) -> ValidationProfile:
     return profile
 
 
+def _normalize_label_kind(value: str | None) -> str | None:
+    if value is None:
+        return None
+    kind = str(value).strip()
+    if kind in ("forward_return", "forward_volatility"):
+        return kind
+    return None
+
+
+def _normalize_horizon_bars(value: int | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        horizon = int(value)
+    except (TypeError, ValueError):
+        return None
+    return horizon if horizon >= 1 else None
+
+
+def resolve_validation_profile(
+    *,
+    validation_profile_key: str | None = None,
+    label_kind: str | None = None,
+    horizon_bars: int | None = None,
+) -> ValidationProfile:
+    """解析验证配置：已知 profile_key 以内置/D1 种子为准，未知 key 使用 job 中的 label 字段。"""
+    key = (validation_profile_key or "").strip() or DEFAULT_PROFILE_KEY
+    builtin = _PROFILE_BY_KEY.get(key)
+    if builtin is not None:
+        return dict(builtin)
+
+    normalized_kind = _normalize_label_kind(label_kind)
+    normalized_horizon = _normalize_horizon_bars(horizon_bars)
+    if normalized_kind is not None and normalized_horizon is not None:
+        return {
+            "key": key,
+            "name": key,
+            "label_kind": normalized_kind,
+            "horizon_bars": normalized_horizon,
+            "description": "",
+        }
+
+    return get_validation_profile(key)
+
+
 def list_validation_profiles(*, enabled_only: bool = True) -> list[ValidationProfile]:
     profiles = list(DEFAULT_VALIDATION_PROFILES)
     if enabled_only:

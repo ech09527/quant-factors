@@ -30,6 +30,7 @@
         <button class="tab" data-tab="validations" role="tab" aria-selected="false">验证结果</button>
         <button class="tab" data-tab="profiles" role="tab" aria-selected="false">验证配置</button>
         <button class="tab" data-tab="jupyter" role="tab" aria-selected="false">Jupyter 服务器</button>
+        <button class="tab" data-tab="llm" role="tab" aria-selected="false">LLM API</button>
         <button class="tab" data-tab="operators" role="tab" aria-selected="false">自定义算子</button>
       </nav>
 
@@ -131,6 +132,7 @@
                 <th>IC 胜率</th>
                 <th data-sort="evaluated_at">评估时间</th>
                 <th>状态</th>
+                <th>翻译 SQL</th>
               </tr>
             </thead>
             <tbody id="validations-body"></tbody>
@@ -196,6 +198,54 @@
         </div>
       </section>
 
+      <section class="panel hidden" id="panel-llm">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <p class="muted profile-hint">管理多个 API 账户，每个账户可配置多个模型；各功能可绑定多条路由，按优先级依次尝试。</p>
+          </div>
+          <div class="toolbar-right">
+            <button type="button" id="llm-route-create" class="btn-primary">新建用途路由</button>
+            <button type="button" id="llm-create">新建 Provider</button>
+            <button type="button" id="llm-refresh">刷新</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <h3 class="section-subtitle">用途路由（按优先级）</h3>
+          <table class="validation-table">
+            <thead>
+              <tr>
+                <th>用途</th>
+                <th>优先级</th>
+                <th>Provider</th>
+                <th>模型</th>
+                <th>Temperature</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="llm-routes-body"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap">
+          <h3 class="section-subtitle">Provider 账户</h3>
+          <table class="validation-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>名称</th>
+                <th>Base URL</th>
+                <th>模型数</th>
+                <th>排序</th>
+                <th>状态</th>
+                <th>最近使用</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="llm-body"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="panel hidden" id="panel-operators">
         <div class="toolbar">
           <label>
@@ -228,6 +278,22 @@
 
     <dialog id="detail-dialog">
       <article id="detail-content"></article>
+      <form method="dialog">
+        <button class="close-btn">关闭</button>
+      </form>
+    </dialog>
+
+    <dialog id="factor-sql-dialog">
+      <article class="factor-sql-dialog-content">
+        <h2 id="factor-sql-dialog-title">翻译 SQL</h2>
+        <dl id="factor-sql-meta" class="factor-sql-meta"></dl>
+        <h3>signal_sql</h3>
+        <pre id="factor-sql-signal"><code></code></pre>
+        <details class="factor-sql-json-details">
+          <summary>完整 factor_sql JSON</summary>
+          <pre id="factor-sql-json"><code></code></pre>
+        </details>
+      </article>
       <form method="dialog">
         <button class="close-btn">关闭</button>
       </form>
@@ -332,6 +398,124 @@
         <div class="profile-form-actions">
           <button type="submit" class="btn-primary">保存</button>
           <button type="button" id="jupyter-form-cancel">取消</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="llm-dialog">
+      <form id="llm-form" class="profile-form">
+        <h2 id="llm-form-title">新建 LLM Provider</h2>
+        <label>
+          Key
+          <input id="llm-key" name="key" pattern="[a-z][a-z0-9_-]*" required />
+          <span class="field-hint">如 bigmodel-prod</span>
+        </label>
+        <label>
+          名称
+          <input id="llm-name" name="name" required />
+        </label>
+        <label>
+          Base URL
+          <input id="llm-base-url" name="base_url" type="url" required placeholder="https://open.bigmodel.cn/api/paas/v4" />
+        </label>
+        <label>
+          API Key
+          <input id="llm-api-key" name="api_key" required autocomplete="off" />
+        </label>
+        <label>
+          模型列表（每行一个）
+          <textarea id="llm-models" name="models" rows="4" placeholder="glm-4-flash&#10;glm-4-plus"></textarea>
+          <span class="field-hint">创建账户时必填；编辑账户请在「管理模型」中维护</span>
+        </label>
+        <label>
+          Auth Header / Scheme
+          <div class="inline-fields">
+            <input id="llm-auth-header" name="auth_header" value="Authorization" />
+            <input id="llm-auth-scheme" name="auth_scheme" value="Bearer" />
+          </div>
+        </label>
+        <label>
+          排序
+          <input id="llm-sort-order" name="sort_order" type="number" value="0" />
+        </label>
+        <label class="checkbox-label">
+          <input id="llm-enabled" name="enabled" type="checkbox" checked />
+          启用
+        </label>
+        <p id="llm-form-error" class="auth-error hidden"></p>
+        <div class="profile-form-actions">
+          <button type="submit" class="btn-primary">保存</button>
+          <button type="button" id="llm-form-cancel">取消</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="llm-route-dialog">
+      <form id="llm-route-form" class="profile-form">
+        <h2 id="llm-route-form-title">新建用途路由</h2>
+        <input id="llm-route-id" type="hidden" />
+        <label>
+          用途
+          <select id="llm-route-usage" required>
+            <option value="idea_generation">因子想法生成</option>
+            <option value="validation_translation">验证 SQL 翻译</option>
+          </select>
+        </label>
+        <label>
+          Provider
+          <select id="llm-route-provider" required></select>
+        </label>
+        <label>
+          模型
+          <select id="llm-route-model" required></select>
+        </label>
+        <label>
+          优先级（数字越小越优先）
+          <input id="llm-route-priority" type="number" value="0" />
+        </label>
+        <label>
+          Temperature（可选）
+          <input id="llm-route-temperature" type="number" step="0.05" min="0" max="2" placeholder="留空则使用默认值" />
+        </label>
+        <label class="checkbox-label">
+          <input id="llm-route-enabled" type="checkbox" checked />
+          启用
+        </label>
+        <p id="llm-route-form-error" class="auth-error hidden"></p>
+        <div class="profile-form-actions">
+          <button type="submit" class="btn-primary">保存</button>
+          <button type="button" id="llm-route-form-cancel">取消</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="llm-models-dialog">
+      <form id="llm-models-form" class="profile-form">
+        <h2 id="llm-models-form-title">管理模型</h2>
+        <input id="llm-models-provider-key" type="hidden" />
+        <div class="table-wrap">
+          <table class="validation-table">
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>排序</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="llm-models-body"></tbody>
+          </table>
+        </div>
+        <label>
+          新增模型
+          <div class="inline-fields">
+            <input id="llm-new-model-name" placeholder="glm-4-flash" />
+            <button type="button" id="llm-add-model" class="btn-primary">添加</button>
+          </div>
+        </label>
+        <p id="llm-models-form-error" class="auth-error hidden"></p>
+        <div class="profile-form-actions">
+          <button type="button" id="llm-models-form-close">关闭</button>
         </div>
       </form>
     </dialog>

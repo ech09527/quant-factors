@@ -32,4 +32,4 @@ printf '%s' "${GITHUB_PAT}" | npx wrangler secret put GITHUB_PAT
 echo "Deploying Cloudflare Worker..."
 npx wrangler deploy
 
-echo "Done. Cron trigger: */2 * * * * (D1 validation batch)"
+echo "Done. Cron trigger: disabled (validation batch scheduler paused)"

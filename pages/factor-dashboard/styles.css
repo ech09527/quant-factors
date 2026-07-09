@@ -332,8 +332,74 @@ tbody tr:hover {
   padding: 0;
 }
 
+#factor-sql-dialog {
+  width: min(960px, calc(100vw - 32px));
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0;
+}
+
+#factor-sql-dialog::backdrop,
 #detail-dialog::backdrop {
   background: rgba(0, 0, 0, 0.55);
+}
+
+.factor-sql-dialog-content {
+  padding: 24px;
+  max-height: 75vh;
+  overflow: auto;
+}
+
+.factor-sql-dialog-content h2 {
+  margin-top: 0;
+}
+
+.factor-sql-meta {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+}
+
+.factor-sql-meta dt {
+  color: var(--muted);
+}
+
+#factor-sql-signal,
+#factor-sql-json {
+  background: var(--panel-2);
+  border-radius: 12px;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 320px;
+}
+
+.factor-sql-json-details {
+  margin-top: 16px;
+}
+
+.factor-sql-json-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.factor-sql-preview {
+  display: block;
+  max-width: 280px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 12px;
 }
 
 #detail-content {
@@ -492,6 +558,12 @@ tbody tr:hover {
 .profile-hint {
   margin: 0;
   font-size: 13px;
+}
+
+.section-subtitle {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .profile-form {

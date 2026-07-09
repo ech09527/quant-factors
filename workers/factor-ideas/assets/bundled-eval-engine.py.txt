@@ -1,6 +1,255 @@
+# Bundled evaluate engine
+from __future__ import annotations
+
+"""内置验证配置（与 D1 validation_profiles 表种子数据保持一致）。"""
+
+
+from typing import Any, TypedDict
+
+
+class ValidationProfile(TypedDict):
+    key: str
+    name: str
+    label_kind: str
+    horizon_bars: int
+    description: str
+
+
+DEFAULT_VALIDATION_PROFILES: list[ValidationProfile] = [
+    {
+        "key": "fwd_ret_1",
+        "name": "1周期前向收益",
+        "label_kind": "forward_return",
+        "horizon_bars": 1,
+        "description": "因子与下一根 K 线收益率的 IC",
+    },
+    {
+        "key": "fwd_ret_2",
+        "name": "2周期前向收益",
+        "label_kind": "forward_return",
+        "horizon_bars": 2,
+        "description": "因子与 2 根 K 线后累计收益的 IC",
+    },
+    {
+        "key": "fwd_ret_24",
+        "name": "24周期前向收益",
+        "label_kind": "forward_return",
+        "horizon_bars": 24,
+        "description": "因子与 24 根 K 线后累计收益的 IC",
+    },
+    {
+        "key": "fwd_vol_1",
+        "name": "1周期前向波动",
+        "label_kind": "forward_volatility",
+        "horizon_bars": 1,
+        "description": "因子与下一根 K 线绝对对数收益的 IC",
+    },
+    {
+        "key": "fwd_vol_24",
+        "name": "24周期前向波动",
+        "label_kind": "forward_volatility",
+        "horizon_bars": 24,
+        "description": "因子与未来 24 根 K 线实现波动率的 IC",
+    },
+]
+
+DEFAULT_PROFILE_KEY = "fwd_ret_1"
+
+_PROFILE_BY_KEY = {profile["key"]: profile for profile in DEFAULT_VALIDATION_PROFILES}
+
+
+def get_validation_profile(key: str | None = None) -> ValidationProfile:
+    resolved = key or DEFAULT_PROFILE_KEY
+    profile = _PROFILE_BY_KEY.get(resolved)
+    if profile is None:
+        raise ValueError(f"未知 validation_profile: {resolved}")
+    return profile
+
+
+def _normalize_label_kind(value: str | None) -> str | None:
+    if value is None:
+        return None
+    kind = str(value).strip()
+    if kind in ("forward_return", "forward_volatility"):
+        return kind
+    return None
+
+
+def _normalize_horizon_bars(value: int | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        horizon = int(value)
+    except (TypeError, ValueError):
+        return None
+    return horizon if horizon >= 1 else None
+
+
+def resolve_validation_profile(
+    *,
+    validation_profile_key: str | None = None,
+    label_kind: str | None = None,
+    horizon_bars: int | None = None,
+) -> ValidationProfile:
+    """解析验证配置：已知 profile_key 以内置/D1 种子为准，未知 key 使用 job 中的 label 字段。"""
+    key = (validation_profile_key or "").strip() or DEFAULT_PROFILE_KEY
+    builtin = _PROFILE_BY_KEY.get(key)
+    if builtin is not None:
+        return dict(builtin)
+
+    normalized_kind = _normalize_label_kind(label_kind)
+    normalized_horizon = _normalize_horizon_bars(horizon_bars)
+    if normalized_kind is not None and normalized_horizon is not None:
+        return {
+            "key": key,
+            "name": key,
+            "label_kind": normalized_kind,
+            "horizon_bars": normalized_horizon,
+            "description": "",
+        }
+
+    return get_validation_profile(key)
+
+
+def list_validation_profiles(*, enabled_only: bool = True) -> list[ValidationProfile]:
+    profiles = list(DEFAULT_VALIDATION_PROFILES)
+    if enabled_only:
+        return profiles
+    return profiles
+
+
+def build_label_expr(label_kind: str, horizon_bars: int) -> str:
+    """生成 DuckDB label 表达式（引用列 close、log_ret_1 与窗口 w）。"""
+    horizon = int(horizon_bars)
+    if horizon < 1:
+        raise ValueError("horizon_bars 必须 >= 1")
+
+    if label_kind == "forward_return":
+        return f"LEAD(close, {horizon}) OVER w / close - 1"
+
+    if label_kind == "forward_volatility":
+        if horizon == 1:
+            return "ABS(LEAD(log_ret_1, 1) OVER w)"
+        leads = ", ".join(f"LEAD(log_ret_1, {offset}) OVER w" for offset in range(1, horizon + 1))
+        return f"(SELECT STDDEV_SAMP(v) FROM unnest([{leads}]) AS t(v))"
+
+    raise ValueError(f"未知 label_kind: {label_kind}")
+
+
+def profile_to_public_dict(profile: ValidationProfile) -> dict[str, Any]:
+    return dict(profile)
+
+"""确定性 IC / Rank IC 指标计算（Stage 2）。"""
+
+
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+METRICS_VERSION = "0.1.0"
+MIN_CROSS_SECTIONAL_N = 30
+MIN_TIME_SERIES_N = 100
+
+
+def _safe_ir(series: list[float]) -> float | None:
+    if len(series) < 2:
+        return None
+    std = float(np.std(series, ddof=1))
+    if std == 0 or np.isnan(std):
+        return None
+    return float(np.mean(series) / std)
+
+
+def compute_cross_sectional_metrics(panel: pd.DataFrame) -> dict[str, Any]:
+    """横截面 IC：按 open_time 分组计算 Pearson / Spearman 相关。"""
+    ic_series: list[float] = []
+    rank_ic_series: list[float] = []
+    skipped_low_n = 0
+
+    for _, grp in panel.groupby("open_time", sort=True):
+        valid = grp.dropna(subset=["factor", "fwd_ret"])
+        if len(valid) < MIN_CROSS_SECTIONAL_N:
+            skipped_low_n += 1
+            continue
+        ic_t = valid["factor"].corr(valid["fwd_ret"])
+        if ic_t is not None and not np.isnan(ic_t):
+            ic_series.append(float(ic_t))
+        rank_ic_t = valid["factor"].rank().corr(valid["fwd_ret"].rank())
+        if rank_ic_t is not None and not np.isnan(rank_ic_t):
+            rank_ic_series.append(float(rank_ic_t))
+
+    if not ic_series:
+        raise ValueError(
+            f"横截面 IC 无有效 period（min_n={MIN_CROSS_SECTIONAL_N}）"
+        )
+
+    return {
+        "mean_ic": float(np.mean(ic_series)),
+        "ic_ir": _safe_ir(ic_series),
+        "mean_rank_ic": float(np.mean(rank_ic_series)) if rank_ic_series else 0.0,
+        "rank_ic_ir": _safe_ir(rank_ic_series) if rank_ic_series else None,
+        "n_periods": len(ic_series),
+        "ic_positive_ratio": float(np.mean([x > 0 for x in ic_series])),
+        "skipped_periods_low_n": skipped_low_n,
+        "avg_universe_size": float(
+            panel.dropna(subset=["factor", "fwd_ret"])
+            .groupby("open_time")
+            .size()
+            .mean()
+        ),
+    }
+
+
+def compute_time_series_metrics(panel: pd.DataFrame) -> dict[str, Any]:
+    """时序 IC：按 symbol 分组计算相关。"""
+    ic_series: list[float] = []
+    rank_ic_series: list[float] = []
+    skipped_low_n = 0
+
+    for _, grp in panel.groupby("symbol", sort=True):
+        valid = grp.dropna(subset=["factor", "fwd_ret"])
+        if len(valid) < MIN_TIME_SERIES_N:
+            skipped_low_n += 1
+            continue
+        ic_t = valid["factor"].corr(valid["fwd_ret"])
+        if ic_t is not None and not np.isnan(ic_t):
+            ic_series.append(float(ic_t))
+        rank_ic_t = valid["factor"].rank().corr(valid["fwd_ret"].rank())
+        if rank_ic_t is not None and not np.isnan(rank_ic_t):
+            rank_ic_series.append(float(rank_ic_t))
+
+    if not ic_series:
+        raise ValueError(
+            f"时序 IC 无有效 symbol（min_n={MIN_TIME_SERIES_N}）"
+        )
+
+    return {
+        "mean_ic": float(np.mean(ic_series)),
+        "ic_ir": _safe_ir(ic_series),
+        "mean_rank_ic": float(np.mean(rank_ic_series)) if rank_ic_series else 0.0,
+        "rank_ic_ir": _safe_ir(rank_ic_series) if rank_ic_series else None,
+        "n_periods": len(ic_series),
+        "ic_positive_ratio": float(np.mean([x > 0 for x in ic_series])),
+        "skipped_symbols_low_n": skipped_low_n,
+    }
+
+
+def compute_metrics(panel: pd.DataFrame, evaluation_type: str) -> dict[str, Any]:
+    """根据 evaluation_type 计算 IC 指标。"""
+    required = {"symbol", "open_time", "factor", "fwd_ret"}
+    missing = required - set(panel.columns)
+    if missing:
+        raise ValueError(f"panel 缺少列: {sorted(missing)}")
+
+    if evaluation_type == "cross_sectional":
+        return compute_cross_sectional_metrics(panel)
+    if evaluation_type == "time_series":
+        return compute_time_series_metrics(panel)
+    raise ValueError(f"未知 evaluation_type: {evaluation_type}")
+
 """DuckDB 因子评估确定性引擎（Stage 1 SQL + Stage 2 指标）。"""
 
-from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,22 +259,6 @@ import duckdb
 import pandas as pd
 from jinja2 import Template
 
-try:
-    from scripts.compute_metrics import METRICS_VERSION, compute_metrics
-    from scripts.validation_profiles import (
-        DEFAULT_PROFILE_KEY,
-        build_label_expr,
-        get_validation_profile,
-        resolve_validation_profile,
-    )
-except ImportError:
-    from compute_metrics import METRICS_VERSION, compute_metrics
-    from validation_profiles import (
-        DEFAULT_PROFILE_KEY,
-        build_label_expr,
-        get_validation_profile,
-        resolve_validation_profile,
-    )
 
 ENGINE_VERSION = "0.1.0"
 TEMPLATE_VERSION = "0.1.0"
@@ -74,8 +307,7 @@ def scripts_dir() -> Path:
 
 
 def load_template() -> Template:
-    path = scripts_dir() / "templates" / "evaluate_panel.sql.j2"
-    return Template(path.read_text(encoding="utf-8"))
+    return Template("-- evaluate_panel.sql.j2\n-- Stage 1: \u56fa\u5b9a\u6a21\u677f + AI signal_sql \u7247\u6bb5 \u2192 panel(symbol, open_time, factor, fwd_ret)\n\nWITH base AS (\n  SELECT\n    symbol,\n    open_time,\n    open,\n    high,\n    low,\n    close,\n    volume,\n    quote_volume,\n    count,\n    taker_buy_volume,\n    taker_buy_quote_volume\n  FROM read_parquet('{{ data_path }}')\n  WHERE open_time >= {{ sample_start_ms }}\n),\n\nfiltered AS (\n  SELECT *\n  FROM base\n  WHERE {{ static_universe_sql }}\n),\n\n{% if needs_window_universe %}\nenriched AS (\n  SELECT\n    *,\n    {{ enriched_select_sql | replace('\\n', '\\n    ') }}\n  FROM filtered\n),\n\nuniverse AS (\n  SELECT\n    symbol,\n    open_time,\n    open,\n    high,\n    low,\n    close,\n    volume,\n    quote_volume,\n    count,\n    taker_buy_volume,\n    taker_buy_quote_volume\n  FROM enriched\n  WHERE {{ window_universe_sql }}\n),\n{% else %}\nuniverse AS (\n  SELECT * FROM filtered\n),\n{% endif %}\n\nbase_feat AS (\n  SELECT\n    *,\n    LN(close / LAG(close, 1) OVER w) AS log_ret_1,\n    close / LAG(close, 24) OVER w - 1 AS ret_24h\n  FROM universe\n  WINDOW w AS (PARTITION BY symbol ORDER BY open_time)\n),\n\nfeatures AS (\n  SELECT\n    *,\n    STDDEV_SAMP(log_ret_1)\n      OVER (\n        PARTITION BY symbol\n        ORDER BY open_time\n        ROWS BETWEEN 23 PRECEDING AND CURRENT ROW\n      ) AS vol_24h\n  FROM base_feat\n),\n\nsignal AS (\n  SELECT\n    *,\n    ({{ signal_sql }}) AS raw_signal\n  FROM features\n  WINDOW w AS (PARTITION BY symbol ORDER BY open_time)\n),\n\npostprocessed AS (\n  SELECT\n    symbol,\n    open_time,\n    close,\n    log_ret_1,\n    {{ postprocess_expr }} AS factor\n  FROM signal\n),\n\nlabeled AS (\n  SELECT\n    symbol,\n    open_time,\n    factor,\n    {{ label_expr }} AS fwd_ret\n  FROM postprocessed\n  WINDOW w AS (PARTITION BY symbol ORDER BY open_time)\n)\n\nSELECT *\nFROM labeled\nWHERE factor IS NOT NULL;\n")
 
 
 def build_universe_parts(universe: dict[str, Any]) -> tuple[str, list[str], list[str]]:

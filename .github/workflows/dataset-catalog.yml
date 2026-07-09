@@ -3,6 +3,8 @@
 
 name: Dataset Catalog Update
 
+# 仓库 GHA 定时调度已统一停用；本工作流仅支持 workflow_dispatch 手动触发。
+
 on:
   workflow_dispatch:
     inputs:
@@ -10,7 +12,7 @@ on:
         description: "可选：仅探索指定 slug（owner/dataset-name）"
         required: false
         type: string
-  # 每周日 UTC 03:00 自动运行；首次启用前请确认 Kaggle 凭证与 datasets.yaml 已配置。
+  # [DISABLED] 恢复 schedule 前须同步启用 Cloudflare Cron 并评审配额
   # schedule:
   #   - cron: "0 3 * * 0"
 

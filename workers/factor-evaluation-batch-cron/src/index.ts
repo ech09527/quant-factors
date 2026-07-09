@@ -1,40 +1,16 @@
 export interface Env {
   GITHUB_REPO: string;
   GITHUB_WORKFLOW_FILE: string;
-  VAULT_ADDR: string;
-  VAULT_GITHUB_PATH: string;
   MAX_IDEAS: string;
   SAMPLE_START: string;
   FORCE: string;
-  VAULT_TOKEN: string;
+  GITHUB_PAT: string;
 }
 
-interface VaultKvResponse {
-  data?: {
-    data?: {
-      GITHUB_PAT?: string;
-    };
-  };
-  errors?: string[];
-}
-
-async function readGithubPat(env: Env): Promise<string> {
-  const url = `${env.VAULT_ADDR.replace(/\/$/, "")}/v1/kv/data/${env.VAULT_GITHUB_PATH.replace(/^\/+/, "")}`;
-  const response = await fetch(url, {
-    headers: {
-      "X-Vault-Token": env.VAULT_TOKEN,
-    },
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Vault read failed (${response.status}): ${body.slice(0, 300)}`);
-  }
-
-  const payload = (await response.json()) as VaultKvResponse;
-  const token = payload.data?.data?.GITHUB_PAT;
+function readGithubPat(env: Env): string {
+  const token = env.GITHUB_PAT?.trim();
   if (!token) {
-    throw new Error(`Vault secret missing key GITHUB_PAT at kv/${env.VAULT_GITHUB_PATH}`);
+    throw new Error("GITHUB_PAT 未配置，请设置 Worker Secret");
   }
   return token;
 }
@@ -81,7 +57,7 @@ async function runScheduledJob(
   | { ok: false; error: string }
 > {
   try {
-    const githubPat = await readGithubPat(env);
+    const githubPat = readGithubPat(env);
     const dispatch = await dispatchFactorEvaluationBatchWorkflow(env, githubPat);
 
     if (dispatch.status === 204) {

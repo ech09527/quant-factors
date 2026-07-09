@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ech09527/quant-factors/schemas/factor-sql-schema.json",
+  "title": "FactorSql",
+  "description": "DuckDB 因子 SQL 片段（AI 翻译输出），由确定性引擎嵌入固定模板执行",
+  "type": "object",
+  "required": [
+    "version",
+    "dialect",
+    "evaluation_type",
+    "data_source",
+    "signal_sql",
+    "postprocess",
+    "universe"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1"
+    },
+    "dialect": {
+      "type": "string",
+      "const": "duckdb-factor-v1"
+    },
+    "evaluation_type": {
+      "type": "string",
+      "enum": ["cross_sectional", "time_series"]
+    },
+    "data_source": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "signal_sql": {
+      "type": "string",
+      "minLength": 1,
+      "description": "因子信号表达式（引用列名与 OVER w 窗口），禁止 LEAD"
+    },
+    "postprocess": {
+      "type": "string",
+      "enum": ["cs_rank", "cs_zscore", "none"]
+    },
+    "universe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dropna": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "min_symbol_bars": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cs_quantile_gte": {
+          "type": "object",
+          "required": ["col", "q"],
+          "additionalProperties": false,
+          "properties": {
+            "col": { "type": "string" },
+            "q": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    }
+  }
+}

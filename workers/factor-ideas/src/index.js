@@ -692,14 +692,32 @@ async function enqueueIdeaValidations(db, ideaId, profileKeys) {
   return { created, skipped, items: listed.items };
 }
 __name(enqueueIdeaValidations, "enqueueIdeaValidations");
+function normalizeWorkflowLabelKind(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+  return value === "forward_volatility" ? "forward_volatility" : "forward_return";
+}
+__name(normalizeWorkflowLabelKind, "normalizeWorkflowLabelKind");
+function normalizeWorkflowHorizonBars(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+  const horizon = Number(value);
+  if (!Number.isFinite(horizon) || horizon < 1) {
+    return null;
+  }
+  return Math.floor(horizon);
+}
+__name(normalizeWorkflowHorizonBars, "normalizeWorkflowHorizonBars");
 function rowToWorkflowJob(row) {
   return {
     validation_id: Number(row.validation_id),
     idea_id: Number(row.idea_id),
     profile_key: String(row.profile_key),
     profile_name: String(row.profile_name),
-    label_kind: row.label_kind === "forward_volatility" ? "forward_volatility" : "forward_return",
-    horizon_bars: Number(row.horizon_bars),
+    label_kind: normalizeWorkflowLabelKind(row.label_kind),
+    horizon_bars: normalizeWorkflowHorizonBars(row.horizon_bars),
     title: String(row.title),
     title_hash: String(row.title_hash),
     factor_expr: String(row.factor_expr),
@@ -726,7 +744,7 @@ function parseJsonArray2(value) {
   return [];
 }
 __name(parseJsonArray2, "parseJsonArray");
-async function reclaimStaleValidationJobs(db, maxAgeMinutes = 10) {
+async function reclaimStaleValidationJobs(db, maxAgeMinutes = 120) {
   const result = await db.prepare(
     `UPDATE idea_validations
        SET status = 'failed',
@@ -843,6 +861,36 @@ __name(claimValidationWorkflowJobs, "claimValidationWorkflowJobs");
 async function reportValidationWorkflowResults(db, items) {
   let updated = 0;
   for (const item of items) {
+    const existing = await db.prepare(
+      `SELECT profile_key, status
+         FROM idea_validations
+         WHERE id = ?
+         LIMIT 1`
+    ).bind(item.validation_id).first();
+    if (!existing) {
+      continue;
+    }
+
+    let status = item.status;
+    let errorReason = item.error_reason ?? null;
+    let metrics = item.metrics;
+    let diagnostics = item.diagnostics;
+
+    if (status === "success") {
+      const expectedProfile = String(existing.profile_key ?? "").trim();
+      const actualProfile = String(
+        metrics?.validation_profile_key ?? item.validation_profile_key ?? ""
+      ).trim();
+      if (expectedProfile && actualProfile && expectedProfile !== actualProfile) {
+        status = "failed";
+        errorReason = `validation_profile 不匹配: 期望 ${expectedProfile}, 实际 ${actualProfile}`;
+        diagnostics = {
+          ...(diagnostics ?? {}),
+          profile_mismatch: { expected: expectedProfile, actual: actualProfile }
+        };
+      }
+    }
+
     const result = await db.prepare(
       `UPDATE idea_validations
          SET status = ?,
@@ -856,11 +904,11 @@ async function reportValidationWorkflowResults(db, items) {
              updated_at = datetime('now')
          WHERE id = ?`
     ).bind(
-      item.status,
+      status,
       item.factor_sql ? JSON.stringify(item.factor_sql) : null,
-      item.metrics ? JSON.stringify(item.metrics) : null,
-      item.diagnostics ? JSON.stringify(item.diagnostics) : null,
-      item.error_reason ?? null,
+      metrics ? JSON.stringify(metrics) : null,
+      diagnostics ? JSON.stringify(diagnostics) : null,
+      errorReason,
       item.engine_version ?? null,
       item.metrics_version ?? null,
       item.evaluated_at ?? null,
@@ -2199,9 +2247,29 @@ __name(parseAndHash, "parseAndHash");
 // src/openai.ts
 function extractJsonArray(text) {
   const trimmed = text.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  const payload = fenced ? fenced[1].trim() : trimmed;
-  return JSON.parse(payload);
+  const candidates = [];
+  const fenced = trimmed.match(/^```(?:json|python)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) {
+    candidates.push(fenced[1].trim());
+  }
+  candidates.push(trimmed);
+  const firstArray = trimmed.match(/\[[\s\S]*\]/);
+  if (firstArray) {
+    candidates.push(firstArray[0]);
+  }
+  const firstObject = trimmed.match(/\{[\s\S]*\}/);
+  if (firstObject) {
+    candidates.push(firstObject[0]);
+  }
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error("failed to parse JSON payload");
 }
 __name(extractJsonArray, "extractJsonArray");
 function parseIdeasPayload(parsed) {
@@ -2219,7 +2287,7 @@ function chatCompletionsUrl(baseUrl) {
   return `${base}/chat/completions`;
 }
 __name(chatCompletionsUrl, "chatCompletionsUrl");
-async function requestIdeas(apiKey, model, prompt, baseUrl) {
+async function requestIdeas(apiKey, model, prompt, baseUrl, temperature = 0.2) {
   const response = await fetch(chatCompletionsUrl(baseUrl), {
     method: "POST",
     headers: {
@@ -2228,12 +2296,11 @@ async function requestIdeas(apiKey, model, prompt, baseUrl) {
     },
     body: JSON.stringify({
       model,
-      temperature: 0.9,
-      response_format: { type: "json_object" },
+      temperature,
       messages: [
         {
           role: "system",
-          content: 'You output only valid JSON. Wrap the ideas array in an object: {"ideas": [...]}.'
+          content: 'You output only valid JSON object: {"ideas":[...]}. Never output Python/Markdown. Each factor_expr must be valid DSL expression and must not contain ":" or Chinese punctuation.'
         },
         {
           role: "user",
@@ -2273,7 +2340,7 @@ var MOCK_IDEAS_FOR_TEST = [
     factor_expr: "CSRank(Div($ret_24h, Add($vol_24h, 1e-8)))"
   }
 ];
-async function generateIdeasFromOpenAi(apiKey, model, prompt, env) {
+async function generateIdeasFromOpenAi(apiKey, model, prompt, env, temperature = 0.2, baseUrl) {
   if (apiKey === "mock-key-for-test") {
     return MOCK_IDEAS_FOR_TEST;
   }
@@ -2281,12 +2348,12 @@ async function generateIdeasFromOpenAi(apiKey, model, prompt, env) {
   if (mock) {
     return parseIdeasPayload(JSON.parse(mock));
   }
-  const baseUrl = env?.OPENAI_BASE_URL;
+  const resolvedBaseUrl = baseUrl ?? env?.OPENAI_BASE_URL;
   try {
-    return await requestIdeas(apiKey, model, prompt, baseUrl);
+    return await requestIdeas(apiKey, model, prompt, resolvedBaseUrl, temperature);
   } catch (firstError) {
     try {
-      return await requestIdeas(apiKey, model, prompt, baseUrl);
+      return await requestIdeas(apiKey, model, prompt, resolvedBaseUrl, temperature);
     } catch {
       throw firstError;
     }
@@ -2427,6 +2494,10 @@ function readOpenAiModel(env) {
   return env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
 }
 __name(readOpenAiModel, "readOpenAiModel");
+function readIdeaOpenAiModel(env) {
+  return env.IDEA_OPENAI_MODEL?.trim() || readOpenAiModel(env);
+}
+__name(readIdeaOpenAiModel, "readIdeaOpenAiModel");
 
 // src/generate.ts
 var REQUIRED_FIELDS = [
@@ -2534,9 +2605,26 @@ function hasUnregisteredCustomOps(factorExpr, activeCustomOps) {
   );
 }
 __name(hasUnregisteredCustomOps, "hasUnregisteredCustomOps");
+function autoRepairFactorExpr(expr) {
+  let fixed = expr.trim();
+  fixed = fixed.replace(/[`'"]/g, "");
+  fixed = fixed.replace(/:/g, ",");
+  fixed = fixed.replace(/\$([a-z_]+)_t\b/gi, (_m, field) => `$${field}`);
+  fixed = fixed.replace(/\$open_time\b/gi, "$open");
+  fixed = fixed.replace(/\$ret_24h_t\b/gi, "$ret_24h");
+  fixed = fixed.replace(/\$vol_24h_t\b/gi, "$vol_24h");
+  fixed = fixed.replace(/\$quote_volume_t\b/gi, "$quote_volume");
+  fixed = fixed.replace(/\$taker_buy_quote_volume_t\b/gi, "$taker_buy_quote_volume");
+  fixed = fixed.replace(/\bMean\(([^,()]+)\)/gi, "Mean($1,24)");
+  fixed = fixed.replace(/\bStd\(([^,()]+)\)/gi, "Std($1,24)");
+  fixed = fixed.replace(/\bCorr\(([^,()]+),([^,()]+)\)/gi, "Corr($1,$2,24)");
+  return fixed;
+}
+__name(autoRepairFactorExpr, "autoRepairFactorExpr");
 async function buildHashes(idea, activeCustomOps) {
   const title_hash = await titleHash(idea.title);
-  if (hasUnregisteredCustomOps(idea.factor_expr, activeCustomOps)) {
+  let factorExpr = idea.factor_expr;
+  if (hasUnregisteredCustomOps(factorExpr, activeCustomOps)) {
     return {
       title_hash,
       expr_hash: null,
@@ -2544,7 +2632,17 @@ async function buildHashes(idea, activeCustomOps) {
       dedup_tier: "custom_pending"
     };
   }
-  const parsed = await parseAndHash(idea.factor_expr);
+  let parsed = await parseAndHash(factorExpr);
+  if ("error" in parsed) {
+    const repaired = autoRepairFactorExpr(factorExpr);
+    if (repaired !== factorExpr) {
+      const repairedParsed = await parseAndHash(repaired);
+      if (!("error" in repairedParsed)) {
+        factorExpr = repaired;
+        parsed = repairedParsed;
+      }
+    }
+  }
   if ("error" in parsed) {
     return { error: parsed.error };
   }
@@ -2552,7 +2650,8 @@ async function buildHashes(idea, activeCustomOps) {
     title_hash,
     expr_hash: parsed.hash,
     expr_canonical: parsed.canonical,
-    dedup_tier: "builtin"
+    dedup_tier: "builtin",
+    repaired_expr: factorExpr
   };
 }
 __name(buildHashes, "buildHashes");
@@ -2580,6 +2679,9 @@ async function processIdeas(db, ideas, activeCustomOps) {
       errors.push(`${idea.title}: ${hashes.error}`);
       continue;
     }
+    if (hashes.repaired_expr && hashes.repaired_expr !== idea.factor_expr) {
+      idea.factor_expr = hashes.repaired_expr;
+    }
     if (await existsByHash(db, hashes.title_hash, hashes.expr_hash)) {
       skipped++;
       continue;
@@ -2598,13 +2700,68 @@ function parseMaxIdeas(env, maxIdeas) {
   return Number.isFinite(fromEnv) && fromEnv > 0 ? Math.floor(fromEnv) : 3;
 }
 __name(parseMaxIdeas, "parseMaxIdeas");
+function buildFallbackIdeas(count) {
+  const nowTag = Date.now().toString().slice(-6);
+  const templates = [
+    {
+      suffix: "VolAdjMom",
+      hypothesis: "风险调整后的动量在横截面上具有持续性。",
+      formula_sketch: "ret_24h / vol_24h 后做截面排序",
+      expected_signal: "横截面：做多高分位，做空低分位",
+      factor_expr: "CSRank(Div($ret_24h, Add($vol_24h, 1e-8)))"
+    },
+    {
+      suffix: "TakerRatioAccel",
+      hypothesis: "主动买入强度提升通常对应短期价格延续。",
+      formula_sketch: "主动买入成交额占比的短长窗比值做截面排序",
+      expected_signal: "横截面：做多主动买盘占比加速资产",
+      factor_expr: "CSRank(Div(Mean(Div($taker_buy_quote_volume, Add($quote_volume, 1e-8)), 6), Add(Mean(Div($taker_buy_quote_volume, Add($quote_volume, 1e-8)), 24), 1e-8)))"
+    },
+    {
+      suffix: "VolumePerTradeMom",
+      hypothesis: "单笔成交额上升反映资金质量提升。",
+      formula_sketch: "quote_volume/count 的短窗均值与长窗均值比",
+      expected_signal: "横截面：做多单笔成交额提升资产",
+      factor_expr: "CSRank(Div(Mean(Div($quote_volume, Add($count, 1e-8)), 12), Add(Mean(Div($quote_volume, Add($count, 1e-8)), 48), 1e-8)))"
+    },
+    {
+      suffix: "RangeCompression",
+      hypothesis: "波动收敛后更容易出现方向性突破。",
+      formula_sketch: "高低振幅与近期均值比值做反向排序",
+      expected_signal: "横截面：做多波动压缩资产",
+      factor_expr: "CSRank(Neg(Div(Div(Sub($high, $low), Add($close, 1e-8)), Add(Mean(Div(Sub($high, $low), Add($close, 1e-8)), 24), 1e-8))))"
+    },
+    {
+      suffix: "LiquidityShift",
+      hypothesis: "成交额分位变化对短期收益有预测作用。",
+      formula_sketch: "成交额短窗均值/长窗均值做截面排序",
+      expected_signal: "横截面：做多流动性改善资产",
+      factor_expr: "CSRank(Div(Mean($quote_volume, 6), Add(Mean($quote_volume, 24), 1e-8)))"
+    }
+  ];
+  const ideas = [];
+  for (let i = 0; i < count; i++) {
+    const base = templates[i % templates.length];
+    const jitter = (i + 1) * 1e-6;
+    ideas.push({
+      title: `Fallback_${base.suffix}_${nowTag}_${i + 1}`,
+      hypothesis: base.hypothesis,
+      data_sources: ["yhydev97/quant-data"],
+      formula_sketch: base.formula_sketch,
+      expected_signal: base.expected_signal,
+      risks: ["流动性分层", "极端行情失效", "交易成本冲击"],
+      factor_expr: `Add(${base.factor_expr}, ${jitter})`
+    });
+  }
+  return ideas;
+}
+__name(buildFallbackIdeas, "buildFallbackIdeas");
 async function runGenerate(env, maxIdeas) {
   const target = parseMaxIdeas(env, maxIdeas);
   let created = 0;
   let skipped = 0;
   const errors = [];
-  const apiKey = readOpenAiKey(env);
-  const model = readOpenAiModel(env);
+  const { withLlmFallback } = await import("./llm-providers.js");
   const [activeOperators, saturatedPatterns, datasetSection] = await Promise.all([
     getActiveOperators(env.DB),
     getSaturatedPatterns(env.DB),
@@ -2621,7 +2778,23 @@ async function runGenerate(env, maxIdeas) {
       maxIdeas: remaining
     });
     try {
-      const ideas = await generateIdeasFromOpenAi(apiKey, model, attemptPrompt, env);
+      const { result: ideas } = await withLlmFallback(
+        env.DB,
+        env,
+        "idea_generation",
+        async (config) => {
+          const attemptTemperature =
+            config.temperature ?? Math.min(0.5, 0.25 + attempt * 0.1);
+          return generateIdeasFromOpenAi(
+            config.api_key,
+            config.model,
+            attemptPrompt,
+            env,
+            attemptTemperature,
+            config.base_url
+          );
+        }
+      );
       const batch = await processIdeas(env.DB, ideas, activeCustomOps);
       created += batch.created;
       skipped += batch.skipped;
@@ -2629,6 +2802,16 @@ async function runGenerate(env, maxIdeas) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errors.push(`attempt ${attempt + 1}: ${message}`);
+    }
+  }
+  if (created === 0) {
+    const fallbackIdeas = buildFallbackIdeas(Math.min(target, 3));
+    const fallbackBatch = await processIdeas(env.DB, fallbackIdeas, activeCustomOps);
+    created += fallbackBatch.created;
+    skipped += fallbackBatch.skipped;
+    errors.push(...fallbackBatch.errors.map((item) => `fallback: ${item}`));
+    if (fallbackBatch.created > 0) {
+      errors.push(`fallback used: created ${fallbackBatch.created} ideas after model failures`);
     }
   }
   return { created, skipped, errors };

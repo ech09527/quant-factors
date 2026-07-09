@@ -141,7 +141,7 @@ def select_jupyter_server(
         for item in servers:
             if str(item.get("key", "")) == preferred_key:
                 return item
-        raise RuntimeError(f"未找到指定 jupyter server: {preferred_key}")
+        # 指定 server 已禁用或不可用，回退到首个已启用项
     return servers[0]
 
 
@@ -213,6 +213,69 @@ def mark_jupyter_server_used(key: str) -> None:
     )
 
 
+def expected_profile_key(job: dict[str, Any]) -> str:
+    return str(job.get("profile_key") or job.get("validation_profile_key") or "").strip()
+
+
+def actual_profile_key(evaluation: dict[str, Any]) -> str:
+    metrics = evaluation.get("metrics")
+    if isinstance(metrics, dict) and metrics.get("validation_profile_key"):
+        return str(metrics["validation_profile_key"]).strip()
+    return str(evaluation.get("validation_profile_key") or "").strip()
+
+
+def enrich_success_metrics(job: dict[str, Any], metrics: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(metrics, dict):
+        return metrics
+    enriched = dict(metrics)
+    expected = expected_profile_key(job)
+    if expected and not enriched.get("validation_profile_key"):
+        enriched["validation_profile_key"] = expected
+    if job.get("label_kind") is not None and enriched.get("label_kind") is None:
+        enriched["label_kind"] = job.get("label_kind")
+    if job.get("horizon_bars") is not None and enriched.get("horizon_bars") is None:
+        enriched["horizon_bars"] = job.get("horizon_bars")
+    return enriched
+
+
+def build_report_item(job: dict[str, Any], evaluation: dict[str, Any]) -> dict[str, Any]:
+    validation_id = int(job["validation_id"])
+    expected = expected_profile_key(job)
+    status = str(evaluation.get("status", "failed"))
+    actual = actual_profile_key(evaluation)
+    factor_sql = evaluation.get("factor_sql") or job.get("factor_sql")
+    diagnostics = dict(evaluation.get("diagnostics") or {})
+    metrics = enrich_success_metrics(job, evaluation.get("metrics"))
+
+    if status == "success" and expected and actual and expected != actual:
+        return {
+            "validation_id": validation_id,
+            "status": "failed",
+            "factor_sql": factor_sql,
+            "metrics": metrics,
+            "diagnostics": {
+                **diagnostics,
+                "profile_mismatch": {"expected": expected, "actual": actual},
+            },
+            "error_reason": f"validation_profile 不匹配: 期望 {expected}, 实际 {actual}",
+            "engine_version": evaluation.get("engine_version"),
+            "metrics_version": evaluation.get("metrics_version"),
+            "evaluated_at": evaluation.get("evaluated_at"),
+        }
+
+    return {
+        "validation_id": validation_id,
+        "status": status,
+        "factor_sql": factor_sql,
+        "metrics": metrics,
+        "diagnostics": diagnostics or None,
+        "error_reason": diagnostics.get("error"),
+        "engine_version": evaluation.get("engine_version"),
+        "metrics_version": evaluation.get("metrics_version"),
+        "evaluated_at": evaluation.get("evaluated_at"),
+    }
+
+
 def run_batch(
     *,
     jobs: list[dict[str, Any]],
@@ -268,6 +331,7 @@ def run_batch(
                 "validation_id": validation_id,
                 "idea": idea_for_eval,
                 "factor_sql": factor_sql,
+                "profile_key": profile_key,
                 "validation_profile_key": profile_key,
                 "label_kind": job.get("label_kind"),
                 "horizon_bars": job.get("horizon_bars"),
@@ -300,6 +364,8 @@ def run_batch(
                 idea=item["idea"],
                 factor_sql=item["factor_sql"],
                 validation_profile_key=item["validation_profile_key"],
+                label_kind=item.get("label_kind"),
+                horizon_bars=item.get("horizon_bars"),
             )
             for item in runnable_jobs
         ]
@@ -363,19 +429,7 @@ def run_batch(
             )
             continue
 
-        report_items.append(
-            {
-                "validation_id": validation_id,
-                "status": evaluation.get("status", "failed"),
-                "factor_sql": evaluation.get("factor_sql") or item["factor_sql"],
-                "metrics": evaluation.get("metrics"),
-                "diagnostics": evaluation.get("diagnostics"),
-                "error_reason": (evaluation.get("diagnostics") or {}).get("error"),
-                "engine_version": evaluation.get("engine_version"),
-                "metrics_version": evaluation.get("metrics_version"),
-                "evaluated_at": evaluation.get("evaluated_at"),
-            }
-        )
+        report_items.append(build_report_item(item, evaluation))
 
     summary = {
         "count": len(report_items),

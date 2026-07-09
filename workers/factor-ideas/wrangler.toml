@@ -1,0 +1,29 @@
+name = "quant-factors-factor-ideas"
+main = "src/worker-main.js"
+compatibility_date = "2024-12-01"
+
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "quant-factors"
+database_id = "e6ef3240-c301-455d-80aa-27e7b9b88192"
+migrations_dir = "migrations"
+
+[vars]
+MAX_IDEAS = "3"
+GITHUB_RAW_BASE = "https://raw.githubusercontent.com/ech09527/quant-factors/main"
+# LLM 凭证改由 D1 llm_providers 管理；以下仅作未配置 D1 时的 fallback
+OPENAI_MODEL = "glm-4-flash"
+VALIDATION_BATCH_ENABLED = "0"
+VALIDATION_BATCH_LIMIT = "5"
+VALIDATION_JUPYTER_SERVER_KEY = "lynas-pub"
+SAMPLE_START = "2023-01-01"
+FACTOR_API_BASE_URL = "https://quant-factors-dashboard.pages.dev"
+
+# Cron 已暂停：恢复时在下方取消注释并 deploy
+# [triggers]
+# crons = ["*/5 * * * *"]

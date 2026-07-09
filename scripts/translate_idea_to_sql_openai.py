@@ -22,7 +22,82 @@ from scripts.validate_sql import validate_factor_sql
 MAX_TRANSLATION_ATTEMPTS = int(os.environ.get("TRANSLATION_MAX_ATTEMPTS", "3"))
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+FACTOR_API_BASE_URL = os.environ.get("FACTOR_API_BASE_URL", "").strip()
+FACTOR_API_TOKEN = os.environ.get("FACTOR_API_TOKEN", "").strip()
 WORKFLOW_HTTP_USER_AGENT = "quant-factors-workflow/1.0"
+
+
+def fetch_llm_config_from_api(
+    *,
+    usage: str = "validation_translation",
+    base_url: str | None = None,
+    token: str | None = None,
+) -> list[dict[str, Any]]:
+    api_base = (base_url or FACTOR_API_BASE_URL).rstrip("/")
+    auth_token = (token or FACTOR_API_TOKEN).strip()
+    if not api_base or not auth_token:
+        raise RuntimeError("缺少 FACTOR_API_BASE_URL 或 FACTOR_API_TOKEN，无法从 API 读取 LLM 配置")
+
+    url = f"{api_base}/api/workflow/llm-config?usage={usage}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {auth_token}",
+            "User-Agent": WORKFLOW_HTTP_USER_AGENT,
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"读取 LLM 配置失败: HTTP {exc.code} {detail[:300]}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"读取 LLM 配置失败: {exc}") from exc
+
+    data = json.loads(raw)
+    routes = data.get("routes")
+    if isinstance(routes, list) and routes:
+        return routes
+    if data.get("api_key"):
+        return [data]
+    raise RuntimeError("LLM 配置 API 未返回可用 routes")
+
+
+def resolve_llm_runtime_configs() -> list[dict[str, Any]]:
+    if FACTOR_API_BASE_URL and FACTOR_API_TOKEN:
+        try:
+            return fetch_llm_config_from_api()
+        except RuntimeError as exc:
+            print(f"警告: 无法从 API 读取 LLM 配置，尝试环境变量: {exc}", file=sys.stderr)
+
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("未配置 LLM：请在 D1 添加 Provider，或设置 FACTOR_API_* / OPENAI_API_KEY")
+    return [
+        {
+            "base_url": OPENAI_BASE_URL,
+            "api_key": api_key,
+            "model": OPENAI_MODEL,
+            "auth_header": "Authorization",
+            "auth_scheme": "Bearer",
+            "temperature": 0.1,
+            "source": "env",
+            "priority": 0,
+        }
+    ]
+
+
+def build_auth_header(config: dict[str, Any]) -> dict[str, str]:
+    header = str(config.get("auth_header") or "Authorization")
+    scheme = str(config.get("auth_scheme") or "Bearer").strip()
+    token = str(config["api_key"])
+    if scheme.lower() == "bearer":
+        return {header: f"Bearer {token}"}
+    if scheme.lower() == "token":
+        return {header: f"token {token}"}
+    return {header: f"{scheme} {token}"}
 
 
 def repo_root() -> Path:
@@ -84,48 +159,56 @@ def build_prompt(
 
 
 def call_openai(prompt: str) -> str:
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("缺少 OPENAI_API_KEY")
+    configs = resolve_llm_runtime_configs()
+    last_error: Exception | None = None
+    for config in configs:
+        base_url = str(config.get("base_url") or OPENAI_BASE_URL).rstrip("/")
+        url = f"{base_url}/chat/completions"
+        temperature = config.get("temperature")
+        if temperature is None:
+            temperature = 0.1
+        payload = {
+            "model": config.get("model") or OPENAI_MODEL,
+            "temperature": temperature,
+            "messages": [
+                {"role": "system", "content": "你是量化因子 SQL 翻译器，只输出合法 JSON 对象。"},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                **build_auth_header(config),
+                "User-Agent": WORKFLOW_HTTP_USER_AGENT,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                raw = resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            last_error = RuntimeError(f"模型接口失败: HTTP {exc.code} {detail[:300]}")
+            continue
+        except urllib.error.URLError as exc:
+            last_error = RuntimeError(f"模型接口失败: {exc}")
+            continue
 
-    base_url = OPENAI_BASE_URL.rstrip("/")
-    url = f"{base_url}/chat/completions"
-    payload = {
-        "model": OPENAI_MODEL,
-        "temperature": 0.1,
-        "messages": [
-            {"role": "system", "content": "你是量化因子 SQL 翻译器，只输出合法 JSON 对象。"},
-            {"role": "user", "content": prompt},
-        ],
-    }
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-            "User-Agent": WORKFLOW_HTTP_USER_AGENT,
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            raw = resp.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"模型接口失败: HTTP {exc.code} {detail[:300]}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"模型接口失败: {exc}") from exc
+        data = json.loads(raw)
+        choices = data.get("choices") or []
+        if not choices:
+            last_error = RuntimeError("模型接口返回空 choices")
+            continue
+        content = choices[0].get("message", {}).get("content")
+        if not isinstance(content, str) or not content.strip():
+            last_error = RuntimeError("模型接口返回空 content")
+            continue
+        return content
 
-    data = json.loads(raw)
-    choices = data.get("choices") or []
-    if not choices:
-        raise RuntimeError("模型接口返回空 choices")
-    content = choices[0].get("message", {}).get("content")
-    if not isinstance(content, str) or not content.strip():
-        raise RuntimeError("模型接口返回空 content")
-    return content
+    raise last_error or RuntimeError("所有 LLM 路由均失败")
 
 
 def translate_idea(

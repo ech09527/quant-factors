@@ -251,6 +251,9 @@ def load_batch_kernel_output(output_dir: Path) -> list[dict[str, Any]]:
 class BatchKernelJob:
     idea: dict[str, Any]
     factor_sql: dict[str, Any]
+    validation_profile_key: str | None = None
+    label_kind: str | None = None
+    horizon_bars: int | None = None
 
 
 @dataclass
@@ -305,8 +308,19 @@ def run_batch_kernel_evaluation(
     if not runnable_jobs:
         return results
 
+    payload_jobs: list[dict[str, Any]] = []
+    for job in runnable_jobs:
+        item: dict[str, Any] = {"idea": job.idea, "factor_sql": job.factor_sql}
+        if job.validation_profile_key:
+            item["validation_profile_key"] = job.validation_profile_key
+        if job.label_kind is not None:
+            item["label_kind"] = job.label_kind
+        if job.horizon_bars is not None:
+            item["horizon_bars"] = job.horizon_bars
+        payload_jobs.append(item)
+
     batch_payload = build_batch_kernel_inputs(
-        [{"idea": job.idea, "factor_sql": job.factor_sql} for job in runnable_jobs],
+        payload_jobs,
         sample_start=sample_start,
         target_file=target_file,
     )
@@ -346,19 +360,25 @@ def run_batch_kernel_evaluation(
         return results
 
     evaluations = load_batch_kernel_output(output_dir)
-    evaluation_by_hash = {
-        item.get("title_hash"): item for item in evaluations if item.get("title_hash")
+    evaluation_by_key = {
+        (item.get("title_hash"), item.get("validation_profile_key") or ""): item
+        for item in evaluations
+        if item.get("title_hash")
     }
 
     for job in runnable_jobs:
         title_hash = job.idea["title_hash"]
-        evaluation = evaluation_by_hash.get(title_hash)
+        profile_key = job.validation_profile_key or ""
+        evaluation = evaluation_by_key.get((title_hash, profile_key))
         if evaluation is None:
             results.append(
                 BatchKernelItemResult(
                     idea=job.idea,
                     factor_sql=job.factor_sql,
-                    error=f"缺少 title_hash={title_hash} 的评估结果",
+                    error=(
+                        f"缺少 title_hash={title_hash}, "
+                        f"validation_profile_key={profile_key or '(default)'} 的评估结果"
+                    ),
                 )
             )
             continue

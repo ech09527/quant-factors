@@ -52,6 +52,7 @@ def build_failed_evaluation(
         "status": "failed",
         "title": idea["title"],
         "title_hash": idea["title_hash"],
+        "validation_profile_key": factor_sql.get("validation_profile_key", "fwd_ret_1"),
         "formula_hash": idea.get("formula_hash") or formula_hash_fn(idea["formula_sketch"]),
         "expression_version": factor_sql.get("version", "1"),
         "engine_version": engine_version,
@@ -87,6 +88,11 @@ def evaluate_job(
 ) -> dict[str, Any]:
     idea = job["idea"]
     factor_sql = job["factor_sql"]
+    validation_profile_key = (
+        job.get("validation_profile_key")
+        or job.get("profile_key")
+        or factor_sql.get("validation_profile_key")
+    )
     title = idea["title"]
     print(f"[{index}/{total}] 评估: {title}")
 
@@ -104,6 +110,9 @@ def evaluate_job(
             data_path=data_path,
             sample_start=sample_start,
             save_panel_path=panel_path,
+            validation_profile_key=validation_profile_key,
+            label_kind=job.get("label_kind"),
+            horizon_bars=job.get("horizon_bars"),
         )
     except Exception as exc:
         print(f"  评估失败: {exc}")

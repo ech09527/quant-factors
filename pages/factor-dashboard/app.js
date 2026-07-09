@@ -24,6 +24,7 @@ function escapeHtml(text) {
 }
 
 const state = {
+  validationById: {},
   tab: "ideas",
   ideas: { offset: 0 },
   operators: { offset: 0, status: "" },
@@ -42,6 +43,12 @@ const state = {
   jupyterServers: [],
   jupyterFormMode: "create",
   editingJupyterKey: null,
+  llmProviders: [],
+  llmRoutes: [],
+  llmProviderModels: {},
+  llmFormMode: "create",
+  llmRouteFormMode: "create",
+  editingLlmKey: null,
 };
 
 const els = {
@@ -95,11 +102,49 @@ const els = {
   jupyterSortOrderInput: document.getElementById("jupyter-sort-order"),
   jupyterEnabledInput: document.getElementById("jupyter-enabled"),
   jupyterFormError: document.getElementById("jupyter-form-error"),
+  llmBody: document.getElementById("llm-body"),
+  llmRoutesBody: document.getElementById("llm-routes-body"),
+  llmDialog: document.getElementById("llm-dialog"),
+  llmForm: document.getElementById("llm-form"),
+  llmFormTitle: document.getElementById("llm-form-title"),
+  llmKeyInput: document.getElementById("llm-key"),
+  llmNameInput: document.getElementById("llm-name"),
+  llmBaseUrlInput: document.getElementById("llm-base-url"),
+  llmApiKeyInput: document.getElementById("llm-api-key"),
+  llmModelsInput: document.getElementById("llm-models"),
+  llmAuthHeaderInput: document.getElementById("llm-auth-header"),
+  llmAuthSchemeInput: document.getElementById("llm-auth-scheme"),
+  llmSortOrderInput: document.getElementById("llm-sort-order"),
+  llmEnabledInput: document.getElementById("llm-enabled"),
+  llmFormError: document.getElementById("llm-form-error"),
+  llmRouteDialog: document.getElementById("llm-route-dialog"),
+  llmRouteForm: document.getElementById("llm-route-form"),
+  llmRouteFormTitle: document.getElementById("llm-route-form-title"),
+  llmRouteIdInput: document.getElementById("llm-route-id"),
+  llmRouteUsageSelect: document.getElementById("llm-route-usage"),
+  llmRouteProviderSelect: document.getElementById("llm-route-provider"),
+  llmRouteModelSelect: document.getElementById("llm-route-model"),
+  llmRoutePriorityInput: document.getElementById("llm-route-priority"),
+  llmRouteTemperatureInput: document.getElementById("llm-route-temperature"),
+  llmRouteEnabledInput: document.getElementById("llm-route-enabled"),
+  llmRouteFormError: document.getElementById("llm-route-form-error"),
+  llmModelsDialog: document.getElementById("llm-models-dialog"),
+  llmModelsForm: document.getElementById("llm-models-form"),
+  llmModelsFormTitle: document.getElementById("llm-models-form-title"),
+  llmModelsProviderKeyInput: document.getElementById("llm-models-provider-key"),
+  llmModelsBody: document.getElementById("llm-models-body"),
+  llmNewModelNameInput: document.getElementById("llm-new-model-name"),
+  llmModelsFormError: document.getElementById("llm-models-form-error"),
   ideasGenerate: document.getElementById("ideas-generate"),
   generateCount: document.getElementById("generate-count"),
   operatorsStatus: document.getElementById("operators-status"),
   detailDialog: document.getElementById("detail-dialog"),
   detailContent: document.getElementById("detail-content"),
+  factorSqlDialog: document.getElementById("factor-sql-dialog"),
+  factorSqlDialogTitle: document.getElementById("factor-sql-dialog-title"),
+  factorSqlMeta: document.getElementById("factor-sql-meta"),
+  factorSqlSignal: document.getElementById("factor-sql-signal"),
+  factorSqlJson: document.getElementById("factor-sql-json"),
   toast: document.getElementById("toast"),
 };
 
@@ -243,6 +288,72 @@ function validationStatusBadge(status) {
         ? "pending"
         : "";
   return `<span class="badge ${cls}">${status}</span>`;
+}
+
+function cacheValidationRows(items) {
+  for (const row of items || []) {
+    if (row?.id != null) {
+      state.validationById[row.id] = row;
+    }
+  }
+}
+
+function factorSqlSummary(factorSql) {
+  if (!factorSql || typeof factorSql !== "object") {
+    return null;
+  }
+  const signal = factorSql.signal_sql;
+  if (typeof signal === "string" && signal.trim()) {
+    return signal.trim();
+  }
+  return null;
+}
+
+function renderFactorSqlCell(row) {
+  const sql = factorSqlSummary(row.factor_sql);
+  if (!sql) {
+    return '<span class="muted">—</span>';
+  }
+  const preview = sql.length > 48 ? `${sql.slice(0, 47)}…` : sql;
+  return `
+    <button
+      type="button"
+      class="link-button factor-sql-preview"
+      data-action="view-factor-sql"
+      data-validation-id="${row.id}"
+      title="${escapeHtml(sql)}"
+    >${escapeHtml(preview)}</button>
+  `;
+}
+
+function openFactorSqlDialog(validation) {
+  if (!validation) {
+    showToast("未找到验证记录");
+    return;
+  }
+  const title = validation.idea_title || `想法 #${validation.idea_id}`;
+  els.factorSqlDialogTitle.textContent = `翻译 SQL · 验证 #${validation.id}`;
+  els.factorSqlMeta.innerHTML = `
+    <dt>因子</dt><dd>${escapeHtml(title)}</dd>
+    <dt>验证配置</dt><dd>${escapeHtml(validation.profile_name || validation.profile_key || "-")}</dd>
+    <dt>状态</dt><dd>${validationStatusBadge(validation.status)}</dd>
+    <dt>评估时间</dt><dd>${validation.evaluated_at ? formatTime(validation.evaluated_at) : "-"}</dd>
+  `;
+  const sql = factorSqlSummary(validation.factor_sql);
+  els.factorSqlSignal.textContent = sql || "（暂无 signal_sql，可能尚未完成翻译）";
+  els.factorSqlJson.textContent = validation.factor_sql
+    ? JSON.stringify(validation.factor_sql, null, 2)
+    : "（尚未翻译）";
+  els.factorSqlDialog.showModal();
+}
+
+function openFactorSqlDialogById(validationId) {
+  const row = state.validationById[validationId];
+  if (row) {
+    openFactorSqlDialog(row);
+    return;
+  }
+  showToast("请刷新列表后重试");
 }
 
 function formatMetric(value) {
@@ -621,12 +732,382 @@ async function deleteJupyterServer(key) {
   await loadJupyterServersAdmin();
 }
 
+async function loadLlmProviders(includeDisabled = true) {
+  const query = includeDisabled ? "?include_disabled=1" : "";
+  const data = await apiGet(`/api/llm-providers${query}`);
+  state.llmProviders = data.items || [];
+  return data;
+}
+
+async function loadLlmRoutes(includeDisabled = true) {
+  const query = includeDisabled ? "?include_disabled=1" : "";
+  const data = await apiGet(`/api/llm-usage-routes${query}`);
+  state.llmRoutes = data.items || [];
+  return data;
+}
+
+async function loadProviderModels(providerKey) {
+  const data = await apiGet(`/api/llm-providers/${providerKey}/models?include_disabled=1`);
+  state.llmProviderModels[providerKey] = data.items || [];
+  return data.items || [];
+}
+
+async function ensureProviderModels(providerKeys) {
+  const keys = [...new Set(providerKeys.filter(Boolean))];
+  await Promise.all(keys.map((key) => loadProviderModels(key)));
+}
+
+function parseModelsTextarea(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function renderLlmRoutesTable(items) {
+  if (!items.length) {
+    els.llmRoutesBody.innerHTML = `<tr><td colspan="7" class="muted">暂无用途路由。请先创建 Provider 与模型，再添加路由。</td></tr>`;
+    return;
+  }
+  els.llmRoutesBody.innerHTML = items
+    .map(
+      (route) => `
+      <tr data-route-id="${route.id}">
+        <td>${route.usage_label || route.usage_key}</td>
+        <td>${route.priority ?? 0}</td>
+        <td><code>${route.provider_key}</code>${route.provider_name ? ` (${route.provider_name})` : ""}</td>
+        <td><code>${route.model_name}</code></td>
+        <td>${route.temperature == null ? "-" : route.temperature}</td>
+        <td>${route.enabled ? '<span class="badge active">enabled</span>' : '<span class="badge">disabled</span>'}</td>
+        <td>
+          <div class="table-actions">
+            <button type="button" data-action="edit-llm-route" data-id="${route.id}">编辑</button>
+            <button type="button" data-action="toggle-llm-route" data-id="${route.id}">${route.enabled ? "禁用" : "启用"}</button>
+            <button type="button" class="danger" data-action="delete-llm-route" data-id="${route.id}">删除</button>
+          </div>
+        </td>
+      </tr>
+    `,
+    )
+    .join("");
+}
+
+function renderLlmTable(items) {
+  if (!items.length) {
+    els.llmBody.innerHTML = `<tr><td colspan="8" class="muted">暂无 LLM Provider。点击「新建 Provider」添加。</td></tr>`;
+    return;
+  }
+  els.llmBody.innerHTML = items
+    .map((provider) => {
+      const modelCount = state.llmProviderModels[provider.key]?.length ?? "-";
+      return `
+      <tr data-llm-key="${provider.key}">
+        <td><code>${provider.key}</code></td>
+        <td>${provider.name}</td>
+        <td title="${provider.base_url}"><code>${truncateUrl(provider.base_url)}</code></td>
+        <td>${modelCount}</td>
+        <td>${provider.sort_order ?? 0}</td>
+        <td>${provider.enabled ? '<span class="badge active">enabled</span>' : '<span class="badge">disabled</span>'}</td>
+        <td>${provider.last_used_at ? formatTime(provider.last_used_at) : "-"}</td>
+        <td>
+          <div class="table-actions">
+            <button type="button" data-action="manage-llm-models" data-key="${provider.key}">管理模型</button>
+            <button type="button" data-action="edit-llm" data-key="${provider.key}">编辑</button>
+            <button type="button" data-action="toggle-llm" data-key="${provider.key}">${provider.enabled ? "禁用" : "启用"}</button>
+            <button type="button" class="danger" data-action="delete-llm" data-key="${provider.key}">删除</button>
+          </div>
+        </td>
+      </tr>
+    `;
+    })
+    .join("");
+}
+
+async function loadLlmAdmin() {
+  const [providers, routes] = await Promise.all([loadLlmProviders(true), loadLlmRoutes(true)]);
+  await ensureProviderModels(providers.items?.map((item) => item.key) ?? []);
+  renderLlmTable(providers.items || []);
+  renderLlmRoutesTable(routes.items || []);
+}
+
+function showLlmFormError(message) {
+  if (!message) {
+    els.llmFormError.classList.add("hidden");
+    els.llmFormError.textContent = "";
+    return;
+  }
+  els.llmFormError.textContent = message;
+  els.llmFormError.classList.remove("hidden");
+}
+
+function showLlmRouteFormError(message) {
+  if (!message) {
+    els.llmRouteFormError.classList.add("hidden");
+    els.llmRouteFormError.textContent = "";
+    return;
+  }
+  els.llmRouteFormError.textContent = message;
+  els.llmRouteFormError.classList.remove("hidden");
+}
+
+function showLlmModelsFormError(message) {
+  if (!message) {
+    els.llmModelsFormError.classList.add("hidden");
+    els.llmModelsFormError.textContent = "";
+    return;
+  }
+  els.llmModelsFormError.textContent = message;
+  els.llmModelsFormError.classList.remove("hidden");
+}
+
+function openLlmDialog(mode, provider = null) {
+  state.llmFormMode = mode;
+  state.editingLlmKey = provider?.key ?? null;
+  showLlmFormError("");
+  els.llmFormTitle.textContent = mode === "create" ? "新建 LLM Provider" : "编辑 LLM Provider";
+  els.llmKeyInput.disabled = mode === "edit";
+  els.llmKeyInput.value = provider?.key ?? "";
+  els.llmNameInput.value = provider?.name ?? "";
+  els.llmBaseUrlInput.value = provider?.base_url ?? "";
+  els.llmApiKeyInput.value = provider?.api_key ?? "";
+  els.llmApiKeyInput.required = mode === "create";
+  els.llmModelsInput.value = "";
+  els.llmModelsInput.required = mode === "create";
+  els.llmModelsInput.disabled = mode === "edit";
+  els.llmAuthHeaderInput.value = provider?.auth_header ?? "Authorization";
+  els.llmAuthSchemeInput.value = provider?.auth_scheme ?? "Bearer";
+  els.llmSortOrderInput.value = String(provider?.sort_order ?? 0);
+  els.llmEnabledInput.checked = provider?.enabled !== false;
+  els.llmDialog.showModal();
+}
+
+function populateRouteProviderSelect(selectedKey) {
+  const enabled = state.llmProviders.filter((item) => item.enabled);
+  const options = (enabled.length ? enabled : state.llmProviders)
+    .map(
+      (provider) =>
+        `<option value="${provider.key}"${provider.key === selectedKey ? " selected" : ""}>${provider.name} (${provider.key})</option>`,
+    )
+    .join("");
+  els.llmRouteProviderSelect.innerHTML = options || '<option value="">请先创建 Provider</option>';
+}
+
+function populateRouteModelSelect(providerKey, selectedModel) {
+  const models = state.llmProviderModels[providerKey] || [];
+  const enabled = models.filter((item) => item.enabled);
+  const options = (enabled.length ? enabled : models)
+    .map(
+      (model) =>
+        `<option value="${model.model_name}"${model.model_name === selectedModel ? " selected" : ""}>${model.model_name}</option>`,
+    )
+    .join("");
+  els.llmRouteModelSelect.innerHTML = options || '<option value="">请先添加模型</option>';
+}
+
+async function openLlmRouteDialog(mode, route = null) {
+  state.llmRouteFormMode = mode;
+  showLlmRouteFormError("");
+  if (!state.llmProviders.length) {
+    await loadLlmProviders(true);
+  }
+  els.llmRouteFormTitle.textContent = mode === "create" ? "新建用途路由" : "编辑用途路由";
+  els.llmRouteIdInput.value = route?.id ? String(route.id) : "";
+  els.llmRouteUsageSelect.value = route?.usage_key ?? "validation_translation";
+  els.llmRouteUsageSelect.disabled = mode === "edit";
+  populateRouteProviderSelect(route?.provider_key ?? state.llmProviders[0]?.key ?? "");
+  const providerKey = route?.provider_key ?? els.llmRouteProviderSelect.value;
+  if (providerKey && !state.llmProviderModels[providerKey]) {
+    await loadProviderModels(providerKey);
+  }
+  populateRouteModelSelect(providerKey, route?.model_name ?? "");
+  els.llmRoutePriorityInput.value = String(route?.priority ?? 0);
+  els.llmRouteTemperatureInput.value = route?.temperature == null ? "" : String(route.temperature);
+  els.llmRouteEnabledInput.checked = route?.enabled !== false;
+  els.llmRouteDialog.showModal();
+}
+
+async function openLlmModelsDialog(providerKey) {
+  showLlmModelsFormError("");
+  els.llmModelsProviderKeyInput.value = providerKey;
+  const provider = state.llmProviders.find((item) => item.key === providerKey);
+  els.llmModelsFormTitle.textContent = `管理模型 · ${provider?.name || providerKey}`;
+  els.llmNewModelNameInput.value = "";
+  await loadProviderModels(providerKey);
+  renderLlmModelsTable(providerKey);
+  els.llmModelsDialog.showModal();
+}
+
+function renderLlmModelsTable(providerKey) {
+  const models = state.llmProviderModels[providerKey] || [];
+  if (!models.length) {
+    els.llmModelsBody.innerHTML = `<tr><td colspan="4" class="muted">暂无模型。</td></tr>`;
+    return;
+  }
+  els.llmModelsBody.innerHTML = models
+    .map(
+      (model) => `
+      <tr>
+        <td><code>${model.model_name}</code></td>
+        <td>${model.sort_order ?? 0}</td>
+        <td>${model.enabled ? '<span class="badge active">enabled</span>' : '<span class="badge">disabled</span>'}</td>
+        <td>
+          <button type="button" data-action="toggle-llm-model" data-provider="${providerKey}" data-model="${model.model_name}">${model.enabled ? "禁用" : "启用"}</button>
+          <button type="button" class="danger" data-action="delete-llm-model" data-provider="${providerKey}" data-model="${model.model_name}">删除</button>
+        </td>
+      </tr>
+    `,
+    )
+    .join("");
+}
+
+async function saveLlmFromForm(event) {
+  event.preventDefault();
+  showLlmFormError("");
+  const payload = {
+    name: els.llmNameInput.value.trim(),
+    base_url: els.llmBaseUrlInput.value.trim().replace(/\/$/, ""),
+    auth_header: els.llmAuthHeaderInput.value.trim() || "Authorization",
+    auth_scheme: els.llmAuthSchemeInput.value.trim() || "Bearer",
+    sort_order: Number(els.llmSortOrderInput.value) || 0,
+    enabled: els.llmEnabledInput.checked,
+  };
+  const apiKey = els.llmApiKeyInput.value.trim();
+  if (apiKey) {
+    payload.api_key = apiKey;
+  } else if (state.llmFormMode === "create") {
+    showLlmFormError("API Key 不能为空");
+    return;
+  }
+  if (state.llmFormMode === "create") {
+    const models = parseModelsTextarea(els.llmModelsInput.value);
+    if (!models.length) {
+      showLlmFormError("请至少填写一个模型");
+      return;
+    }
+    payload.models = models;
+  }
+  try {
+    if (state.llmFormMode === "create") {
+      payload.key = els.llmKeyInput.value.trim();
+      await apiPost("/api/llm-providers", payload);
+      showToast("LLM Provider 已创建", "success");
+    } else {
+      await apiPatch(`/api/llm-providers/${state.editingLlmKey}`, payload);
+      showToast("LLM Provider 已更新", "success");
+    }
+    els.llmDialog.close();
+    await loadLlmAdmin();
+  } catch (error) {
+    showLlmFormError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function saveLlmRouteFromForm(event) {
+  event.preventDefault();
+  showLlmRouteFormError("");
+  const providerKey = els.llmRouteProviderSelect.value.trim();
+  const modelName = els.llmRouteModelSelect.value.trim();
+  if (!providerKey || !modelName) {
+    showLlmRouteFormError("请选择 Provider 与模型");
+    return;
+  }
+  const temperatureRaw = els.llmRouteTemperatureInput.value.trim();
+  const payload = {
+    usage_key: els.llmRouteUsageSelect.value,
+    provider_key: providerKey,
+    model_name: modelName,
+    priority: Number(els.llmRoutePriorityInput.value) || 0,
+    enabled: els.llmRouteEnabledInput.checked,
+  };
+  if (temperatureRaw) {
+    payload.temperature = Number(temperatureRaw);
+  } else {
+    payload.temperature = null;
+  }
+  try {
+    if (state.llmRouteFormMode === "create") {
+      await apiPost("/api/llm-usage-routes", payload);
+      showToast("用途路由已创建", "success");
+    } else {
+      const routeId = els.llmRouteIdInput.value;
+      await apiPatch(`/api/llm-usage-routes/${routeId}`, payload);
+      showToast("用途路由已更新", "success");
+    }
+    els.llmRouteDialog.close();
+    await loadLlmAdmin();
+  } catch (error) {
+    showLlmRouteFormError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function toggleLlmEnabled(key, enabled) {
+  await apiPatch(`/api/llm-providers/${key}`, { enabled });
+  showToast(enabled ? "已启用" : "已禁用", "success");
+  await loadLlmAdmin();
+}
+
+async function deleteLlmProvider(key) {
+  await apiDelete(`/api/llm-providers/${key}`);
+  showToast("LLM Provider 已删除", "success");
+  await loadLlmAdmin();
+}
+
+async function toggleLlmRouteEnabled(routeId, enabled) {
+  await apiPatch(`/api/llm-usage-routes/${routeId}`, { enabled });
+  showToast(enabled ? "路由已启用" : "路由已禁用", "success");
+  await loadLlmAdmin();
+}
+
+async function deleteLlmRoute(routeId) {
+  await apiDelete(`/api/llm-usage-routes/${routeId}`);
+  showToast("用途路由已删除", "success");
+  await loadLlmAdmin();
+}
+
+async function addLlmModel() {
+  const providerKey = els.llmModelsProviderKeyInput.value.trim();
+  const modelName = els.llmNewModelNameInput.value.trim();
+  if (!modelName) {
+    showLlmModelsFormError("模型名称不能为空");
+    return;
+  }
+  showLlmModelsFormError("");
+  try {
+    await apiPost(`/api/llm-providers/${providerKey}/models`, { model_name: modelName });
+    els.llmNewModelNameInput.value = "";
+    await loadProviderModels(providerKey);
+    renderLlmModelsTable(providerKey);
+    await loadLlmAdmin();
+    showToast("模型已添加", "success");
+  } catch (error) {
+    showLlmModelsFormError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function toggleLlmModel(providerKey, modelName, enabled) {
+  await apiPatch(`/api/llm-providers/${providerKey}/models/${encodeURIComponent(modelName)}`, {
+    enabled,
+  });
+  await loadProviderModels(providerKey);
+  renderLlmModelsTable(providerKey);
+  await loadLlmAdmin();
+}
+
+async function deleteLlmModel(providerKey, modelName) {
+  await apiDelete(`/api/llm-providers/${providerKey}/models/${encodeURIComponent(modelName)}`);
+  await loadProviderModels(providerKey);
+  renderLlmModelsTable(providerKey);
+  await loadLlmAdmin();
+  showToast("模型已删除", "success");
+}
+
 async function loadValidationResults() {
   syncValidationControlsFromState();
   const params = buildValidationQueryParams();
   const data = await apiGet(`/api/validations?${params}`);
   els.validationsHint.textContent = validationQueryHint(data);
   updateValidationSortHeaders();
+  cacheValidationRows(data.items);
 
   els.validationsBody.innerHTML = data.items
     .map((row) => {
@@ -648,13 +1129,14 @@ async function loadValidationResults() {
           <td>${formatPercent(metrics.ic_positive_ratio)}</td>
           <td>${formatTime(row.evaluated_at)}</td>
           <td>${validationStatusBadge(row.status)}</td>
+          <td>${renderFactorSqlCell(row)}</td>
         </tr>
       `;
     })
     .join("");
 
   if (!data.items.length) {
-    els.validationsBody.innerHTML = `<tr><td colspan="11" class="muted">暂无符合条件的验证结果。</td></tr>`;
+    els.validationsBody.innerHTML = `<tr><td colspan="12" class="muted">暂无符合条件的验证结果。</td></tr>`;
   }
 
   renderPager(els.validationsPager, data, (nextOffset) => {
@@ -675,6 +1157,7 @@ function applyValidationPreset({ sort, abs = true, limit = 30, order = "desc", s
 }
 
 function renderValidationsTable(validations) {
+  cacheValidationRows(validations.items);
   if (!validations.items.length) {
     return `<p class="muted">尚未创建验证任务。</p>`;
   }
@@ -688,6 +1171,7 @@ function renderValidationsTable(validations) {
           <th>IC IR</th>
           <th>期数</th>
           <th>评估时间</th>
+          <th>翻译 SQL</th>
         </tr>
       </thead>
       <tbody>
@@ -702,6 +1186,7 @@ function renderValidationsTable(validations) {
                 <td>${formatMetric(metrics.ic_ir)}</td>
                 <td>${metrics.n_periods ?? "-"}</td>
                 <td>${formatTime(row.evaluated_at)}</td>
+                <td>${renderFactorSqlCell(row)}</td>
               </tr>
             `;
           })
@@ -713,6 +1198,7 @@ function renderValidationsTable(validations) {
 
 async function renderIdeaDetail(idea) {
   const validations = await apiGet(`/api/ideas/${idea.id}/validations`);
+  cacheValidationRows(validations.items);
   els.detailContent.innerHTML = `
     <h2>${idea.title}</h2>
     <dl>
@@ -752,6 +1238,7 @@ async function renderIdeaDetail(idea) {
       document.getElementById("validations-panel").innerHTML = renderValidationsTable({
         items: result.items,
       });
+      cacheValidationRows(result.items);
     } catch (error) {
       handleError(error);
     } finally {
@@ -853,8 +1340,12 @@ function switchTab(tab) {
   document.getElementById("panel-validations").classList.toggle("hidden", tab !== "validations");
   document.getElementById("panel-profiles").classList.toggle("hidden", tab !== "profiles");
   document.getElementById("panel-jupyter").classList.toggle("hidden", tab !== "jupyter");
+  document.getElementById("panel-llm").classList.toggle("hidden", tab !== "llm");
   document.getElementById("panel-operators").classList.toggle("hidden", tab !== "operators");
-  els.appLayout.classList.toggle("layout-wide", tab === "validations" || tab === "profiles" || tab === "jupyter");
+  els.appLayout.classList.toggle(
+    "layout-wide",
+    tab === "validations" || tab === "profiles" || tab === "jupyter" || tab === "llm",
+  );
   if (tab === "validations") {
     loadEnabledProfileOptions()
       .then(() => loadValidationResults())
@@ -863,6 +1354,8 @@ function switchTab(tab) {
     loadValidationProfilesAdmin().catch(handleError);
   } else if (tab === "jupyter") {
     loadJupyterServersAdmin().catch(handleError);
+  } else if (tab === "llm") {
+    loadLlmAdmin().catch(handleError);
   }
 }
 
@@ -1030,6 +1523,126 @@ els.jupyterBody.addEventListener("click", async (event) => {
   }
 });
 
+document.getElementById("llm-route-create").addEventListener("click", () => {
+  openLlmRouteDialog("create").catch(handleError);
+});
+
+document.getElementById("llm-create").addEventListener("click", () => {
+  openLlmDialog("create");
+});
+
+document.getElementById("llm-refresh").addEventListener("click", () => {
+  loadLlmAdmin().catch(handleError);
+});
+
+els.llmForm.addEventListener("submit", (event) => {
+  saveLlmFromForm(event).catch((error) => showLlmFormError(String(error.message || error)));
+});
+
+document.getElementById("llm-form-cancel").addEventListener("click", () => {
+  els.llmDialog.close();
+});
+
+els.llmRouteForm.addEventListener("submit", (event) => {
+  saveLlmRouteFromForm(event).catch((error) =>
+    showLlmRouteFormError(String(error.message || error)),
+  );
+});
+
+document.getElementById("llm-route-form-cancel").addEventListener("click", () => {
+  els.llmRouteDialog.close();
+});
+
+els.llmRouteProviderSelect.addEventListener("change", async () => {
+  const providerKey = els.llmRouteProviderSelect.value;
+  if (!providerKey) return;
+  await loadProviderModels(providerKey);
+  populateRouteModelSelect(providerKey, "");
+});
+
+document.getElementById("llm-add-model").addEventListener("click", () => {
+  addLlmModel().catch((error) => showLlmModelsFormError(String(error.message || error)));
+});
+
+document.getElementById("llm-models-form-close").addEventListener("click", () => {
+  els.llmModelsDialog.close();
+});
+
+els.llmModelsBody.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const providerKey = button.getAttribute("data-provider");
+  const modelName = button.getAttribute("data-model");
+  const action = button.getAttribute("data-action");
+  try {
+    if (action === "toggle-llm-model") {
+      const models = state.llmProviderModels[providerKey] || [];
+      const model = models.find((item) => item.model_name === modelName);
+      if (model) await toggleLlmModel(providerKey, modelName, !model.enabled);
+      return;
+    }
+    if (action === "delete-llm-model") {
+      if (!window.confirm(`确定删除模型 ${modelName}？`)) return;
+      await deleteLlmModel(providerKey, modelName);
+    }
+  } catch (error) {
+    handleError(error);
+  }
+});
+
+els.llmRoutesBody.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const routeId = Number(button.getAttribute("data-id"));
+  const action = button.getAttribute("data-action");
+  try {
+    const route = state.llmRoutes.find((item) => item.id === routeId);
+    if (action === "edit-llm-route" && route) {
+      await openLlmRouteDialog("edit", route);
+      return;
+    }
+    if (action === "toggle-llm-route" && route) {
+      await toggleLlmRouteEnabled(routeId, !route.enabled);
+      return;
+    }
+    if (action === "delete-llm-route") {
+      if (!window.confirm(`确定删除用途路由 #${routeId}？`)) return;
+      await deleteLlmRoute(routeId);
+    }
+  } catch (error) {
+    handleError(error);
+  }
+});
+
+els.llmBody.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const key = button.getAttribute("data-key");
+  const action = button.getAttribute("data-action");
+  try {
+    if (action === "manage-llm-models") {
+      await openLlmModelsDialog(key);
+      return;
+    }
+    if (action === "edit-llm") {
+      const provider = state.llmProviders.find((item) => item.key === key);
+      if (provider) openLlmDialog("edit", provider);
+      return;
+    }
+    if (action === "toggle-llm") {
+      const provider = state.llmProviders.find((item) => item.key === key);
+      if (provider) await toggleLlmEnabled(key, !provider.enabled);
+      return;
+    }
+    if (action === "delete-llm") {
+      if (!window.confirm(`确定删除 LLM Provider ${key}？`)) return;
+      await deleteLlmProvider(key);
+    }
+  } catch (error) {
+    handleError(error);
+  }
+});
+
 document.querySelector("#panel-validations thead").addEventListener("click", (event) => {
   const header = event.target.closest("th[data-sort]");
   if (!header) return;
@@ -1052,6 +1665,13 @@ els.operatorsStatus.addEventListener("change", () => {
 });
 
 document.body.addEventListener("click", async (event) => {
+  const sqlButton = event.target.closest("button[data-action='view-factor-sql']");
+  if (sqlButton) {
+    event.stopPropagation();
+    openFactorSqlDialogById(Number(sqlButton.getAttribute("data-validation-id")));
+    return;
+  }
+
   const linkButton = event.target.closest("button.link-button[data-id]");
   if (linkButton) {
     event.stopPropagation();
