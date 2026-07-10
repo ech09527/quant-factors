@@ -10,6 +10,7 @@
 4. 通过公网 `lynas-pub` 创建 Jupyter kernel，WebSocket **fire-and-forget** 提交评估代码
 5. Kernel 内 DuckDB 评估完成后 **POST** `/api/workflow/validation-jobs/report` 回写 D1
 6. 超时 `running` 任务由 `reclaimStaleValidationJobs`（默认 120 分钟）标为 failed
+7. Cron 每 5 分钟运行 `runKernelCleanup`：对已完成验证（success/failed/skipped）删除对应 Jupyter kernel
 
 ## D1：`jupyter_servers` 需配置 `lynas-pub`
 
@@ -30,6 +31,9 @@
 | `VALIDATION_BATCH_ENABLED` | `1` 开启 Cron 验证 |
 | `VALIDATION_JUPYTER_SERVER_KEY` | 默认 `lynas-pub`；若该 server **已禁用**，自动回退到下一个已启用且可直连的 server |
 | `VALIDATION_BATCH_LIMIT` | 每轮最多处理条数，默认 `3` |
+| `KERNEL_CLEANUP_ENABLED` | `1` 开启 Cron kernel 清理 |
+| `KERNEL_CLEANUP_LIMIT` | 每轮最多清理 kernel 数，默认 `10` |
+| `KERNEL_CLEANUP_GRACE_MINUTES` | 验证完成后至少等待分钟数再删 kernel，默认 `2` |
 | `FACTOR_API_BASE_URL` | Kernel 回调的 Worker 公网 URL |
 | `AUTH_PASSWORD` | 与 `FACTOR_API_TOKEN` 相同，用于 report API |
 
@@ -71,6 +75,9 @@ REST：
 
 ```bash
 curl -X POST "https://<worker>/run-validation-batch" \
+  -H "Authorization: Bearer $FACTOR_API_TOKEN"
+
+curl -X POST "https://<worker>/run-kernel-cleanup" \
   -H "Authorization: Bearer $FACTOR_API_TOKEN"
 ```
 

@@ -934,7 +934,7 @@ async function reportValidationWorkflowResults(db, items) {
   let updated = 0;
   for (const item of items) {
     const existing = await db.prepare(
-      `SELECT profile_key, status
+      `SELECT profile_key, status, diagnostics
          FROM idea_validations
          WHERE id = ?
          LIMIT 1`
@@ -946,7 +946,10 @@ async function reportValidationWorkflowResults(db, items) {
     let status = item.status;
     let errorReason = item.error_reason ?? null;
     let metrics = item.metrics;
-    let diagnostics = item.diagnostics;
+    let diagnostics = {
+      ...(parseJsonObject(existing.diagnostics) ?? {}),
+      ...(item.diagnostics ?? {})
+    };
 
     if (status === "success") {
       const expectedProfile = String(existing.profile_key ?? "").trim();

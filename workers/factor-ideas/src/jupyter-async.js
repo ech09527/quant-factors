@@ -124,6 +124,16 @@ export class JupyterWorkerClient {
     return String(kernelId);
   }
 
+  async shutdownKernel(kernelId) {
+    const id = String(kernelId ?? "").trim();
+    if (!id) {
+      throw new Error("shutdown kernel 失败：缺少 kernel_id");
+    }
+    await this.requestJson(`/api/kernels/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
+  }
+
   async submitExecuteAsync(code) {
     await this.warmupSession();
     const kernelId = await this.createKernel();

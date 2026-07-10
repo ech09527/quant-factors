@@ -222,7 +222,7 @@ export async function reportValidationWorkflowResults(db, items) {
   let updated = 0;
   for (const item of items) {
     const existing = await db.prepare(
-      `SELECT profile_key, status
+      `SELECT profile_key, status, diagnostics
          FROM idea_validations
          WHERE id = ?
          LIMIT 1`
@@ -234,7 +234,10 @@ export async function reportValidationWorkflowResults(db, items) {
     let status = item.status;
     let errorReason = item.error_reason ?? null;
     let metrics = item.metrics;
-    let diagnostics = item.diagnostics;
+    let diagnostics = {
+      ...(parseJsonObject(existing.diagnostics) ?? {}),
+      ...(item.diagnostics ?? {})
+    };
 
     if (status === "success") {
       const expectedProfile = String(existing.profile_key ?? "").trim();
@@ -308,6 +311,93 @@ export async function markJupyterServerUsed(db, key) {
        SET last_used_at = datetime('now'), updated_at = datetime('now')
        WHERE key = ?`
   ).bind(key).run();
+  return { updated: Number(result.meta.changes ?? 0) };
+}
+
+export async function getJupyterServerByKey(db, key) {
+  const result = await db.prepare(
+    `SELECT
+         key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
+         auth_header, auth_scheme, auth_token, runtime_config,
+         enabled, sort_order
+       FROM jupyter_servers
+       WHERE key = ?
+       LIMIT 1`
+  ).bind(key).first();
+  return result ? rowToJupyterServer(result) : null;
+}
+
+export async function listValidationsPendingKernelCleanup(db, { limit, graceMinutes }) {
+  const result = await db.prepare(
+    `SELECT id, diagnostics, status, updated_at
+       FROM idea_validations
+       WHERE status IN ('success', 'failed', 'skipped')
+         AND diagnostics IS NOT NULL
+         AND json_extract(diagnostics, '$.kernel_id') IS NOT NULL
+         AND TRIM(json_extract(diagnostics, '$.kernel_id')) != ''
+         AND json_extract(diagnostics, '$.kernel_cleaned_at') IS NULL
+         AND updated_at < datetime('now', ?)
+       ORDER BY updated_at ASC
+       LIMIT ?`
+  ).bind(`-${graceMinutes} minutes`, limit).all();
+
+  return (result.results ?? []).map((row) => {
+    const diagnostics = parseJsonObject(row.diagnostics) ?? {};
+    return {
+      validation_id: Number(row.id),
+      status: String(row.status),
+      kernel_id: String(diagnostics.kernel_id ?? "").trim(),
+      jupyter_server_key: String(diagnostics.jupyter_server_key ?? "").trim()
+    };
+  });
+}
+
+export async function markValidationKernelCleaned(db, validationId, patch = {}) {
+  const existing = await db.prepare(
+    `SELECT diagnostics
+       FROM idea_validations
+       WHERE id = ?
+       LIMIT 1`
+  ).bind(validationId).first();
+  if (!existing) {
+    return { updated: 0 };
+  }
+
+  const diagnostics = {
+    ...(parseJsonObject(existing.diagnostics) ?? {}),
+    ...patch,
+    kernel_cleaned_at: new Date().toISOString()
+  };
+  const result = await db.prepare(
+    `UPDATE idea_validations
+       SET diagnostics = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`
+  ).bind(JSON.stringify(diagnostics), validationId).run();
+  return { updated: Number(result.meta.changes ?? 0) };
+}
+
+export async function patchValidationDiagnostics(db, validationId, patch = {}) {
+  const existing = await db.prepare(
+    `SELECT diagnostics
+       FROM idea_validations
+       WHERE id = ?
+       LIMIT 1`
+  ).bind(validationId).first();
+  if (!existing) {
+    return { updated: 0 };
+  }
+
+  const diagnostics = {
+    ...(parseJsonObject(existing.diagnostics) ?? {}),
+    ...patch
+  };
+  const result = await db.prepare(
+    `UPDATE idea_validations
+       SET diagnostics = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`
+  ).bind(JSON.stringify(diagnostics), validationId).run();
   return { updated: Number(result.meta.changes ?? 0) };
 }
 

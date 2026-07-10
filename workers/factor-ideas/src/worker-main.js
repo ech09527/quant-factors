@@ -1,4 +1,5 @@
 import worker from "./index.js";
+import { runKernelCleanup } from "./kernel-cleanup.js";
 import { runValidationBatch } from "./validation-batch.js";
 import { handleLlmApiRequest } from "./llm-api-routes.js";
 
@@ -17,9 +18,10 @@ function isAuthorized(request, env) {
 
 export default {
   async scheduled(controller, env) {
-    const [generateResult, validationResult] = await Promise.allSettled([
+    const [generateResult, validationResult, cleanupResult] = await Promise.allSettled([
       worker.scheduled(controller, env),
-      runValidationBatch(env)
+      runValidationBatch(env),
+      runKernelCleanup(env)
     ]);
     if (generateResult.status === "fulfilled") {
       console.log(JSON.stringify({ generate: generateResult.value }));
@@ -30,6 +32,11 @@ export default {
       console.log(JSON.stringify({ validation: validationResult.value }));
     } else {
       console.error("validation cron failed:", validationResult.reason);
+    }
+    if (cleanupResult.status === "fulfilled") {
+      console.log(JSON.stringify({ kernel_cleanup: cleanupResult.value }));
+    } else {
+      console.error("kernel cleanup cron failed:", cleanupResult.reason);
     }
   },
   async fetch(request, env, ctx) {
@@ -44,6 +51,18 @@ export default {
       }
       try {
         const result = await runValidationBatch(env);
+        return Response.json({ ok: true, ...result });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return Response.json({ ok: false, error: message }, { status: 500 });
+      }
+    }
+    if (request.method === "POST" && url.pathname === "/run-kernel-cleanup") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      }
+      try {
+        const result = await runKernelCleanup(env);
         return Response.json({ ok: true, ...result });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
