@@ -83,6 +83,8 @@ const state = {
   profileFormMode: "create",
   editingProfileKey: null,
   jupyterServers: [],
+  jupyterKernelStatus: null,
+  jupyterKernelPollTimer: null,
   jupyterFormMode: "create",
   editingJupyterKey: null,
   llmProviders: [],
@@ -116,6 +118,11 @@ const els = {
   validationsStatus: document.getElementById("validations-status"),
   validationsProfile: document.getElementById("validations-profile"),
   validationsSource: document.getElementById("validations-source"),
+  settingsWorkflowBody: document.getElementById("settings-workflow-body"),
+  settingsSchedulesBody: document.getElementById("settings-schedules-body"),
+  settingsManualResult: document.getElementById("settings-manual-result"),
+  settingsRunValidation: document.getElementById("settings-run-validation"),
+  settingsRunCleanup: document.getElementById("settings-run-cleanup"),
   ideasSource: document.getElementById("ideas-source"),
   profilesBody: document.getElementById("profiles-body"),
   profileDialog: document.getElementById("profile-dialog"),
@@ -130,6 +137,10 @@ const els = {
   profileEnabledInput: document.getElementById("profile-enabled"),
   profileFormError: document.getElementById("profile-form-error"),
   jupyterBody: document.getElementById("jupyter-body"),
+  jupyterKernelsBody: document.getElementById("jupyter-kernels-body"),
+  jupyterKernelsHint: document.getElementById("jupyter-kernels-hint"),
+  jupyterKernelsAutoRefresh: document.getElementById("jupyter-kernels-auto-refresh"),
+  jupyterKernelsRefresh: document.getElementById("jupyter-kernels-refresh"),
   jupyterDialog: document.getElementById("jupyter-dialog"),
   jupyterForm: document.getElementById("jupyter-form"),
   jupyterFormTitle: document.getElementById("jupyter-form-title"),
@@ -144,6 +155,7 @@ const els = {
   jupyterKernelNameInput: document.getElementById("jupyter-kernel-name"),
   jupyterRuntimeConfigInput: document.getElementById("jupyter-runtime-config"),
   jupyterSortOrderInput: document.getElementById("jupyter-sort-order"),
+  jupyterMaxKernelsInput: document.getElementById("jupyter-max-kernels"),
   jupyterEnabledInput: document.getElementById("jupyter-enabled"),
   jupyterFormError: document.getElementById("jupyter-form-error"),
   llmBody: document.getElementById("llm-body"),
@@ -303,6 +315,195 @@ function showToast(message, type = "error") {
 function formatTime(value) {
   if (!value) return "-";
   return value.replace("T", " ").slice(0, 19);
+}
+
+function formatRelativeTime(value) {
+  if (value == null || value === "") return "-";
+  const ms = typeof value === "number" ? value : Date.parse(String(value));
+  if (!Number.isFinite(ms)) return "-";
+  const diffSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diffSec < 60) return `${diffSec} 秒前`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 48) return `${diffHour} 小时前`;
+  return formatTime(new Date(ms).toISOString());
+}
+
+const JUPYTER_QUERY_REASON_LABELS = {
+  server_disabled: "服务器已禁用",
+  proxy_not_supported: "配置了 HTTP 代理，Worker 无法直连查询",
+  connect_mode_not_supported: "连接模式不支持实时查询",
+};
+
+function kernelExecutionBadge(state) {
+  const normalized = String(state || "unknown");
+  const cls =
+    normalized === "busy" ? "active" : normalized === "starting" ? "pending" : normalized === "idle" ? "" : "";
+  return `<span class="badge ${cls}">${escapeHtml(normalized)}</span>`;
+}
+
+function renderJupyterCapacityCell(serverKey) {
+  const status = (state.jupyterKernelStatus?.items || []).find((item) => item.key === serverKey);
+  if (!status) {
+    return '<span class="muted">-</span>';
+  }
+  if (!status.queryable) {
+    return `<span class="muted" title="${escapeHtml(JUPYTER_QUERY_REASON_LABELS[status.query_reason] || status.query_reason || "")}">不可查</span>`;
+  }
+  if (status.error) {
+    return '<span class="badge pending" title="查询失败">错误</span>';
+  }
+  const capacity = status.capacity || {};
+  if (!capacity.limited) {
+    const current = capacity.current ?? status.summary?.total ?? 0;
+    return `<span class="jupyter-capacity">${current} / 不限</span>`;
+  }
+  const current = capacity.current ?? 0;
+  const limit = capacity.limit ?? "?";
+  const atLimit = capacity.at_limit ? " at-limit" : "";
+  return `<span class="jupyter-capacity${atLimit}">${current} / ${limit}</span>`;
+}
+
+function renderJupyterKernelPanels(data) {
+  const items = data?.items || [];
+  if (!els.jupyterKernelsBody) {
+    return;
+  }
+  if (!items.length) {
+    els.jupyterKernelsBody.innerHTML = `<p class="muted">暂无 Jupyter Server 配置。</p>`;
+    return;
+  }
+
+  els.jupyterKernelsBody.innerHTML = items
+    .map((server) => {
+      const capacity = server.capacity || {};
+      const summary = server.summary || {};
+      const capacityLabel = capacity.limited
+        ? `${capacity.current ?? "?"} / ${capacity.limit}`
+        : `${summary.total ?? capacity.current ?? 0} / 不限`;
+      const atLimitClass = capacity.at_limit ? " at-limit" : "";
+
+      if (!server.queryable) {
+        const reason = JUPYTER_QUERY_REASON_LABELS[server.query_reason] || server.query_reason || "无法查询";
+        return `
+          <div class="jupyter-kernels-server">
+            <div class="jupyter-kernels-server-header">
+              <div class="jupyter-kernels-server-title">
+                <strong>${escapeHtml(server.name || server.key)}</strong>
+                <code>${escapeHtml(server.key)}</code>
+              </div>
+            </div>
+            <p class="muted">${escapeHtml(reason)}</p>
+          </div>
+        `;
+      }
+
+      if (server.error) {
+        return `
+          <div class="jupyter-kernels-server">
+            <div class="jupyter-kernels-server-header">
+              <div class="jupyter-kernels-server-title">
+                <strong>${escapeHtml(server.name || server.key)}</strong>
+                <code>${escapeHtml(server.key)}</code>
+              </div>
+            </div>
+            <p class="auth-error">${escapeHtml(server.error)}</p>
+          </div>
+        `;
+      }
+
+      const kernelRows = (server.kernels || [])
+        .map((kernel) => {
+          const validationCell = kernel.linked
+            ? `<a href="#" data-action="view-validation-kernel" data-validation-id="${kernel.validation.validation_id}">#${kernel.validation.validation_id}</a> · ${escapeHtml(kernel.validation.title || "-")} <span class="muted">(${escapeHtml(kernel.validation.status)})</span>`
+            : kernel.validation?.kernel_cleaned_at
+              ? `<span class="muted">已清理 · #${kernel.validation.validation_id}</span>`
+              : `<span class="muted">未关联</span>`;
+          return `
+            <tr>
+              <td><code title="${escapeHtml(kernel.kernel_id)}">${escapeHtml(kernel.kernel_id.slice(0, 12))}${kernel.kernel_id.length > 12 ? "…" : ""}</code></td>
+              <td>${kernelExecutionBadge(kernel.execution_state)}</td>
+              <td title="${escapeHtml(kernel.last_activity || "")}">${formatRelativeTime(kernel.last_activity_ms ?? kernel.last_activity)}</td>
+              <td>${validationCell}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      return `
+        <div class="jupyter-kernels-server">
+          <div class="jupyter-kernels-server-header">
+            <div class="jupyter-kernels-server-title">
+              <strong>${escapeHtml(server.name || server.key)}</strong>
+              <code>${escapeHtml(server.key)}</code>
+            </div>
+            <div class="jupyter-kernels-capacity">
+              <span class="jupyter-kernels-count${atLimitClass}">${capacityLabel}</span>
+              <span class="muted">idle ${summary.idle ?? 0} · busy ${summary.busy ?? 0} · 孤儿 ${summary.orphan ?? 0}</span>
+            </div>
+          </div>
+          ${
+            kernelRows
+              ? `<div class="table-wrap">
+            <table class="validation-table jupyter-kernels-table">
+              <thead>
+                <tr>
+                  <th>Kernel ID</th>
+                  <th>状态</th>
+                  <th>最后活动</th>
+                  <th>关联验证</th>
+                </tr>
+              </thead>
+              <tbody>${kernelRows}</tbody>
+            </table>
+          </div>`
+              : `<p class="muted">当前无 kernel 占用。</p>`
+          }
+        </div>
+      `;
+    })
+    .join("");
+}
+
+async function loadJupyterKernelStatus(options = {}) {
+  const data = await apiGet("/api/jupyter-servers/kernel-status?include_disabled=1");
+  state.jupyterKernelStatus = data;
+  renderJupyterKernelPanels(data);
+  if (els.jupyterKernelsHint) {
+    els.jupyterKernelsHint.textContent = data.fetched_at
+      ? `最近更新：${formatTime(data.fetched_at)} · 共 ${(data.items || []).length} 台服务器`
+      : "";
+  }
+  if (state.jupyterServers.length) {
+    renderJupyterTable(state.jupyterServers);
+  }
+  return data;
+}
+
+function stopJupyterKernelPolling() {
+  if (state.jupyterKernelPollTimer) {
+    clearInterval(state.jupyterKernelPollTimer);
+    state.jupyterKernelPollTimer = null;
+  }
+}
+
+function startJupyterKernelPolling() {
+  stopJupyterKernelPolling();
+  if (!els.jupyterKernelsAutoRefresh?.checked) {
+    return;
+  }
+  state.jupyterKernelPollTimer = window.setInterval(() => {
+    if (state.tab === "jupyter") {
+      loadJupyterKernelStatus({ quiet: true }).catch(() => {});
+    }
+  }, 30000);
+}
+
+async function loadJupyterAdmin() {
+  await loadJupyterServersAdmin();
+  await loadJupyterKernelStatus();
+  startJupyterKernelPolling();
 }
 
 function badge(status) {
@@ -538,6 +739,117 @@ async function loadValidationProfiles(includeDisabled = false) {
   return data;
 }
 
+async function loadSystemSettings() {
+  const data = await apiGet("/api/workflow/system-settings");
+  renderSystemSettings(data);
+  return data;
+}
+
+function renderSystemSettings(data) {
+  const items = data.items || [];
+  if (els.settingsWorkflowBody) {
+    els.settingsWorkflowBody.innerHTML = items
+      .map((item) => {
+        if (item.type === "boolean") {
+          return `
+            <div class="settings-row" data-setting-key="${escapeHtml(item.key)}">
+              <div class="settings-row-main">
+                <div class="settings-row-label">${escapeHtml(item.label)}</div>
+                <div class="settings-row-desc muted">${escapeHtml(item.description || "")}</div>
+              </div>
+              <sl-switch class="settings-switch" data-setting-key="${escapeHtml(item.key)}" ${item.value ? "checked" : ""}>
+                ${escapeHtml(item.value ? "已开启" : "已关闭")}
+              </sl-switch>
+            </div>
+          `;
+        }
+        return `
+          <div class="settings-row" data-setting-key="${escapeHtml(item.key)}">
+            <div class="settings-row-main">
+              <div class="settings-row-label">${escapeHtml(item.label)}</div>
+              <div class="settings-row-desc muted">${escapeHtml(item.description || "")}</div>
+            </div>
+            <sl-input
+              class="settings-number"
+              type="number"
+              size="small"
+              data-setting-key="${escapeHtml(item.key)}"
+              min="${item.min ?? 1}"
+              max="${item.max ?? 30}"
+              value="${escapeHtml(String(item.value))}"
+            ></sl-input>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  const schedules = data.schedules || [];
+  if (els.settingsSchedulesBody) {
+    els.settingsSchedulesBody.innerHTML = schedules
+      .map(
+        (schedule) => `
+        <div class="settings-row settings-row--readonly">
+          <div class="settings-row-main">
+            <div class="settings-row-label">${escapeHtml(schedule.label)}</div>
+            <div class="settings-row-desc muted"><code>${escapeHtml(schedule.cron)}</code></div>
+          </div>
+          <span class="settings-badge">${escapeHtml(schedule.cron_label || schedule.cron)}</span>
+        </div>
+      `,
+      )
+      .join("");
+  }
+}
+
+async function patchSystemSetting(key, value) {
+  const data = await apiPatch("/api/workflow/system-settings", { [key]: value });
+  renderSystemSettings(data);
+  return data;
+}
+
+function showManualActionResult(payload) {
+  if (!els.settingsManualResult) return;
+  els.settingsManualResult.textContent = JSON.stringify(payload, null, 2);
+  els.settingsManualResult.classList.remove("hidden");
+}
+
+async function runValidationBatchNow() {
+  const button = els.settingsRunValidation;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.loading = true;
+  button.textContent = "运行中…";
+  try {
+    const result = await apiPost("/run-validation-batch");
+    showManualActionResult(result);
+    showToast("验证批处理已执行", "success");
+    return result;
+  } finally {
+    button.disabled = false;
+    button.loading = false;
+    button.textContent = originalText;
+  }
+}
+
+async function runKernelCleanupNow() {
+  const button = els.settingsRunCleanup;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.loading = true;
+  button.textContent = "运行中…";
+  try {
+    const result = await apiPost("/run-kernel-cleanup");
+    showManualActionResult(result);
+    showToast("Kernel 清理已执行", "success");
+    return result;
+  } finally {
+    button.disabled = false;
+    button.loading = false;
+    button.textContent = originalText;
+  }
+}
+
 async function loadEnabledProfileOptions() {
   const data = await loadValidationProfiles(false);
   const current = state.validations.profile_keys;
@@ -708,7 +1020,7 @@ async function loadJupyterServers(includeDisabled = true) {
 
 function renderJupyterTable(items) {
   if (!items.length) {
-    els.jupyterBody.innerHTML = `<tr><td colspan="7" class="muted">暂无 Jupyter Server 配置。</td></tr>`;
+    els.jupyterBody.innerHTML = `<tr><td colspan="9" class="muted">暂无 Jupyter Server 配置。</td></tr>`;
     return;
   }
   els.jupyterBody.innerHTML = items
@@ -718,6 +1030,8 @@ function renderJupyterTable(items) {
         <td><code>${server.key}</code></td>
         <td>${server.name}</td>
         <td title="${server.base_url}"><code>${truncateUrl(server.base_url)}</code></td>
+        <td>${server.max_kernels == null ? "不限" : server.max_kernels}</td>
+        <td>${renderJupyterCapacityCell(server.key)}</td>
         <td>${server.sort_order ?? 0}</td>
         <td>${server.enabled ? '<span class="badge active">enabled</span>' : '<span class="badge">disabled</span>'}</td>
         <td>${server.last_used_at ? formatTime(server.last_used_at) : "-"}</td>
@@ -771,6 +1085,8 @@ function openJupyterDialog(mode, server = null) {
   els.jupyterProxyUrlInput.value = server?.proxy_url ?? "";
   els.jupyterKernelNameInput.value = server?.kernel_name ?? "python3";
   els.jupyterRuntimeConfigInput.value = formatRuntimeConfig(server?.runtime_config);
+  els.jupyterMaxKernelsInput.value =
+    server?.max_kernels == null ? "" : String(server.max_kernels ?? 30);
   els.jupyterSortOrderInput.value = String(server?.sort_order ?? 0);
   els.jupyterEnabledInput.checked = server?.enabled !== false;
   els.jupyterDialog.showModal();
@@ -802,6 +1118,14 @@ async function saveJupyterFromForm(event) {
     proxy_url: els.jupyterProxyUrlInput.value.trim() || null,
     kernel_name: els.jupyterKernelNameInput.value.trim() || "python3",
     runtime_config: runtimeConfig,
+    max_kernels: (() => {
+      const raw = els.jupyterMaxKernelsInput.value.trim();
+      if (!raw) {
+        return 30;
+      }
+      const parsed = Number(raw);
+      return parsed === 0 ? 0 : parsed;
+    })(),
     sort_order: Number(els.jupyterSortOrderInput.value) || 0,
     enabled: els.jupyterEnabledInput.checked,
   };
@@ -1453,9 +1777,10 @@ function switchTab(tab) {
   document.getElementById("panel-jupyter").classList.toggle("hidden", tab !== "jupyter");
   document.getElementById("panel-llm").classList.toggle("hidden", tab !== "llm");
   document.getElementById("panel-operators").classList.toggle("hidden", tab !== "operators");
+  document.getElementById("panel-settings").classList.toggle("hidden", tab !== "settings");
   els.appLayout.classList.toggle(
     "layout-wide",
-    tab === "validations" || tab === "profiles" || tab === "jupyter" || tab === "llm",
+    tab === "validations" || tab === "profiles" || tab === "jupyter" || tab === "llm" || tab === "settings",
   );
   if (tab === "validations") {
     loadIdeaSourceOptions()
@@ -1465,9 +1790,14 @@ function switchTab(tab) {
   } else if (tab === "profiles") {
     loadValidationProfilesAdmin().catch(handleError);
   } else if (tab === "jupyter") {
-    loadJupyterServersAdmin().catch(handleError);
+    loadJupyterAdmin().catch(handleError);
   } else if (tab === "llm") {
     loadLlmAdmin().catch(handleError);
+  } else if (tab === "settings") {
+    loadSystemSettings().catch(handleError);
+  }
+  if (tab !== "jupyter") {
+    stopJupyterKernelPolling();
   }
 }
 
@@ -1678,6 +2008,61 @@ document.getElementById("validations-refresh").addEventListener("click", () => {
   loadValidationResults().catch(handleError);
 });
 
+document.getElementById("settings-refresh").addEventListener("click", () => {
+  loadSystemSettings().catch(handleError);
+});
+
+els.settingsWorkflowBody?.addEventListener("sl-change", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || !target.matches(".settings-switch")) {
+    return;
+  }
+  const key = target.dataset.settingKey;
+  const enabled = target.checked;
+  try {
+    await patchSystemSetting(key, enabled);
+    showToast("已保存", "success");
+  } catch (error) {
+    target.checked = !enabled;
+    handleError(error);
+  }
+});
+
+els.settingsWorkflowBody?.addEventListener("sl-change", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || !target.matches(".settings-number")) {
+    return;
+  }
+  const key = target.dataset.settingKey;
+  const value = Number(target.value);
+  const previous = target.getAttribute("data-last-value");
+  try {
+    await patchSystemSetting(key, value);
+    target.setAttribute("data-last-value", String(value));
+    showToast("已保存", "success");
+  } catch (error) {
+    if (previous != null) {
+      target.value = previous;
+    }
+    handleError(error);
+  }
+});
+
+els.settingsWorkflowBody?.addEventListener("focusin", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLElement && target.matches(".settings-number")) {
+    target.setAttribute("data-last-value", target.value);
+  }
+});
+
+els.settingsRunValidation?.addEventListener("click", () => {
+  runValidationBatchNow().catch(handleError);
+});
+
+els.settingsRunCleanup?.addEventListener("click", () => {
+  runKernelCleanupNow().catch(handleError);
+});
+
 document.getElementById("validations-preset-rank-ic").addEventListener("click", () => {
   applyValidationPreset({ sort: "mean_rank_ic" });
 });
@@ -1732,7 +2117,27 @@ document.getElementById("jupyter-create").addEventListener("click", () => {
 });
 
 document.getElementById("jupyter-refresh").addEventListener("click", () => {
-  loadJupyterServersAdmin().catch(handleError);
+  loadJupyterAdmin().catch(handleError);
+});
+
+els.jupyterKernelsRefresh?.addEventListener("click", () => {
+  loadJupyterKernelStatus().catch(handleError);
+});
+
+els.jupyterKernelsAutoRefresh?.addEventListener("sl-change", () => {
+  if (state.tab === "jupyter") {
+    startJupyterKernelPolling();
+  }
+});
+
+els.jupyterKernelsBody?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-action='view-validation-kernel']");
+  if (!button) return;
+  event.preventDefault();
+  const validationId = button.getAttribute("data-validation-id");
+  if (!validationId) return;
+  switchTab("validations");
+  showToast(`请在验证结果页查找验证 #${validationId}`, "success");
 });
 
 els.jupyterForm.addEventListener("submit", (event) => {

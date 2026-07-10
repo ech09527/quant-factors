@@ -124,6 +124,11 @@ export class JupyterWorkerClient {
     return String(kernelId);
   }
 
+  async listKernels() {
+    const payload = await this.requestJson("/api/kernels");
+    return Array.isArray(payload) ? payload : [];
+  }
+
   async shutdownKernel(kernelId) {
     const id = String(kernelId ?? "").trim();
     if (!id) {
@@ -202,6 +207,42 @@ export class JupyterWorkerClient {
     ws.close(1000, "submitted");
     return { kernel_id: kernelId, session_id: sessionId, msg_id: msgId };
   }
+}
+
+export function readMaxKernels(server) {
+  const raw = server?.max_kernels;
+  if (raw === 0 || raw === "0") {
+    return null;
+  }
+  const parsed = Number(raw ?? 30);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 30;
+  }
+  return Math.floor(parsed);
+}
+
+export async function getJupyterKernelCapacity(client, server) {
+  const limit = readMaxKernels(server);
+  if (limit == null) {
+    return {
+      limited: false,
+      current: null,
+      limit: null,
+      available: null,
+      at_limit: false
+    };
+  }
+
+  const kernels = await client.listKernels();
+  const current = kernels.length;
+  const available = Math.max(0, limit - current);
+  return {
+    limited: true,
+    current,
+    limit,
+    available,
+    at_limit: current >= limit
+  };
 }
 
 export function selectWorkerJupyterServer(servers, preferredKey) {

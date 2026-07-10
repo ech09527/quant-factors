@@ -18,14 +18,19 @@ MAX_IDEAS = "3"
 GITHUB_RAW_BASE = "https://raw.githubusercontent.com/ech09527/quant-factors/main"
 # LLM 凭证改由 D1 llm_providers 管理；以下仅作未配置 D1 时的 fallback
 OPENAI_MODEL = "glm-4-flash"
-VALIDATION_BATCH_ENABLED = "1"
-VALIDATION_BATCH_LIMIT = "5"
+VALIDATION_BATCH_ENABLED = "0"
+VALIDATION_BATCH_LIMIT = "10"
+VALIDATION_STALE_RUNNING_MINUTES = "5"
 VALIDATION_JUPYTER_SERVER_KEY = "lynas-pub"
 KERNEL_CLEANUP_ENABLED = "1"
-KERNEL_CLEANUP_LIMIT = "10"
+KERNEL_CLEANUP_LIMIT = "30"
 KERNEL_CLEANUP_GRACE_MINUTES = "2"
+KERNEL_ORPHAN_SWEEP_ENABLED = "1"
+KERNEL_ORPHAN_SWEEP_LIMIT = "30"
+KERNEL_ORPHAN_SWEEP_IDLE_MINUTES = "5"
 SAMPLE_START = "2023-01-01"
 FACTOR_API_BASE_URL = "https://quant-factors-dashboard.pages.dev"
 
 [triggers]
-crons = ["*/5 * * * *"]
+# 验证 + kernel 清理：每 2 分钟；想法生成：每 5 分钟
+crons = ["*/2 * * * *", "*/5 * * * *"]

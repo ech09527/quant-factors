@@ -1,6 +1,10 @@
-import { JupyterWorkerClient } from "./jupyter-async.js";
+import { JupyterWorkerClient, selectWorkerJupyterServer } from "./jupyter-async.js";
+import { getKernelCleanupEnabled } from "./workflow-settings.js";
 import {
   getJupyterServerByKey,
+  getValidationKernelCleanupTarget,
+  listActiveJupyterKernelIds,
+  listEnabledJupyterServers,
   listValidationsPendingKernelCleanup,
   markValidationKernelCleaned,
   patchValidationDiagnostics
@@ -14,12 +18,8 @@ function parsePositiveInt(value, fallback, max) {
   return Math.min(Math.floor(parsed), max);
 }
 
-function cleanupEnabled(env) {
-  const flag = env.KERNEL_CLEANUP_ENABLED?.trim().toLowerCase();
-  if (flag === "0" || flag === "false" || flag === "off") {
-    return false;
-  }
-  return true;
+async function cleanupEnabled(db, env) {
+  return getKernelCleanupEnabled(db, env);
 }
 
 function isKernelAlreadyGone(error) {
@@ -27,12 +27,97 @@ function isKernelAlreadyGone(error) {
   return /\b404\b/.test(message) || /not found/i.test(message);
 }
 
-export async function runKernelCleanup(env) {
-  if (!cleanupEnabled(env)) {
-    return { skipped: true, reason: "KERNEL_CLEANUP_ENABLED is off" };
+function orphanSweepEnabled(env) {
+  const flag = env.KERNEL_ORPHAN_SWEEP_ENABLED?.trim().toLowerCase();
+  if (flag === "0" || flag === "false" || flag === "off") {
+    return false;
+  }
+  return true;
+}
+
+function parseKernelLastActivityMs(kernel) {
+  const raw = String(kernel?.last_activity ?? "").trim();
+  if (!raw) {
+    return 0;
+  }
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function sweepOrphanIdleKernels(env, { limit, idleMinutes }) {
+  if (!orphanSweepEnabled(env)) {
+    return { scanned: 0, deleted: 0, already_gone: 0, failed: 0, skipped: 0, errors: [] };
   }
 
-  const limit = parsePositiveInt(env.KERNEL_CLEANUP_LIMIT, 10, 50);
+  const servers = await listEnabledJupyterServers(env.DB);
+  const { server } = selectWorkerJupyterServer(
+    servers,
+    env.VALIDATION_JUPYTER_SERVER_KEY?.trim() || "lynas-pub"
+  );
+  const activeKernelIds = await listActiveJupyterKernelIds(env.DB);
+  const client = new JupyterWorkerClient(server);
+  const idleCutoffMs = Date.now() - idleMinutes * 60_000;
+
+  let kernels;
+  try {
+    kernels = await client.listKernels();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { scanned: 0, deleted: 0, already_gone: 0, failed: 1, skipped: 0, errors: [{ error: message }] };
+  }
+
+  const candidates = kernels
+    .filter((kernel) => String(kernel?.execution_state ?? "") === "idle")
+    .filter((kernel) => {
+      const kernelId = String(kernel?.id ?? "").trim();
+      return kernelId && !activeKernelIds.has(kernelId);
+    })
+    .filter((kernel) => {
+      const lastActivityMs = parseKernelLastActivityMs(kernel);
+      return lastActivityMs > 0 && lastActivityMs < idleCutoffMs;
+    })
+    .sort((a, b) => parseKernelLastActivityMs(a) - parseKernelLastActivityMs(b))
+    .slice(0, limit);
+
+  let deleted = 0;
+  let alreadyGone = 0;
+  let failed = 0;
+  const errors = [];
+
+  for (const kernel of candidates) {
+    const kernelId = String(kernel.id);
+    try {
+      await client.shutdownKernel(kernelId);
+      deleted += 1;
+    } catch (error) {
+      if (isKernelAlreadyGone(error)) {
+        alreadyGone += 1;
+        continue;
+      }
+      failed += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      if (errors.length < 10) {
+        errors.push({ kernel_id: kernelId, error: message });
+      }
+    }
+  }
+
+  return {
+    scanned: candidates.length,
+    deleted,
+    already_gone: alreadyGone,
+    failed,
+    skipped: 0,
+    errors
+  };
+}
+
+export async function runKernelCleanup(env) {
+  if (!(await cleanupEnabled(env.DB, env))) {
+    return { skipped: true, reason: "kernel_cleanup_disabled" };
+  }
+
+  const limit = parsePositiveInt(env.KERNEL_CLEANUP_LIMIT, 30, 100);
   const graceMinutes = parsePositiveInt(env.KERNEL_CLEANUP_GRACE_MINUTES, 2, 60);
   const pending = await listValidationsPendingKernelCleanup(env.DB, {
     limit,
@@ -40,19 +125,35 @@ export async function runKernelCleanup(env) {
   });
 
   if (pending.length === 0) {
-    return { scanned: 0, deleted: 0, already_gone: 0, failed: 0, errors: [] };
+    const orphanSweep = await sweepOrphanIdleKernels(env, {
+      limit: parsePositiveInt(env.KERNEL_ORPHAN_SWEEP_LIMIT, 30, 100),
+      idleMinutes: parsePositiveInt(env.KERNEL_ORPHAN_SWEEP_IDLE_MINUTES, 5, 60)
+    });
+    return { scanned: 0, deleted: 0, already_gone: 0, failed: 0, skipped: 0, errors: [], orphan_sweep: orphanSweep };
   }
 
   const clientCache = new Map();
   let deleted = 0;
   let alreadyGone = 0;
   let failed = 0;
+  let skipped = 0;
   const errors = [];
 
   for (const item of pending) {
-    const serverKey = item.jupyter_server_key;
-    const kernelId = item.kernel_id;
+    const target = await getValidationKernelCleanupTarget(
+      env.DB,
+      item.validation_id,
+      item.kernel_id
+    );
+    if (!target) {
+      skipped += 1;
+      continue;
+    }
+
+    const serverKey = target.jupyter_server_key;
+    const kernelId = target.kernel_id;
     if (!serverKey || !kernelId) {
+      skipped += 1;
       continue;
     }
 
@@ -78,16 +179,24 @@ export async function runKernelCleanup(env) {
 
     try {
       await client.shutdownKernel(kernelId);
-      deleted += 1;
-      await markValidationKernelCleaned(env.DB, item.validation_id, {
+      const marked = await markValidationKernelCleaned(env.DB, item.validation_id, kernelId, {
         kernel_cleanup_status: "deleted"
       });
+      if (marked.updated > 0) {
+        deleted += 1;
+      } else {
+        skipped += 1;
+      }
     } catch (error) {
       if (isKernelAlreadyGone(error)) {
-        alreadyGone += 1;
-        await markValidationKernelCleaned(env.DB, item.validation_id, {
+        const marked = await markValidationKernelCleaned(env.DB, item.validation_id, kernelId, {
           kernel_cleanup_status: "already_gone"
         });
+        if (marked.updated > 0) {
+          alreadyGone += 1;
+        } else {
+          skipped += 1;
+        }
         continue;
       }
       failed += 1;
@@ -110,6 +219,11 @@ export async function runKernelCleanup(env) {
     deleted,
     already_gone: alreadyGone,
     failed,
-    errors
+    skipped,
+    errors,
+    orphan_sweep: await sweepOrphanIdleKernels(env, {
+      limit: parsePositiveInt(env.KERNEL_ORPHAN_SWEEP_LIMIT, 30, 100),
+      idleMinutes: parsePositiveInt(env.KERNEL_ORPHAN_SWEEP_IDLE_MINUTES, 5, 60)
+    })
   };
 }

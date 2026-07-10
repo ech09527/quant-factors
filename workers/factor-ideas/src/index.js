@@ -382,6 +382,29 @@ function parseJsonObject(value) {
   return null;
 }
 __name(parseJsonObject, "parseJsonObject");
+const KERNEL_EXECUTION_DIAGNOSTIC_KEYS = [
+  "async",
+  "stage",
+  "jupyter_server_key",
+  "jupyter_server_fallback_from",
+  "jupyter_server_fallback_reason",
+  "kernel_id",
+  "session_id",
+  "msg_id",
+  "submitted_at",
+  "kernel_cleaned_at",
+  "kernel_cleanup_status",
+  "kernel_cleanup_error",
+  "kernel_cleanup_attempted_at"
+];
+function stripKernelExecutionDiagnostics(diagnostics) {
+  const next = { ...diagnostics ?? {} };
+  for (const key of KERNEL_EXECUTION_DIAGNOSTIC_KEYS) {
+    delete next[key];
+  }
+  return next;
+}
+__name(stripKernelExecutionDiagnostics, "stripKernelExecutionDiagnostics");
 function rowToProfile(row) {
   return {
     key: String(row.key),
@@ -893,7 +916,7 @@ async function claimValidationWorkflowJobs(db, jobs) {
       continue;
     }
     const existing = await db.prepare(
-      `SELECT id, status, updated_at
+      `SELECT id, status, updated_at, diagnostics
          FROM idea_validations
          WHERE idea_id = ? AND profile_key = ?
          LIMIT 1`
@@ -904,11 +927,19 @@ async function claimValidationWorkflowJobs(db, jobs) {
       if (status === "success" || status === "skipped" || status === "running") {
         continue;
       }
+      const resetDiagnostics = stripKernelExecutionDiagnostics(
+        parseJsonObject(existing.diagnostics) ?? {}
+      );
+      const diagnosticsJson =
+        Object.keys(resetDiagnostics).length > 0 ? JSON.stringify(resetDiagnostics) : null;
       const result = await db.prepare(
         `UPDATE idea_validations
-           SET status = 'running', error_reason = NULL, updated_at = datetime('now')
+           SET status = 'running',
+               error_reason = NULL,
+               diagnostics = ?,
+               updated_at = datetime('now')
            WHERE id = ? AND status NOT IN ('success', 'skipped', 'running')`
-      ).bind(existing.id).run();
+      ).bind(diagnosticsJson, existing.id).run();
       if (Number(result.meta.changes ?? 0) === 0) {
         continue;
       }
@@ -995,6 +1026,11 @@ async function reportValidationWorkflowResults(db, items) {
 }
 __name(reportValidationWorkflowResults, "reportValidationWorkflowResults");
 function rowToJupyterServer(row) {
+  const maxKernelsRaw = row.max_kernels;
+  const maxKernels =
+    maxKernelsRaw == null || maxKernelsRaw === ""
+      ? null
+      : Number(maxKernelsRaw);
   return {
     key: String(row.key),
     name: String(row.name),
@@ -1008,6 +1044,12 @@ function rowToJupyterServer(row) {
     auth_scheme: String(row.auth_scheme),
     auth_token: String(row.auth_token),
     runtime_config: parseRuntimeConfigValue(row.runtime_config),
+    max_kernels:
+      maxKernelsRaw === 0 || maxKernelsRaw === "0"
+        ? null
+        : Number.isFinite(maxKernels) && maxKernels > 0
+          ? Math.floor(maxKernels)
+          : 30,
     enabled: Number(row.enabled ?? 1) === 1,
     sort_order: Number(row.sort_order ?? 0),
     last_used_at: row.last_used_at == null ? null : String(row.last_used_at),
@@ -1051,7 +1093,7 @@ async function listEnabledJupyterServers(db) {
   const result = await db.prepare(
     `SELECT
          key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-         auth_header, auth_scheme, auth_token, runtime_config,
+         auth_header, auth_scheme, auth_token, runtime_config, max_kernels,
          enabled, sort_order, last_used_at, created_at, updated_at
        FROM jupyter_servers
        WHERE enabled = 1
@@ -1099,6 +1141,12 @@ function validateJupyterFields(input) {
       return error instanceof Error ? error.message : String(error);
     }
   }
+  if (input.max_kernels !== void 0 && input.max_kernels !== null && input.max_kernels !== "") {
+    const parsed = Number(input.max_kernels);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return "max_kernels 必须是非负整数（0 表示不限制）";
+    }
+  }
   return null;
 }
 __name(validateJupyterFields, "validateJupyterFields");
@@ -1106,7 +1154,7 @@ async function getJupyterServerByKey(db, key) {
   const row = await db.prepare(
     `SELECT
          key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-         auth_header, auth_scheme, auth_token, runtime_config,
+         auth_header, auth_scheme, auth_token, runtime_config, max_kernels,
          enabled, sort_order, last_used_at, created_at, updated_at
        FROM jupyter_servers
        WHERE key = ?
@@ -1120,7 +1168,7 @@ async function listJupyterServers(db, options = {}) {
   const result = await db.prepare(
     `SELECT
          key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-         auth_header, auth_scheme, auth_token, runtime_config,
+         auth_header, auth_scheme, auth_token, runtime_config, max_kernels,
          enabled, sort_order, last_used_at, created_at, updated_at
        FROM jupyter_servers
        ${where}
@@ -1148,11 +1196,17 @@ async function createJupyterServer(db, input) {
   const runtime_config = serializeRuntimeConfig(
     input.runtime_config !== void 0 ? parseRuntimeConfigValue(input.runtime_config) : defaultRuntimeConfig()
   );
+  const max_kernels =
+    input.max_kernels === 0 || input.max_kernels === "0"
+      ? null
+      : input.max_kernels == null || input.max_kernels === ""
+        ? 30
+        : Math.floor(Number(input.max_kernels));
   await db.prepare(
     `INSERT INTO jupyter_servers
          (key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-          auth_header, auth_scheme, auth_token, runtime_config, enabled, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          auth_header, auth_scheme, auth_token, runtime_config, max_kernels, enabled, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     key,
     input.name.trim(),
@@ -1166,6 +1220,7 @@ async function createJupyterServer(db, input) {
     String(input.auth_scheme ?? "token").trim() || "token",
     input.auth_token.trim(),
     runtime_config,
+    max_kernels,
     input.enabled === false ? 0 : 1,
     Math.floor(input.sort_order ?? 0)
   ).run();
@@ -1196,13 +1251,21 @@ async function updateJupyterServer(db, key, input) {
   const auth_scheme = input.auth_scheme !== void 0 ? String(input.auth_scheme).trim() || "token" : existing.auth_scheme;
   const auth_token = input.auth_token !== void 0 ? input.auth_token.trim() : existing.auth_token;
   const runtime_config = input.runtime_config !== void 0 ? serializeRuntimeConfig(parseRuntimeConfigValue(input.runtime_config)) : serializeRuntimeConfig(existing.runtime_config);
+  const max_kernels =
+    input.max_kernels !== void 0
+      ? input.max_kernels === 0 || input.max_kernels === "0"
+        ? null
+        : input.max_kernels == null || input.max_kernels === ""
+          ? 30
+          : Math.floor(Number(input.max_kernels))
+      : existing.max_kernels ?? 30;
   const enabled = input.enabled !== void 0 ? input.enabled ? 1 : 0 : existing.enabled ? 1 : 0;
   const sort_order = input.sort_order !== void 0 ? Math.floor(input.sort_order) : existing.sort_order;
   await db.prepare(
     `UPDATE jupyter_servers
        SET name = ?, base_url = ?, evaluate_path = ?, proxy_url = ?, connect_mode = ?,
            ws_base_url = ?, kernel_name = ?, auth_header = ?, auth_scheme = ?, auth_token = ?,
-           runtime_config = ?, enabled = ?, sort_order = ?, updated_at = datetime('now')
+           runtime_config = ?, max_kernels = ?, enabled = ?, sort_order = ?, updated_at = datetime('now')
        WHERE key = ?`
   ).bind(
     name,
@@ -1216,6 +1279,7 @@ async function updateJupyterServer(db, key, input) {
     auth_scheme,
     auth_token,
     runtime_config,
+    max_kernels,
     enabled,
     sort_order,
     key
@@ -1374,6 +1438,12 @@ async function handleJupyterServerMutation(request, env, pathname, method) {
         auth_scheme: body.auth_scheme == null ? void 0 : String(body.auth_scheme),
         auth_token: String(body.auth_token ?? ""),
         runtime_config: body.runtime_config,
+        max_kernels:
+          body.max_kernels === 0 || body.max_kernels === "0"
+            ? null
+            : body.max_kernels == null || body.max_kernels === ""
+              ? 30
+              : Number(body.max_kernels),
         sort_order: body.sort_order == null ? 0 : Number(body.sort_order),
         enabled: body.enabled !== false
       });
@@ -1409,6 +1479,12 @@ async function handleJupyterServerMutation(request, env, pathname, method) {
         auth_scheme: body.auth_scheme == null ? void 0 : String(body.auth_scheme),
         auth_token: body.auth_token == null ? void 0 : String(body.auth_token),
         runtime_config: body.runtime_config,
+        max_kernels:
+          body.max_kernels === void 0
+            ? void 0
+            : body.max_kernels == null || body.max_kernels === ""
+              ? null
+              : Number(body.max_kernels),
         sort_order: body.sort_order == null ? void 0 : Number(body.sort_order),
         enabled: body.enabled === void 0 ? void 0 : Boolean(body.enabled)
       });

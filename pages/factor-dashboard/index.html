@@ -44,6 +44,7 @@
         <button class="tab" data-tab="jupyter" role="tab" aria-selected="false">Jupyter 服务器</button>
         <button class="tab" data-tab="llm" role="tab" aria-selected="false">LLM API</button>
         <button class="tab" data-tab="operators" role="tab" aria-selected="false">自定义算子</button>
+        <button class="tab" data-tab="settings" role="tab" aria-selected="false">系统配置</button>
       </nav>
 
       <section class="panel" id="panel-ideas">
@@ -212,6 +213,8 @@
                 <th>Key</th>
                 <th>名称</th>
                 <th>Base URL</th>
+                <th>Max Kernels</th>
+                <th>当前占用</th>
                 <th>排序</th>
                 <th>状态</th>
                 <th>最近使用</th>
@@ -220,6 +223,17 @@
             </thead>
             <tbody id="jupyter-body"></tbody>
           </table>
+        </div>
+        <div class="jupyter-kernels-panel">
+          <div class="jupyter-kernels-toolbar">
+            <h3 class="section-subtitle">Kernel 实时监控</h3>
+            <div class="toolbar-right toolbar-actions">
+              <sl-checkbox id="jupyter-kernels-auto-refresh" checked>每 30 秒自动刷新</sl-checkbox>
+              <sl-button id="jupyter-kernels-refresh" size="small">刷新 Kernel</sl-button>
+            </div>
+          </div>
+          <p class="muted jupyter-kernels-hint" id="jupyter-kernels-hint"></p>
+          <div id="jupyter-kernels-body" class="jupyter-kernels-body"></div>
         </div>
       </section>
 
@@ -298,6 +312,36 @@
           </table>
         </div>
         <div class="pager" id="operators-pager"></div>
+      </section>
+
+      <section class="panel hidden" id="panel-settings">
+        <div class="toolbar settings-toolbar">
+          <div class="toolbar-left">
+            <p class="muted profile-hint">管理工作流调度与批处理参数。修改后立即生效，无需重新部署 Worker。</p>
+          </div>
+          <div class="toolbar-right toolbar-actions">
+            <sl-button id="settings-refresh" size="small">刷新</sl-button>
+          </div>
+        </div>
+        <div class="settings-layout">
+          <div class="settings-card">
+            <h3 class="settings-card-title">调度任务</h3>
+            <div id="settings-workflow-body" class="settings-list"></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">Cron 计划</h3>
+            <div id="settings-schedules-body" class="settings-list"></div>
+          </div>
+          <div class="settings-card">
+            <h3 class="settings-card-title">手动触发</h3>
+            <p class="muted settings-card-hint">立即执行一次，不受上方开关限制。</p>
+            <div class="settings-actions">
+              <sl-button id="settings-run-validation" variant="primary" size="small">运行验证批处理</sl-button>
+              <sl-button id="settings-run-cleanup" size="small">运行 Kernel 清理</sl-button>
+            </div>
+            <pre id="settings-manual-result" class="settings-manual-result hidden"></pre>
+          </div>
+        </div>
       </section>
     </div>
 
@@ -396,6 +440,15 @@
           placeholder="http://user:pass@host:port"
         ></sl-input>
         <sl-input id="jupyter-kernel-name" name="kernel_name" label="Kernel 名称" value="python3"></sl-input>
+        <sl-input
+          id="jupyter-max-kernels"
+          name="max_kernels"
+          type="number"
+          min="0"
+          label="最大 Kernel 数"
+          value="30"
+          help-text="默认 30；填 0 表示不限制"
+        ></sl-input>
         <sl-textarea
           id="jupyter-runtime-config"
           name="runtime_config"
