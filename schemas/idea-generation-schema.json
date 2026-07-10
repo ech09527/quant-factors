@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "required": [
+    "title",
+    "hypothesis",
+    "data_sources",
+    "formula_sketch",
+    "expected_signal",
+    "risks",
+    "factor_expr",
+    "factor_sql"
+  ],
+  "properties": {
+    "title": { "type": "string" },
+    "hypothesis": { "type": "string" },
+    "data_sources": { "type": "array", "items": { "type": "string" } },
+    "formula_sketch": { "type": "string" },
+    "expected_signal": { "type": "string" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "factor_expr": {
+      "type": "string",
+      "description": "Qlib-style DSL string, e.g. CSRank($ret_24h / ($vol_24h + 1e-8))"
+    },
+    "factor_sql": {
+      "$ref": "./factor-sql-schema.json"
+    },
+    "custom_ops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "signature", "description"],
+        "properties": {
+          "name": { "type": "string" },
+          "signature": { "type": "string" },
+          "description": { "type": "string" },
+          "example": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import { buildAsyncEvalCode } from "./eval-kernel-builder.js";
 import { JupyterWorkerClient, selectWorkerJupyterServer } from "./jupyter-async.js";
-import { translateIdeaToFactorSql } from "./translate-idea.js";
+import { hasStoredFactorSql, validateFactorSqlBasic } from "./factor-sql-validate.js";
 import {
   claimValidationWorkflowJobs,
   listEnabledJupyterServers,
@@ -41,17 +41,6 @@ function validationEnabled(env) {
   return true;
 }
 
-function buildIdeaForTranslation(job) {
-  return {
-    title: job.title,
-    title_hash: job.title_hash,
-    hypothesis: job.hypothesis,
-    formula_sketch: job.formula_sketch,
-    expected_signal: job.expected_signal,
-    data_sources: job.data_sources
-  };
-}
-
 function buildIdeaForEval(job) {
   return {
     title: job.title,
@@ -72,7 +61,7 @@ export async function runValidationBatch(env) {
 
   const pending = await listPendingValidationWorkflowJobs(env.DB, limit);
   if (pending.items.length === 0) {
-    return { claimed: 0, submitted: 0, failed: 0, errors: [] };
+    return { claimed: 0, submitted: 0, failed: 0, ignored: 0, errors: [] };
   }
 
   const claimPayload = pending.items.map((job) => ({
@@ -82,7 +71,7 @@ export async function runValidationBatch(env) {
   const claimResult = await claimValidationWorkflowJobs(env.DB, claimPayload);
   const jobs = mergeClaimedJobs(pending.items, claimResult.jobs);
   if (jobs.length === 0) {
-    return { claimed: 0, submitted: 0, failed: 0, errors: [] };
+    return { claimed: 0, submitted: 0, failed: 0, ignored: 0, errors: [] };
   }
 
   const servers = await listEnabledJupyterServers(env.DB);
@@ -91,42 +80,44 @@ export async function runValidationBatch(env) {
   const runtimeConfig = server.runtime_config ?? { target_file: "futures/um/klines/1h.parquet" };
   const reportConfig = readReportConfig(env, runtimeConfig);
 
-  const factorSqlCache = new Map();
-  const translationErrors = new Map();
   const errors = [];
   let submitted = 0;
   let failed = 0;
+  let ignored = 0;
 
   for (const job of jobs) {
     const validationId = Number(job.validation_id);
-    const ideaId = Number(job.idea_id);
     const profileKey = String(job.profile_key);
 
-    let factorSql = factorSqlCache.get(ideaId);
-    if (factorSql == null && !translationErrors.has(ideaId)) {
-      try {
-        factorSql = await translateIdeaToFactorSql(
-          env,
-          buildIdeaForTranslation(job),
-          profileKey
-        );
-        factorSqlCache.set(ideaId, factorSql);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        translationErrors.set(ideaId, `翻译失败: ${message}`);
-      }
+    if (!hasStoredFactorSql(job.factor_sql)) {
+      await reportValidationWorkflowResults(env.DB, [
+        {
+          validation_id: validationId,
+          status: "skipped",
+          factor_sql: null,
+          metrics: null,
+          diagnostics: { stage: "preflight", reason: "idea has no factor_sql" },
+          error_reason: "idea has no factor_sql"
+        }
+      ]);
+      ignored += 1;
+      continue;
     }
 
-    if (translationErrors.has(ideaId)) {
-      const message = translationErrors.get(ideaId);
+    let factorSql;
+    try {
+      validateFactorSqlBasic(job.factor_sql);
+      factorSql = job.factor_sql;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       await reportValidationWorkflowResults(env.DB, [
         {
           validation_id: validationId,
           status: "failed",
-          factor_sql: null,
+          factor_sql: job.factor_sql,
           metrics: null,
-          diagnostics: { error: message, stage: "translation" },
-          error_reason: message
+          diagnostics: { error: message, stage: "factor_sql_validation" },
+          error_reason: `factor_sql 无效: ${message}`
         }
       ]);
       failed += 1;
@@ -192,6 +183,7 @@ export async function runValidationBatch(env) {
     claimed: jobs.length,
     submitted,
     failed,
+    ignored,
     jupyter_server_key: server.key,
     jupyter_server_fallback_from: fallbackFrom,
     errors

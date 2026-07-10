@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from typing import Any
 
 
 SECTION_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+FACTOR_SQL_PATTERN = re.compile(
+    r"<details>\s*<summary>因子 SQL</summary>\s*```json\s*(.*?)\s*```",
+    re.DOTALL | re.IGNORECASE,
+)
+EVALUATIONS_LINK_PATTERN = re.compile(
+    r"evaluations/([0-9a-f]{64})\.json",
+    re.IGNORECASE,
+)
 
 
 def _split_sections(body: str) -> dict[str, str]:
@@ -70,3 +80,40 @@ def infer_evaluation_type(expected_signal: str, formula_sketch: str) -> str:
     if "时序" in text or "单标的" in text or "time_series" in text:
         return "time_series"
     return "cross_sectional"
+
+
+def parse_factor_sql_from_body(body: str) -> dict[str, Any] | None:
+    match = FACTOR_SQL_PATTERN.search(body)
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or not payload.get("signal_sql"):
+        return None
+    return payload
+
+
+def load_factor_sql_from_evaluations(
+    title_hash: str,
+    repo_root: Path,
+) -> dict[str, Any] | None:
+    path = repo_root / "evaluations" / f"{title_hash}.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    factor_sql = payload.get("factor_sql")
+    if not isinstance(factor_sql, dict) or not factor_sql.get("signal_sql"):
+        return None
+    return factor_sql
+
+
+def evaluations_title_hash_from_body(body: str) -> str | None:
+    match = EVALUATIONS_LINK_PATTERN.search(body)
+    if not match:
+        return None
+    return match.group(1)

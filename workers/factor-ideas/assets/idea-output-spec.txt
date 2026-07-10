@@ -1,0 +1,12 @@
+严格 JSON：`{"ideas":[...]}`，不要 markdown 代码块。
+
+每条 idea 必填字段：
+- title, hypothesis, data_sources（如 ["yhydev97/quant-data"]）
+- formula_sketch, expected_signal, risks（字符串数组）
+- formula_sketch / expected_signal 可为字符串，或多行字符串数组（导入时会自动合并）
+- factor_expr：Qlib DSL，字段 `$` 前缀，须用白名单字段
+- factor_sql：DuckDB 翻译结果（含 signal_sql、postprocess、universe），与 formula_sketch 语义一致
+
+可选：custom_ops（使用非内置算子时，每项含 name, signature, description）
+
+横截面因子：factor_expr 应含 CSRank 或 CSZScore，factor_sql.evaluation_type=cross_sectional；时序类在 expected_signal 标注「时序」，factor_sql.evaluation_type=time_series。

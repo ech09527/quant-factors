@@ -1,10 +1,22 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="sl-theme-dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Quant Factors 控制台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/dark.css" />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/ui-theme.css" />
+    <script
+      type="module"
+      src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js"
+    ></script>
   </head>
   <body>
     <div class="layout locked" id="app-layout">
@@ -35,15 +47,24 @@
       </nav>
 
       <section class="panel" id="panel-ideas">
-        <div class="toolbar">
-          <div class="toolbar-left">
-            <label>
-              生成数量
-              <input id="generate-count" type="number" min="1" max="5" value="3" />
+        <div class="toolbar ideas-toolbar">
+          <div class="toolbar-main">
+            <label class="filter-cell">
+              <span class="filter-label">来源</span>
+              <sl-select id="ideas-source" size="small" value="" hoist>
+                <sl-option value="">全部</sl-option>
+              </sl-select>
             </label>
-            <button id="ideas-generate" type="button" class="btn-primary">生成想法</button>
+            <label class="filter-cell filter-cell--narrow">
+              <span class="filter-label">生成数量</span>
+              <sl-input id="generate-count" type="number" min="1" max="5" value="3" size="small"></sl-input>
+            </label>
+            <sl-button id="ideas-generate" variant="primary" size="small">生成想法</sl-button>
+            <sl-button id="ideas-prompt-preview" size="small">查看提示词</sl-button>
+            <sl-button id="ideas-import-open" size="small">手动添加</sl-button>
           </div>
-          <button id="ideas-refresh" type="button">刷新</button>
+          <sl-button id="ideas-apply" variant="primary" size="small">查询</sl-button>
+          <sl-button id="ideas-refresh" size="small">刷新</sl-button>
         </div>
         <div class="table-wrap">
           <table>
@@ -63,57 +84,62 @@
 
       <section class="panel hidden" id="panel-validations">
         <div class="toolbar validations-toolbar">
-          <div class="toolbar-left">
-            <label>
-              排序指标
-              <select id="validations-sort">
-                <option value="updated_at">更新时间</option>
-                <option value="mean_rank_ic">Mean Rank IC</option>
-                <option value="mean_ic">Mean IC</option>
-                <option value="rank_ic_ir">Rank IC IR</option>
-                <option value="ic_ir">IC IR</option>
-                <option value="n_periods">期数</option>
-                <option value="evaluated_at">评估时间</option>
-              </select>
+          <div class="filter-grid">
+            <label class="filter-cell">
+              <span class="filter-label">排序指标</span>
+              <sl-select id="validations-sort" size="small" value="updated_at" hoist>
+                <sl-option value="updated_at">更新时间</sl-option>
+                <sl-option value="mean_rank_ic">Mean Rank IC</sl-option>
+                <sl-option value="mean_ic">Mean IC</sl-option>
+                <sl-option value="rank_ic_ir">Rank IC IR</sl-option>
+                <sl-option value="ic_ir">IC IR</sl-option>
+                <sl-option value="n_periods">期数</sl-option>
+                <sl-option value="evaluated_at">评估时间</sl-option>
+              </sl-select>
             </label>
-            <label>
-              方向
-              <select id="validations-order">
-                <option value="desc">降序</option>
-                <option value="asc">升序</option>
-              </select>
+            <label class="filter-cell filter-cell--narrow">
+              <span class="filter-label">方向</span>
+              <sl-select id="validations-order" size="small" value="desc" hoist>
+                <sl-option value="desc">降序</sl-option>
+                <sl-option value="asc">升序</sl-option>
+              </sl-select>
             </label>
-            <label class="checkbox-label">
-              <input id="validations-abs" type="checkbox" checked />
-              按绝对值
+            <label class="filter-cell filter-cell--narrow">
+              <span class="filter-label">Top N</span>
+              <sl-input id="validations-limit" type="number" min="1" max="200" value="30" size="small"></sl-input>
             </label>
-            <label>
-              Top N
-              <input id="validations-limit" type="number" min="1" max="200" value="30" />
+            <label class="filter-cell">
+              <span class="filter-label">状态</span>
+              <sl-select id="validations-status" size="small" value="" hoist>
+                <sl-option value="">全部</sl-option>
+                <sl-option value="success">success</sl-option>
+                <sl-option value="failed">failed</sl-option>
+                <sl-option value="skipped">skipped</sl-option>
+                <sl-option value="pending">pending</sl-option>
+                <sl-option value="running">running</sl-option>
+              </sl-select>
             </label>
-            <label>
-              状态
-              <select id="validations-status">
-                <option value="" selected>全部</option>
-                <option value="success">success</option>
-                <option value="failed">failed</option>
-                <option value="skipped">skipped</option>
-                <option value="pending">pending</option>
-                <option value="running">running</option>
-              </select>
+            <label class="filter-cell filter-cell--wide">
+              <span class="filter-label">验证配置</span>
+              <sl-select id="validations-profile" size="small" multiple clearable placeholder="全部" hoist>
+              </sl-select>
             </label>
-            <label>
-              验证配置
-              <select id="validations-profile">
-                <option value="">全部</option>
-              </select>
+            <label class="filter-cell">
+              <span class="filter-label">想法来源</span>
+              <sl-select id="validations-source" size="small" value="" hoist>
+                <sl-option value="">全部</sl-option>
+              </sl-select>
+            </label>
+            <label class="filter-cell filter-cell--checkbox">
+              <span class="filter-label">选项</span>
+              <sl-checkbox id="validations-abs" checked>按绝对值</sl-checkbox>
             </label>
           </div>
-          <div class="toolbar-right">
-            <button type="button" id="validations-preset-rank-ic" class="btn-secondary">Top 30 |Mean Rank IC|</button>
-            <button type="button" id="validations-preset-mean-ic" class="btn-secondary">Top 30 |Mean IC|</button>
-            <button type="button" id="validations-apply">查询</button>
-            <button type="button" id="validations-refresh">刷新</button>
+          <div class="toolbar-actions validations-actions">
+            <sl-button id="validations-preset-rank-ic" size="small">Rank IC · Top 30</sl-button>
+            <sl-button id="validations-preset-mean-ic" size="small">Mean IC · Top 30</sl-button>
+            <sl-button id="validations-apply" variant="primary" size="small">查询</sl-button>
+            <sl-button id="validations-refresh" size="small">刷新</sl-button>
           </div>
         </div>
         <p class="muted validations-hint" id="validations-hint"></p>
@@ -132,7 +158,6 @@
                 <th>IC 胜率</th>
                 <th data-sort="evaluated_at">评估时间</th>
                 <th>状态</th>
-                <th>翻译 SQL</th>
               </tr>
             </thead>
             <tbody id="validations-body"></tbody>
@@ -146,9 +171,9 @@
           <div class="toolbar-left">
             <p class="muted profile-hint">管理验证目标（如前向收益、前向波动率）。禁用后不会为新想法自动创建任务。</p>
           </div>
-          <div class="toolbar-right">
-            <button type="button" id="profiles-create" class="btn-primary">新建配置</button>
-            <button type="button" id="profiles-refresh">刷新</button>
+          <div class="toolbar-right toolbar-actions">
+            <sl-button id="profiles-create" variant="primary" size="small">新建配置</sl-button>
+            <sl-button id="profiles-refresh" size="small">刷新</sl-button>
           </div>
         </div>
         <div class="table-wrap">
@@ -175,9 +200,9 @@
           <div class="toolbar-left">
             <p class="muted profile-hint">管理验证批处理使用的 Jupyter / Kaggle Server。Workflow 按 sort_order 选择已启用实例。</p>
           </div>
-          <div class="toolbar-right">
-            <button type="button" id="jupyter-create" class="btn-primary">新建服务器</button>
-            <button type="button" id="jupyter-refresh">刷新</button>
+          <div class="toolbar-right toolbar-actions">
+            <sl-button id="jupyter-create" variant="primary" size="small">新建服务器</sl-button>
+            <sl-button id="jupyter-refresh" size="small">刷新</sl-button>
           </div>
         </div>
         <div class="table-wrap">
@@ -203,10 +228,10 @@
           <div class="toolbar-left">
             <p class="muted profile-hint">管理多个 API 账户，每个账户可配置多个模型；各功能可绑定多条路由，按优先级依次尝试。</p>
           </div>
-          <div class="toolbar-right">
-            <button type="button" id="llm-route-create" class="btn-primary">新建用途路由</button>
-            <button type="button" id="llm-create">新建 Provider</button>
-            <button type="button" id="llm-refresh">刷新</button>
+          <div class="toolbar-right toolbar-actions">
+            <sl-button id="llm-route-create" variant="primary" size="small">新建用途路由</sl-button>
+            <sl-button id="llm-create" size="small">新建 Provider</sl-button>
+            <sl-button id="llm-refresh" size="small">刷新</sl-button>
           </div>
         </div>
         <div class="table-wrap">
@@ -247,16 +272,16 @@
       </section>
 
       <section class="panel hidden" id="panel-operators">
-        <div class="toolbar">
-          <label>
-            状态
-            <select id="operators-status">
-              <option value="">全部</option>
-              <option value="active">active</option>
-              <option value="pending">pending</option>
-            </select>
+        <div class="toolbar operators-toolbar">
+          <label class="filter-cell">
+            <span class="filter-label">状态</span>
+            <sl-select id="operators-status" size="small" value="" hoist>
+              <sl-option value="">全部</sl-option>
+              <sl-option value="active">active</sl-option>
+              <sl-option value="pending">pending</sl-option>
+            </sl-select>
           </label>
-          <button id="operators-refresh" type="button">刷新</button>
+          <sl-button id="operators-refresh" size="small">刷新</sl-button>
         </div>
         <div class="table-wrap">
           <table>
@@ -278,8 +303,8 @@
 
     <dialog id="detail-dialog">
       <article id="detail-content"></article>
-      <form method="dialog">
-        <button class="close-btn">关闭</button>
+      <form method="dialog" class="dialog-footer close-btn">
+        <sl-button type="submit" variant="default">关闭</sl-button>
       </form>
     </dialog>
 
@@ -294,50 +319,39 @@
           <pre id="factor-sql-json"><code></code></pre>
         </details>
       </article>
-      <form method="dialog">
-        <button class="close-btn">关闭</button>
+      <form method="dialog" class="dialog-footer close-btn">
+        <sl-button type="submit" variant="default">关闭</sl-button>
       </form>
     </dialog>
 
     <dialog id="profile-dialog">
       <form id="profile-form" class="profile-form">
         <h2 id="profile-form-title">新建验证配置</h2>
-        <label>
-          Key
-          <input id="profile-key" name="key" pattern="[a-z][a-z0-9_]*" required />
-          <span class="field-hint">小写字母开头，如 fwd_vol_2</span>
-        </label>
-        <label>
-          名称
-          <input id="profile-name" name="name" required />
-        </label>
-        <label>
-          Label 类型
-          <select id="profile-label-kind" name="label_kind" required>
-            <option value="forward_return">前向收益 (forward_return)</option>
-            <option value="forward_volatility">前向波动 (forward_volatility)</option>
-          </select>
-        </label>
-        <label>
-          周期 (bars)
-          <input id="profile-horizon" name="horizon_bars" type="number" min="1" max="168" value="1" required />
-        </label>
-        <label>
-          排序
-          <input id="profile-sort-order" name="sort_order" type="number" value="0" />
-        </label>
-        <label>
-          说明
-          <textarea id="profile-description" name="description" rows="3"></textarea>
-        </label>
-        <label class="checkbox-label">
-          <input id="profile-enabled" name="enabled" type="checkbox" checked />
-          启用
-        </label>
+        <sl-input id="profile-key" name="key" label="Key" pattern="[a-z][a-z0-9_]*" required>
+          <span slot="help-text">小写字母开头，如 fwd_vol_2</span>
+        </sl-input>
+        <sl-input id="profile-name" name="name" label="名称" required></sl-input>
+        <sl-select id="profile-label-kind" name="label_kind" label="Label 类型" value="forward_return" hoist required>
+          <sl-option value="forward_return">前向收益 (forward_return)</sl-option>
+          <sl-option value="forward_volatility">前向波动 (forward_volatility)</sl-option>
+        </sl-select>
+        <sl-input
+          id="profile-horizon"
+          name="horizon_bars"
+          type="number"
+          label="周期 (bars)"
+          min="1"
+          max="168"
+          value="1"
+          required
+        ></sl-input>
+        <sl-input id="profile-sort-order" name="sort_order" type="number" label="排序" value="0"></sl-input>
+        <sl-textarea id="profile-description" name="description" label="说明" rows="3"></sl-textarea>
+        <sl-checkbox id="profile-enabled" name="enabled" checked>启用</sl-checkbox>
         <p id="profile-form-error" class="auth-error hidden"></p>
         <div class="profile-form-actions">
-          <button type="submit" class="btn-primary">保存</button>
-          <button type="button" id="profile-form-cancel">取消</button>
+          <sl-button type="submit" variant="primary">保存</sl-button>
+          <sl-button type="button" id="profile-form-cancel" size="small">取消</sl-button>
         </div>
       </form>
     </dialog>
@@ -345,59 +359,58 @@
     <dialog id="jupyter-dialog">
       <form id="jupyter-form" class="profile-form jupyter-form">
         <h2 id="jupyter-form-title">新建 Jupyter Server</h2>
-        <label>
-          Key
-          <input id="jupyter-key" name="key" pattern="[a-z][a-z0-9_-]*" required />
-          <span class="field-hint">如 kaggle-kkb-prod</span>
-        </label>
-        <label>
-          名称
-          <input id="jupyter-name" name="name" required />
-        </label>
-        <label>
-          Base URL
-          <input id="jupyter-base-url" name="base_url" type="url" required placeholder="https://.../proxy" />
-        </label>
-        <label>
-          WS Base URL
-          <input id="jupyter-ws-base-url" name="ws_base_url" type="url" placeholder="wss://.../proxy（留空则从 Base URL 自动推导）" />
-        </label>
-        <label>
-          Auth Token
-          <input id="jupyter-auth-token" name="auth_token" required placeholder="Kaggle 填 embedded-path-auth" />
-        </label>
-        <label>
-          Auth Header / Scheme
-          <div class="inline-fields">
-            <input id="jupyter-auth-header" name="auth_header" value="Authorization" />
-            <input id="jupyter-auth-scheme" name="auth_scheme" value="token" />
-          </div>
-        </label>
-        <label>
-          HTTP 代理（可选）
-          <input id="jupyter-proxy-url" name="proxy_url" placeholder="http://user:pass@host:port" />
-        </label>
-        <label>
-          Kernel 名称
-          <input id="jupyter-kernel-name" name="kernel_name" value="python3" />
-        </label>
-        <label>
-          运行时配置（JSON）
-          <textarea id="jupyter-runtime-config" name="runtime_config" rows="6" spellcheck="false"></textarea>
-          <span class="field-hint">Kaggle 内核执行时读取，如 target_file（K 线路径）、data_path（绝对路径覆盖）、dataset_slug</span>
-        </label>
-        <label>
-          排序
-          <input id="jupyter-sort-order" name="sort_order" type="number" value="0" />
-        </label>
-        <label class="checkbox-label">
-          <input id="jupyter-enabled" name="enabled" type="checkbox" checked />
-          启用
-        </label>
+        <sl-input id="jupyter-key" name="key" label="Key" pattern="[a-z][a-z0-9_-]*" required>
+          <span slot="help-text">如 kaggle-kkb-prod</span>
+        </sl-input>
+        <sl-input id="jupyter-name" name="name" label="名称" required></sl-input>
+        <sl-input
+          id="jupyter-base-url"
+          name="base_url"
+          type="url"
+          label="Base URL"
+          placeholder="https://.../proxy"
+          required
+        ></sl-input>
+        <sl-input
+          id="jupyter-ws-base-url"
+          name="ws_base_url"
+          type="url"
+          label="WS Base URL"
+          placeholder="wss://.../proxy（留空则从 Base URL 自动推导）"
+        ></sl-input>
+        <sl-input
+          id="jupyter-auth-token"
+          name="auth_token"
+          label="Auth Token"
+          placeholder="Kaggle 填 embedded-path-auth"
+          required
+        ></sl-input>
+        <div class="inline-fields">
+          <sl-input id="jupyter-auth-header" name="auth_header" label="Auth Header" value="Authorization"></sl-input>
+          <sl-input id="jupyter-auth-scheme" name="auth_scheme" label="Auth Scheme" value="token"></sl-input>
+        </div>
+        <sl-input
+          id="jupyter-proxy-url"
+          name="proxy_url"
+          label="HTTP 代理（可选）"
+          placeholder="http://user:pass@host:port"
+        ></sl-input>
+        <sl-input id="jupyter-kernel-name" name="kernel_name" label="Kernel 名称" value="python3"></sl-input>
+        <sl-textarea
+          id="jupyter-runtime-config"
+          name="runtime_config"
+          label="运行时配置（JSON）"
+          rows="6"
+          spellcheck="false"
+        >
+          <span slot="help-text">Kaggle 内核执行时读取，如 target_file、data_path、dataset_slug</span>
+        </sl-textarea>
+        <sl-input id="jupyter-sort-order" name="sort_order" type="number" label="排序" value="0"></sl-input>
+        <sl-checkbox id="jupyter-enabled" name="enabled" checked>启用</sl-checkbox>
         <p id="jupyter-form-error" class="auth-error hidden"></p>
         <div class="profile-form-actions">
-          <button type="submit" class="btn-primary">保存</button>
-          <button type="button" id="jupyter-form-cancel">取消</button>
+          <sl-button type="submit" variant="primary">保存</sl-button>
+          <sl-button type="button" id="jupyter-form-cancel" size="small">取消</sl-button>
         </div>
       </form>
     </dialog>
@@ -405,47 +418,32 @@
     <dialog id="llm-dialog">
       <form id="llm-form" class="profile-form">
         <h2 id="llm-form-title">新建 LLM Provider</h2>
-        <label>
-          Key
-          <input id="llm-key" name="key" pattern="[a-z][a-z0-9_-]*" required />
-          <span class="field-hint">如 bigmodel-prod</span>
-        </label>
-        <label>
-          名称
-          <input id="llm-name" name="name" required />
-        </label>
-        <label>
-          Base URL
-          <input id="llm-base-url" name="base_url" type="url" required placeholder="https://open.bigmodel.cn/api/paas/v4" />
-        </label>
-        <label>
-          API Key
-          <input id="llm-api-key" name="api_key" required autocomplete="off" />
-        </label>
-        <label>
-          模型列表（每行一个）
-          <textarea id="llm-models" name="models" rows="4" placeholder="glm-4-flash&#10;glm-4-plus"></textarea>
-          <span class="field-hint">创建账户时必填；编辑账户请在「管理模型」中维护</span>
-        </label>
-        <label>
-          Auth Header / Scheme
-          <div class="inline-fields">
-            <input id="llm-auth-header" name="auth_header" value="Authorization" />
-            <input id="llm-auth-scheme" name="auth_scheme" value="Bearer" />
-          </div>
-        </label>
-        <label>
-          排序
-          <input id="llm-sort-order" name="sort_order" type="number" value="0" />
-        </label>
-        <label class="checkbox-label">
-          <input id="llm-enabled" name="enabled" type="checkbox" checked />
-          启用
-        </label>
+        <sl-input id="llm-key" name="key" label="Key" pattern="[a-z][a-z0-9_-]*" required>
+          <span slot="help-text">如 bigmodel-prod</span>
+        </sl-input>
+        <sl-input id="llm-name" name="name" label="名称" required></sl-input>
+        <sl-input
+          id="llm-base-url"
+          name="base_url"
+          type="url"
+          label="Base URL"
+          placeholder="https://open.bigmodel.cn/api/paas/v4"
+          required
+        ></sl-input>
+        <sl-input id="llm-api-key" name="api_key" type="password" label="API Key" required autocomplete="off" password-toggle></sl-input>
+        <sl-textarea id="llm-models" name="models" label="模型列表（每行一个）" rows="4" placeholder="glm-4-flash&#10;glm-4-plus">
+          <span slot="help-text">创建账户时必填；编辑账户请在「管理模型」中维护</span>
+        </sl-textarea>
+        <div class="inline-fields">
+          <sl-input id="llm-auth-header" name="auth_header" label="Auth Header" value="Authorization"></sl-input>
+          <sl-input id="llm-auth-scheme" name="auth_scheme" label="Auth Scheme" value="Bearer"></sl-input>
+        </div>
+        <sl-input id="llm-sort-order" name="sort_order" type="number" label="排序" value="0"></sl-input>
+        <sl-checkbox id="llm-enabled" name="enabled" checked>启用</sl-checkbox>
         <p id="llm-form-error" class="auth-error hidden"></p>
         <div class="profile-form-actions">
-          <button type="submit" class="btn-primary">保存</button>
-          <button type="button" id="llm-form-cancel">取消</button>
+          <sl-button type="submit" variant="primary">保存</sl-button>
+          <sl-button type="button" id="llm-form-cancel" size="small">取消</sl-button>
         </div>
       </form>
     </dialog>
@@ -454,37 +452,27 @@
       <form id="llm-route-form" class="profile-form">
         <h2 id="llm-route-form-title">新建用途路由</h2>
         <input id="llm-route-id" type="hidden" />
-        <label>
-          用途
-          <select id="llm-route-usage" required>
-            <option value="idea_generation">因子想法生成</option>
-            <option value="validation_translation">验证 SQL 翻译</option>
-          </select>
-        </label>
-        <label>
-          Provider
-          <select id="llm-route-provider" required></select>
-        </label>
-        <label>
-          模型
-          <select id="llm-route-model" required></select>
-        </label>
-        <label>
-          优先级（数字越小越优先）
-          <input id="llm-route-priority" type="number" value="0" />
-        </label>
-        <label>
-          Temperature（可选）
-          <input id="llm-route-temperature" type="number" step="0.05" min="0" max="2" placeholder="留空则使用默认值" />
-        </label>
-        <label class="checkbox-label">
-          <input id="llm-route-enabled" type="checkbox" checked />
-          启用
-        </label>
+        <sl-select id="llm-route-usage" label="用途" value="idea_generation" hoist required>
+          <sl-option value="idea_generation">因子想法生成</sl-option>
+          <sl-option value="validation_translation">验证 SQL 翻译</sl-option>
+        </sl-select>
+        <sl-select id="llm-route-provider" label="Provider" hoist required></sl-select>
+        <sl-select id="llm-route-model" label="模型" hoist required></sl-select>
+        <sl-input id="llm-route-priority" type="number" label="优先级（数字越小越优先）" value="0"></sl-input>
+        <sl-input
+          id="llm-route-temperature"
+          type="number"
+          label="Temperature（可选）"
+          step="0.05"
+          min="0"
+          max="2"
+          placeholder="留空则使用默认值"
+        ></sl-input>
+        <sl-checkbox id="llm-route-enabled" checked>启用</sl-checkbox>
         <p id="llm-route-form-error" class="auth-error hidden"></p>
         <div class="profile-form-actions">
-          <button type="submit" class="btn-primary">保存</button>
-          <button type="button" id="llm-route-form-cancel">取消</button>
+          <sl-button type="submit" variant="primary">保存</sl-button>
+          <sl-button type="button" id="llm-route-form-cancel" size="small">取消</sl-button>
         </div>
       </form>
     </dialog>
@@ -506,16 +494,28 @@
             <tbody id="llm-models-body"></tbody>
           </table>
         </div>
-        <label>
-          新增模型
-          <div class="inline-fields">
-            <input id="llm-new-model-name" placeholder="glm-4-flash" />
-            <button type="button" id="llm-add-model" class="btn-primary">添加</button>
-          </div>
-        </label>
+        <div class="inline-fields llm-add-model-row">
+          <sl-input id="llm-new-model-name" label="新增模型" placeholder="glm-4-flash"></sl-input>
+          <sl-button type="button" id="llm-add-model" variant="primary" size="small">添加</sl-button>
+        </div>
         <p id="llm-models-form-error" class="auth-error hidden"></p>
         <div class="profile-form-actions">
-          <button type="button" id="llm-models-form-close">关闭</button>
+          <sl-button type="button" id="llm-models-form-close">关闭</sl-button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="idea-import-dialog">
+      <form id="idea-import-form" class="profile-form idea-import-form">
+        <h2>手动添加想法</h2>
+        <p class="field-hint">
+          粘贴 JSON 字符串。支持 <code>{"ideas":[...]}</code> 或单个 idea 对象；来源标记为 <code>manual</code>。
+        </p>
+        <sl-textarea id="idea-import-json" label="JSON" rows="16" spellcheck="false" required></sl-textarea>
+        <p id="idea-import-error" class="auth-error hidden"></p>
+        <div class="profile-form-actions">
+          <sl-button type="submit" variant="primary">提交</sl-button>
+          <sl-button type="button" id="idea-import-cancel" size="small">取消</sl-button>
         </div>
       </form>
     </dialog>
@@ -526,14 +526,15 @@
       <form id="auth-form" class="auth-card">
         <h2>登录</h2>
         <p class="auth-hint">请输入访问密码</p>
-        <input
+        <sl-input
           id="auth-password"
           type="password"
-          autocomplete="current-password"
+          label="密码"
           placeholder="密码"
+          password-toggle
           required
-        />
-        <button type="submit" class="btn-primary">进入</button>
+        ></sl-input>
+        <sl-button type="submit" variant="primary">进入</sl-button>
         <p id="auth-error" class="auth-error hidden"></p>
       </form>
     </div>

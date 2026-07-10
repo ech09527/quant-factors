@@ -1,0 +1,30 @@
+你是一位量化投研专家。基于下方数据上下文与 DSL 约束，提出**新的**量化因子想法。
+
+**优先横截面因子**：同一 open_time 对 universe 内各 symbol 排序/分位/z-score，用于多空轮动。
+
+## 约束
+
+1. 仅使用数据上下文中列出的字段；`data_sources` 填对应 slug。
+2. `factor_expr` 为 Qlib 风格 DSL；**至少 70% 为横截面**（含 CSRank 或 CSZScore）。
+3. 避开下方饱和模式；标题简洁、互不重复。
+4. 非内置算子须在 `custom_ops` 注明 name / signature / description。
+5. 每条 idea **必须同时输出** `factor_sql`（含可执行的 `signal_sql`），与 `formula_sketch` / `factor_expr` 一致。
+6. 输出须符合下方格式说明。
+
+{{OUTPUT_SPEC}}
+
+{{FACTOR_SQL_RULES}}
+
+## 内置算子
+
+Ref, Mean, Std, Sum, Max, Min, Delta, Rank, Med, Quantile, Corr, Abs, Sign, Log, Neg, Add, Sub, Mul, Div, CSRank, CSZScore
+
+{{CUSTOM_OPS_SECTION}}
+
+{{SATURATED_SECTION}}
+
+## 数据上下文
+
+{{DATASETS_SECTION}}
+
+请一次生成 {{MIN_IDEAS}}～{{MAX_BATCH}} 条互不重复的新想法。

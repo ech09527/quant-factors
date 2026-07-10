@@ -1,0 +1,363 @@
+/* Shoelace 主题 — 与控制台深色面板对齐 */
+:root {
+  --sl-color-primary-500: #5b8cff;
+  --sl-color-primary-600: #4a78e8;
+  --sl-color-primary-700: #3a61c4;
+  --sl-color-danger-500: #f87171;
+  --sl-color-danger-600: #ef4444;
+  --sl-color-danger-700: #dc2626;
+  --sl-color-neutral-50: #f4f6fb;
+  --sl-color-neutral-100: #e8edf8;
+  --sl-color-neutral-200: #c5d0e6;
+  --sl-color-neutral-300: #9aa8c7;
+  --sl-color-neutral-400: #7f8fb3;
+  --sl-color-neutral-500: #66789a;
+  --sl-color-neutral-600: #4f5f7d;
+  --sl-color-neutral-700: #3a4760;
+  --sl-color-neutral-800: #24304a;
+  --sl-color-neutral-900: #18233d;
+  --sl-color-neutral-950: #121a2f;
+
+  --sl-font-sans: "IBM Plex Sans", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+  --sl-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --sl-border-radius-medium: 10px;
+  --sl-border-radius-large: 12px;
+  --sl-border-radius-x-large: 14px;
+  --sl-focus-ring-color: rgba(91, 140, 255, 0.42);
+  --sl-focus-ring-width: 3px;
+  --sl-input-height-small: 2.125rem;
+  --sl-input-height-medium: 2.5rem;
+}
+
+sl-input,
+sl-select,
+sl-textarea,
+sl-checkbox,
+sl-button {
+  font-family: var(--sl-font-sans);
+}
+
+/* —— 按钮 —— */
+sl-button::part(base) {
+  border-radius: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
+}
+
+sl-button::part(base):active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+sl-button[variant="default"]::part(base) {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--text);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+sl-button[variant="default"]::part(base):hover:not(:disabled) {
+  border-color: rgba(91, 140, 255, 0.55);
+  background: rgba(91, 140, 255, 0.1);
+}
+
+sl-button[variant="primary"]::part(base) {
+  background: linear-gradient(180deg, #6b97ff, #4f7ef0);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(91, 140, 255, 0.28);
+}
+
+sl-button[variant="primary"]::part(base):hover:not(:disabled) {
+  background: linear-gradient(180deg, #7aa3ff, #5b8cff);
+  box-shadow: 0 10px 24px rgba(91, 140, 255, 0.34);
+}
+
+sl-button[variant="danger"]::part(base) {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fecaca;
+}
+
+sl-button[variant="danger"]::part(base):hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.2);
+  border-color: var(--danger);
+}
+
+sl-button[variant="text"]::part(base) {
+  color: var(--accent);
+  padding-inline: 0.25rem;
+}
+
+sl-button[variant="text"]::part(base):hover:not(:disabled) {
+  color: #8cb1ff;
+  background: rgba(91, 140, 255, 0.08);
+}
+
+sl-button[size="small"]::part(base) {
+  min-height: 2rem;
+  font-size: 12px;
+  padding-inline: 0.65rem;
+}
+
+/* —— 输入框 / 下拉 / 文本域 —— */
+sl-input::part(base),
+sl-textarea::part(base) {
+  background: var(--panel-2);
+  border-color: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+sl-input::part(input),
+sl-textarea::part(textarea) {
+  color: var(--text);
+}
+
+sl-input::part(form-control-label),
+sl-select::part(form-control-label),
+sl-textarea::part(form-control-label) {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+sl-input:focus-within::part(base),
+sl-textarea:focus-within::part(base),
+sl-select:focus-within::part(combobox) {
+  border-color: rgba(91, 140, 255, 0.65);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 0 0 3px rgba(91, 140, 255, 0.18);
+}
+
+sl-select::part(combobox) {
+  background: var(--panel-2);
+  border-color: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: var(--text);
+  min-height: var(--sl-input-height-small);
+}
+
+sl-select::part(display-input) {
+  color: var(--text);
+}
+
+sl-checkbox::part(base) {
+  border-radius: 6px;
+}
+
+sl-checkbox::part(label) {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* —— 工具栏 / 筛选 —— */
+.ideas-toolbar,
+.operators-toolbar {
+  align-items: flex-end;
+}
+
+.toolbar-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.validations-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.validations-actions {
+  justify-content: flex-end;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px 12px;
+  width: 100%;
+}
+
+.filter-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.filter-cell sl-input,
+.filter-cell sl-select {
+  width: 100%;
+}
+
+.filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.filter-cell--narrow {
+  max-width: 7rem;
+}
+
+.filter-cell--wide {
+  min-width: 11rem;
+}
+
+.filter-cell--checkbox {
+  justify-content: flex-end;
+}
+
+.filter-cell--checkbox sl-checkbox {
+  margin-top: 2px;
+}
+
+@media (max-width: 1100px) {
+  .filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filter-cell--narrow {
+    max-width: none;
+  }
+}
+
+.toolbar-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar sl-input,
+.toolbar sl-select {
+  width: auto;
+  min-width: 7rem;
+}
+
+.filter-cell sl-input::part(form-control-label),
+.filter-cell sl-select::part(form-control-label),
+.toolbar sl-input::part(form-control-label),
+.toolbar sl-select::part(form-control-label) {
+  display: none;
+}
+
+.toolbar sl-input[type="number"] {
+  width: 5.5rem;
+  min-width: 5.5rem;
+}
+
+.toolbar sl-checkbox {
+  align-self: center;
+  margin-bottom: 2px;
+}
+
+/* —— 表单弹窗 —— */
+.profile-form sl-input,
+.profile-form sl-select,
+.profile-form sl-textarea,
+.profile-form sl-checkbox {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.profile-form sl-checkbox {
+  margin-top: 2px;
+}
+
+.profile-form .inline-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.llm-add-model-row {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+}
+
+.profile-form .inline-fields sl-input {
+  margin-bottom: 0;
+}
+
+.idea-import-form sl-textarea::part(textarea) {
+  font-family: var(--sl-font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.auth-card sl-input {
+  margin-bottom: 14px;
+}
+
+.auth-card sl-button {
+  width: 100%;
+}
+
+.profile-form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding-top: 4px;
+}
+
+/* —— 表格操作区 —— */
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.table-actions sl-button::part(base) {
+  min-height: 1.85rem;
+}
+
+.factor-sql-preview::part(base) {
+  font-family: var(--sl-font-mono);
+  font-size: 12px;
+  max-width: 280px;
+  justify-content: flex-start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.idea-link::part(base) {
+  font-weight: 500;
+  justify-content: flex-start;
+  padding-inline: 0;
+}
+
+/* —— 分页 —— */
+.pager-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}

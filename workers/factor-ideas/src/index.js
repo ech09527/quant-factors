@@ -1,6 +1,9 @@
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
+import { buildIdeaGenerationPrompt as buildPrompt } from "./idea-prompt.js";
+import { validateFactorSqlBasic, hasStoredFactorSql } from "./factor-sql-validate.js";
+
 // src/api/http.ts
 function corsOrigin(env, request) {
   const configured = env.API_CORS_ORIGIN?.trim();
@@ -162,6 +165,7 @@ function rowToIdea(row) {
     expected_signal: String(row.expected_signal),
     risks: parseJsonArray(row.risks),
     data_sources: parseJsonArray(row.data_sources),
+    factor_sql: parseJsonObject(row.factor_sql),
     dedup_tier: row.dedup_tier === "custom_pending" ? "custom_pending" : "builtin",
     source: String(row.source),
     created_at: String(row.created_at),
@@ -180,13 +184,13 @@ async function existsByHash(db, titleHashValue, exprHash2) {
   return Boolean(byTitle);
 }
 __name(existsByHash, "existsByHash");
-async function insertIdea(db, idea, hashes) {
+async function insertIdea(db, idea, hashes, source = "openai") {
   const result = await db.prepare(
     `INSERT INTO ideas (
         title, title_hash, factor_expr, expr_hash, expr_canonical,
         hypothesis, formula_sketch, expected_signal, risks, data_sources,
-        dedup_tier, source, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'openai', datetime('now'))`
+        factor_sql, dedup_tier, source, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   ).bind(
     idea.title,
     hashes.title_hash,
@@ -198,7 +202,9 @@ async function insertIdea(db, idea, hashes) {
     idea.expected_signal,
     JSON.stringify(idea.risks),
     JSON.stringify(idea.data_sources),
-    hashes.dedup_tier
+    idea.factor_sql ? JSON.stringify(idea.factor_sql) : null,
+    hashes.dedup_tier,
+    source
   ).run();
   return Number(result.meta.last_row_id);
 }
@@ -219,29 +225,50 @@ async function getSaturatedPatterns(db, limit = 5) {
 }
 __name(getSaturatedPatterns, "getSaturatedPatterns");
 async function listIdeas(db, options) {
-  const { limit, offset } = options;
-  const countRow = await db.prepare("SELECT COUNT(*) AS total FROM ideas").first();
+  const { limit, offset, source } = options;
+  const filters = [];
+  const binds = [];
+  if (source) {
+    filters.push("source = ?");
+    binds.push(source);
+  }
+  const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+  const countRow = await db.prepare(`SELECT COUNT(*) AS total FROM ideas ${where}`).bind(...binds).first();
   const result = await db.prepare(
     `SELECT id, title, title_hash, factor_expr, expr_hash, expr_canonical,
               hypothesis, formula_sketch, expected_signal, risks, data_sources,
-              dedup_tier, source, created_at, updated_at
+              factor_sql, dedup_tier, source, created_at, updated_at
        FROM ideas
+       ${where}
        ORDER BY updated_at DESC, id DESC
        LIMIT ? OFFSET ?`
-  ).bind(limit, offset).all();
+  ).bind(...binds, limit, offset).all();
   return {
     items: (result.results ?? []).map(rowToIdea),
     total: Number(countRow?.total ?? 0),
     limit,
-    offset
+    offset,
+    source: source || null
   };
 }
 __name(listIdeas, "listIdeas");
+async function listIdeaSources(db) {
+  const result = await db.prepare(
+    `SELECT DISTINCT source
+       FROM ideas
+       WHERE source IS NOT NULL AND TRIM(source) != ''
+       ORDER BY source ASC`
+  ).all();
+  return {
+    items: (result.results ?? []).map((row) => String(row.source))
+  };
+}
+__name(listIdeaSources, "listIdeaSources");
 async function getIdeaById(db, id) {
   const row = await db.prepare(
     `SELECT id, title, title_hash, factor_expr, expr_hash, expr_canonical,
               hypothesis, formula_sketch, expected_signal, risks, data_sources,
-              dedup_tier, source, created_at, updated_at
+              factor_sql, dedup_tier, source, created_at, updated_at
        FROM ideas
        WHERE id = ?
        LIMIT 1`
@@ -570,10 +597,29 @@ function rowToValidationResult(row) {
   return {
     ...validation,
     idea_title: String(row.idea_title ?? ""),
-    idea_title_hash: String(row.idea_title_hash ?? "")
+    idea_title_hash: String(row.idea_title_hash ?? ""),
+    idea_source: String(row.idea_source ?? "")
   };
 }
 __name(rowToValidationResult, "rowToValidationResult");
+function parseProfileKeys(options = {}) {
+  const keys = [];
+  if (Array.isArray(options.profile_keys)) {
+    for (const item of options.profile_keys) {
+      const key = String(item ?? "").trim();
+      if (key) keys.push(key);
+    }
+  }
+  const single = options.profile_key?.trim();
+  if (single) {
+    for (const part of single.split(",")) {
+      const key = part.trim();
+      if (key) keys.push(key);
+    }
+  }
+  return [...new Set(keys)];
+}
+__name(parseProfileKeys, "parseProfileKeys");
 function buildValidationResultsQuery(options) {
   const sortRaw = options.sort?.trim() || "updated_at";
   const sort = sortRaw in VALIDATION_SORT_FIELDS ? sortRaw : "updated_at";
@@ -582,16 +628,24 @@ function buildValidationResultsQuery(options) {
   const limit = Math.min(Math.max(Number(options.limit ?? 30) || 30, 1), 200);
   const offset = Math.max(Number(options.offset ?? 0) || 0, 0);
   const status = options.status?.trim() || null;
-  const profile_key = options.profile_key?.trim() || null;
+  const profile_keys = parseProfileKeys(options);
+  const source = options.source?.trim() || null;
   const whereParts = ["1 = 1"];
   const binds = [];
   if (status) {
     whereParts.push("iv.status = ?");
     binds.push(status);
   }
-  if (profile_key) {
+  if (profile_keys.length === 1) {
     whereParts.push("iv.profile_key = ?");
-    binds.push(profile_key);
+    binds.push(profile_keys[0]);
+  } else if (profile_keys.length > 1) {
+    whereParts.push(`iv.profile_key IN (${profile_keys.map(() => "?").join(", ")})`);
+    binds.push(...profile_keys);
+  }
+  if (source) {
+    whereParts.push("i.source = ?");
+    binds.push(source);
   }
   let orderExpr;
   if (sort === "updated_at") {
@@ -620,7 +674,8 @@ function buildValidationResultsQuery(options) {
     limit,
     offset,
     status,
-    profile_key
+    profile_keys,
+    source
   };
 }
 __name(buildValidationResultsQuery, "buildValidationResultsQuery");
@@ -638,7 +693,7 @@ async function listValidationResults(db, options = {}) {
          iv.diagnostics, iv.error_reason, iv.engine_version, iv.metrics_version,
          iv.evaluated_at, iv.created_at, iv.updated_at,
          vp.name AS profile_name, vp.label_kind, vp.horizon_bars,
-         i.title AS idea_title, i.title_hash AS idea_title_hash
+         i.title AS idea_title, i.title_hash AS idea_title_hash, i.source AS idea_source
        ${baseFrom}
        ${query.orderSql}
        LIMIT ? OFFSET ?`
@@ -653,11 +708,23 @@ async function listValidationResults(db, options = {}) {
     order: query.order,
     abs: query.abs,
     status: query.status,
-    profile_key: query.profile_key
+    profile_keys: query.profile_keys,
+    source: query.source
   };
 }
 __name(listValidationResults, "listValidationResults");
 async function enqueueIdeaValidations(db, ideaId, profileKeys) {
+  const ideaRow = await db.prepare("SELECT factor_sql FROM ideas WHERE id = ? LIMIT 1").bind(ideaId).first();
+  if (!hasStoredFactorSql(parseJsonObject(ideaRow?.factor_sql))) {
+    const listed = await listIdeaValidations(db, ideaId);
+    return {
+      created: 0,
+      skipped: 0,
+      ignored: true,
+      reason: "idea has no factor_sql",
+      items: listed.items
+    };
+  }
   let profiles;
   if (profileKeys && profileKeys.length > 0) {
     const placeholders = profileKeys.map(() => "?").join(", ");
@@ -725,6 +792,7 @@ function rowToWorkflowJob(row) {
     formula_sketch: String(row.formula_sketch),
     expected_signal: String(row.expected_signal),
     data_sources: parseJsonArray2(row.data_sources),
+    factor_sql: parseJsonObject(row.factor_sql),
     status: String(row.status)
   };
 }
@@ -762,6 +830,9 @@ const VALIDATION_WORKFLOW_JOB_FROM = `
     LEFT JOIN idea_validations iv
       ON iv.idea_id = i.id AND iv.profile_key = vp.key
     WHERE vp.enabled = 1
+      AND i.factor_sql IS NOT NULL
+      AND TRIM(i.factor_sql) != ''
+      AND TRIM(i.factor_sql) != 'null'
       AND (iv.id IS NULL OR iv.status NOT IN ('success', 'skipped'))
       AND (
         iv.id IS NULL
@@ -791,7 +862,8 @@ async function listPendingValidationWorkflowJobs(db, limit) {
          i.hypothesis,
          i.formula_sketch,
          i.expected_signal,
-         i.data_sources
+         i.data_sources,
+         i.factor_sql
        ${VALIDATION_WORKFLOW_JOB_FROM}
        ORDER BY
          CASE WHEN iv.id IS NULL THEN 0 WHEN iv.status = 'failed' THEN 1 ELSE 2 END,
@@ -1391,6 +1463,19 @@ async function handleApiPost(request, env, pathname) {
   if (profileResponse) {
     return profileResponse;
   }
+  if (pathname === "/api/ideas") {
+    const body = await parseJsonBody(request);
+    if (!body) {
+      return wrap(env, request, badRequest("invalid json body"));
+    }
+    try {
+      const result = await runImportIdeas(env, body);
+      return wrap(env, request, jsonResponse({ ok: true, ...result }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return wrap(env, request, badRequest(message));
+    }
+  }
   const VALIDATION_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "success", "failed", "skipped"]);
   if (pathname === "/api/workflow/validation-jobs/claim") {
     let jobs = [];
@@ -1532,7 +1617,13 @@ async function handleApiGet(request, env, pathname, url) {
     const offset = parsePositiveInt(url.searchParams.get("offset"), 0);
     const statusParam = url.searchParams.get("status");
     const status = statusParam == null || statusParam === "" ? null : statusParam.trim() || null;
-    const profile_key = url.searchParams.get("profile_key")?.trim() || void 0;
+    const profileKeys = [
+      ...url.searchParams.getAll("profile_key").map((value) => value.trim()).filter(Boolean),
+      ...(url.searchParams.get("profile_keys")?.split(",") ?? []).map((value) => value.trim()).filter(Boolean)
+    ];
+    const profile_keys = [...new Set(profileKeys)];
+    const sourceParam = url.searchParams.get("source");
+    const source = sourceParam == null || sourceParam === "" ? null : sourceParam.trim() || null;
     const data = await listValidationResults(env.DB, {
       sort,
       order,
@@ -1540,7 +1631,8 @@ async function handleApiGet(request, env, pathname, url) {
       limit,
       offset,
       status,
-      profile_key: profile_key || null
+      profile_keys,
+      source
     });
     return wrap(env, request, jsonResponse(data));
   }
@@ -1569,10 +1661,32 @@ async function handleApiGet(request, env, pathname, url) {
       })
     );
   }
+  if (pathname === "/api/ideas/generation-prompt") {
+    const maxIdeasParam = url.searchParams.get("max_ideas");
+    const maxIdeas = maxIdeasParam ? parseMaxIdeasParam(maxIdeasParam, env) : void 0;
+    const data = await resolveIdeaGenerationPrompt(env, maxIdeas);
+    const format = url.searchParams.get("format")?.trim().toLowerCase();
+    if (format === "text" || format === "plain") {
+      return wrap(
+        env,
+        request,
+        new Response(data.prompt, {
+          headers: { "Content-Type": "text/plain; charset=utf-8" }
+        })
+      );
+    }
+    return wrap(env, request, jsonResponse(data));
+  }
+  if (pathname === "/api/ideas/sources") {
+    const data = await listIdeaSources(env.DB);
+    return wrap(env, request, jsonResponse(data));
+  }
   if (pathname === "/api/ideas") {
     const limit = parsePositiveInt(url.searchParams.get("limit"), 20, 100);
     const offset = parsePositiveInt(url.searchParams.get("offset"), 0);
-    const data = await listIdeas(env.DB, { limit, offset });
+    const sourceParam = url.searchParams.get("source");
+    const source = sourceParam == null || sourceParam === "" ? null : sourceParam.trim() || null;
+    const data = await listIdeas(env.DB, { limit, offset, source });
     return wrap(env, request, jsonResponse(data));
   }
   const ideaMatch = pathname.match(/^\/api\/ideas\/(\d+)$/);
@@ -1680,6 +1794,10 @@ async function loadEnabledSlugs(base) {
 __name(loadEnabledSlugs, "loadEnabledSlugs");
 async function loadDatasetSummary(base, slug) {
   const dir = directoryName(slug);
+  const context = await fetchText(`${base}/datasets/${dir}/prompt-context.md`);
+  if (context) {
+    return `### 数据集 \`${slug}\`\n\n${context.trim()}\n`;
+  }
   const [readme, schemaText] = await Promise.all([
     fetchText(`${base}/datasets/${dir}/README.md`),
     fetchText(`${base}/datasets/${dir}/schema.json`)
@@ -1692,7 +1810,7 @@ async function loadDatasetSummary(base, slug) {
     parts.push("\n#### schema.json\n", "```json", schemaText.trim(), "```");
   }
   if (!readme && !schemaText) {
-    parts.push("\n\uFF08\u65E0\u6CD5\u4ECE GitHub Raw \u62C9\u53D6 README/schema\uFF09");
+    parts.push("\n\uFF08\u65E0\u6CD5\u4ECE GitHub Raw \u62C9\u53D6\u6570\u636E\u8BF4\u660E\uFF09");
   }
   parts.push("");
   return parts.join("\n");
@@ -1712,9 +1830,10 @@ async function loadDatasetSection(env) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`loadDatasetSection fallback: ${message}`);
     return [
-      "### \u6570\u636E\u96C6: `yhydev97/quant-data`",
+      "### 数据集 `yhydev97/quant-data`",
       "",
-      "\uFF08\u65E0\u6CD5\u62C9\u53D6 GitHub Raw\uFF0C\u4F7F\u7528\u79BB\u7EBF\u5360\u4F4D\u8BF4\u660E\uFF1B\u90E8\u7F72\u5230 Cloudflare \u540E\u5E94\u80FD\u6B63\u5E38\u62C9\u53D6\u3002\uFF09",
+      "- **类型**：Binance USDT 永续合约 1h K 线（symbol × open_time）",
+      "- **字段**：open, high, low, close, volume, quote_volume, count, taker_buy_volume, taker_buy_quote_volume, log_ret_1, ret_24h, vol_24h",
       ""
     ].join("\n");
   }
@@ -2361,125 +2480,7 @@ async function generateIdeasFromOpenAi(apiKey, model, prompt, env, temperature =
 }
 __name(generateIdeasFromOpenAi, "generateIdeasFromOpenAi");
 
-// src/prompt.ts
-var IDEA_SCHEMA = `{
-  "type": "object",
-  "required": [
-    "title",
-    "hypothesis",
-    "data_sources",
-    "formula_sketch",
-    "expected_signal",
-    "risks",
-    "factor_expr"
-  ],
-  "properties": {
-    "title": { "type": "string" },
-    "hypothesis": { "type": "string" },
-    "data_sources": { "type": "array", "items": { "type": "string" } },
-    "formula_sketch": { "type": "string" },
-    "expected_signal": { "type": "string" },
-    "risks": { "type": "array", "items": { "type": "string" } },
-    "factor_expr": {
-      "type": "string",
-      "description": "Qlib-style DSL string, e.g. CSRank($ret_24h / ($vol_24h + 1e-8))"
-    },
-    "custom_ops": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["name", "signature", "description"],
-        "properties": {
-          "name": { "type": "string" },
-          "signature": { "type": "string" },
-          "description": { "type": "string" },
-          "example": { "type": "string" }
-        }
-      }
-    }
-  }
-}`;
-function formatOperators(operators) {
-  if (operators.length === 0) {
-    return "\uFF08\u6682\u65E0\u5DF2\u6CE8\u518C\u7684\u81EA\u5B9A\u4E49\u7B97\u5B50\uFF09\n";
-  }
-  return operators.map((op) => {
-    const lines = [
-      `- **${op.name}** \`${op.signature}\``,
-      `  - ${op.description}`
-    ];
-    if (op.example) {
-      lines.push(`  - \u793A\u4F8B: \`${op.example}\``);
-    }
-    return lines.join("\n");
-  }).join("\n");
-}
-__name(formatOperators, "formatOperators");
-function formatSaturatedPatterns(patterns) {
-  if (patterns.length === 0) {
-    return "\uFF08\u6682\u65E0\u9971\u548C\u8868\u8FBE\u5F0F\u6A21\u5F0F\uFF09\n";
-  }
-  return patterns.map((p) => `- (${p.count}\xD7) \`${p.expr_canonical}\``).join("\n");
-}
-__name(formatSaturatedPatterns, "formatSaturatedPatterns");
-function buildPrompt(options) {
-  const { datasetSection, activeOperators, saturatedPatterns, maxIdeas } = options;
-  const minIdeas = Math.max(1, maxIdeas);
-  const maxBatch = Math.max(minIdeas, Math.min(5, maxIdeas + 2));
-  return `\u4F60\u662F\u4E00\u4F4D\u91CF\u5316\u6295\u7814\u4E13\u5BB6\uFF0C\u8BF7\u57FA\u4E8E\u4E0B\u65B9\u6570\u636E\u96C6\u8BF4\u660E\u63D0\u51FA**\u65B0\u7684**\u91CF\u5316\u56E0\u5B50\u7814\u7A76\u601D\u8DEF\u3002
-
-\u672C\u4ED3\u5E93\u6570\u636E\u96C6\u591A\u4E3A**\u591A\u6807\u7684\u9762\u677F**\uFF08symbol \xD7 \u65F6\u95F4\u6233\uFF0C\u5982 1h K \u7EBF\uFF09\u3002\u8BF7**\u4F18\u5148\u4EA7\u51FA\u6A2A\u622A\u9762\uFF08cross-sectional\uFF09\u56E0\u5B50**\uFF1A\u5728\u540C\u4E00 open_time \u5BF9 universe \u5185\u5404 symbol \u6392\u5E8F/\u5206\u4F4D/z-score\uFF0C\u7528\u4E8E\u591A\u7A7A\u8F6E\u52A8\u3002
-
-## \u4EFB\u52A1\u8981\u6C42
-
-1. \u6BCF\u6761\u60F3\u6CD5\u5FC5\u987B\u57FA\u4E8E\u5DF2\u63D0\u4F9B\u7684\u6570\u636E\u96C6 schema \u4E0E README\uFF0C\u5B57\u6BB5\u4E0E\u8BA1\u7B97\u903B\u8F91\u987B\u4E0E\u771F\u5B9E\u5217\u540D\u3001\u6570\u636E\u9891\u7387\u4E00\u81F4\u3002
-2. **\u4E0D\u5F97\u91CD\u590D**\u5E38\u89C1\u5957\u8DEF\uFF1B\u6807\u9898\u5E94\u7B80\u6D01\u4E14\u53EF\u533A\u5206\u3002
-3. \u751F\u6210\u7684\u60F3\u6CD5\u4E2D **\u81F3\u5C11 70% \u987B\u4E3A\u6A2A\u622A\u9762\u56E0\u5B50**\uFF08formula_sketch \u542B\u6309 open_time \u5206\u7EC4\u3001\u7EC4\u5185\u8DE8 symbol \u6BD4\u8F83\uFF09\uFF1B\u65F6\u5E8F\u7C7B\u60F3\u6CD5\u987B\u5728 expected_signal \u6807\u6CE8\u300C\u65F6\u5E8F\u300D\u3002
-4. \u6A2A\u622A\u9762\u60F3\u6CD5\u7684 formula_sketch \u987B\u542B universe \u8FC7\u6EE4\uFF08\u5982 quote_volume\uFF09\u4E0E\u7EC4\u5185 rank/z-score \u6B65\u9AA4\uFF1Brisks \u987B\u542B\u6D41\u52A8\u6027\u6216\u5E78\u5B58\u8005\u504F\u5DEE\u7B49\u622A\u9762\u98CE\u9669\u3002
-5. \u6BCF\u6761\u60F3\u6CD5\u5FC5\u987B\u5305\u542B **factor_expr**\uFF1AQlib \u98CE\u683C DSL \u5B57\u7B26\u4E32\uFF08\u5B57\u6BB5\u7528 $ \u524D\u7F00\uFF0C\u5982 $close\uFF1B\u5185\u7F6E\u7B97\u5B50\u5982 Ref\u3001Mean\u3001CSRank\u3001Add\u3001Div\uFF09\u3002
-6. \u82E5\u4F7F\u7528**\u975E\u5185\u7F6E\u7B97\u5B50**\uFF0C\u5FC5\u987B\u5728 custom_ops \u4E2D\u9644\u5E26 name\u3001signature\u3001description\uFF08\u53CA\u53EF\u9009 example\uFF09\u3002
-7. \u8F93\u51FA\u5FC5\u987B\u662F**\u4E25\u683C JSON \u5BF9\u8C61** \`{"ideas": [...]}\`\uFF0C\u4E0D\u8981 markdown \u4EE3\u7801\u5757\u6216\u89E3\u91CA\u6587\u5B57\u3002
-8. \u6BCF\u4E2A\u5143\u7D20\u987B\u7B26\u5408\u4EE5\u4E0B JSON Schema\uFF1A
-
-${IDEA_SCHEMA}
-
-## \u5185\u7F6E DSL \u7B97\u5B50\uFF08\u53EF\u76F4\u63A5\u4F7F\u7528\uFF09
-
-Ref, Mean, Std, Sum, Max, Min, Delta, Rank, Med, Quantile, Corr, Abs, Sign, Log, Neg, Add, Sub, Mul, Div, CSRank, CSZScore
-
-## \u5DF2\u6CE8\u518C\u81EA\u5B9A\u4E49\u7B97\u5B50\uFF08\u53EF\u5728 factor_expr \u4E2D\u8C03\u7528\uFF09
-
-${formatOperators(activeOperators)}
-
-## \u9971\u548C\u8868\u8FBE\u5F0F\u6A21\u5F0F\uFF08\u8BF7\u907F\u514D\u96F7\u540C\u7ED3\u6784\uFF09
-
-${formatSaturatedPatterns(saturatedPatterns)}
-
-## \u8F93\u51FA\u683C\u5F0F\u793A\u4F8B
-
-{
-  "ideas": [
-    {
-      "title": "\u6A2A\u622A\u9762\u56E0\u5B50\u540D\u79F0",
-      "hypothesis": "\u7ECF\u6D4E\u6216\u884C\u4E3A\u5047\u8BBE\u2026",
-      "data_sources": ["owner/dataset-slug"],
-      "formula_sketch": "\u6309 symbol \u8BA1\u7B97\u2026\uFF1B\u6BCF\u4E2A open_time \u6A2A\u622A\u9762 rank\u2026",
-      "expected_signal": "\u6A2A\u622A\u9762\uFF1A\u505A\u591A\u9AD8\u5206\u4F4D\u3001\u505A\u7A7A\u4F4E\u5206\u4F4D\u2026",
-      "risks": ["\u6D41\u52A8\u6027\u5206\u5C42", "\u65B0\u4E0A\u5E02 symbol \u6570\u636E\u4E0D\u8DB3"],
-      "factor_expr": "CSRank($ret_24h / ($vol_24h + 1e-8))"
-    }
-  ]
-}
-
-\u8BF7\u4E00\u6B21\u751F\u6210 ${minIdeas}\uFF5E${maxBatch} \u6761\u4E92\u4E0D\u91CD\u590D\u7684\u65B0\u60F3\u6CD5\u3002
-
----
-
-## \u53EF\u7528\u6570\u636E\u96C6
-
-${datasetSection}`;
-}
-__name(buildPrompt, "buildPrompt");
+// src/prompt.ts — see idea-prompt.js + assets/generate-ideas-worker.txt
 
 // src/config.ts
 function readOpenAiKey(env) {
@@ -2507,7 +2508,8 @@ var REQUIRED_FIELDS = [
   "formula_sketch",
   "expected_signal",
   "risks",
-  "factor_expr"
+  "factor_expr",
+  "factor_sql"
 ];
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -2517,6 +2519,43 @@ function isStringArray(value) {
   return Array.isArray(value) && value.length > 0 && value.every((item) => isNonEmptyString(item));
 }
 __name(isStringArray, "isStringArray");
+function normalizeTextField(value) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean).join("\n");
+  }
+  if (value == null) {
+    return "";
+  }
+  return String(value).trim();
+}
+__name(normalizeTextField, "normalizeTextField");
+function normalizeFactorExprFromCanonical(expr) {
+  if (typeof expr !== "string") {
+    return expr;
+  }
+  const trimmed = expr.trim();
+  if (!trimmed.includes("field:") && !trimmed.includes("const:")) {
+    return trimmed;
+  }
+  return trimmed.replace(/field:([a-zA-Z0-9_]+)/g, (_, name) => `$${name}`).replace(/const:([^,)]+)/g, "$1");
+}
+__name(normalizeFactorExprFromCanonical, "normalizeFactorExprFromCanonical");
+function normalizeImportIdea(idea) {
+  if (!idea || typeof idea !== "object" || Array.isArray(idea)) {
+    return idea;
+  }
+  idea.hypothesis = normalizeTextField(idea.hypothesis);
+  idea.formula_sketch = normalizeTextField(idea.formula_sketch);
+  idea.expected_signal = normalizeTextField(idea.expected_signal);
+  if (typeof idea.factor_expr === "string") {
+    idea.factor_expr = normalizeFactorExprFromCanonical(idea.factor_expr);
+  }
+  return idea;
+}
+__name(normalizeImportIdea, "normalizeImportIdea");
 function validateIdea(idea) {
   if (!idea || typeof idea !== "object") {
     return "idea is not an object";
@@ -2530,9 +2569,26 @@ function validateIdea(idea) {
       }
       continue;
     }
+    if (field === "factor_sql") {
+      continue;
+    }
     if (!isNonEmptyString(value)) {
       return `missing or invalid field: ${field}`;
     }
+  }
+  const factorSql = record.factor_sql;
+  if (!factorSql || typeof factorSql !== "object" || Array.isArray(factorSql)) {
+    return "missing or invalid field: factor_sql";
+  }
+  try {
+    validateFactorSqlBasic(factorSql);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `invalid factor_sql: ${message}`;
+  }
+  const primarySource = record.data_sources[0];
+  if (String(factorSql.data_source) !== String(primarySource)) {
+    return `factor_sql.data_source must match data_sources[0] (${primarySource})`;
   }
   if (record.custom_ops !== void 0) {
     if (!Array.isArray(record.custom_ops)) {
@@ -2655,8 +2711,8 @@ async function buildHashes(idea, activeCustomOps) {
   };
 }
 __name(buildHashes, "buildHashes");
-async function persistIdea(db, idea, hashes) {
-  const ideaId = await insertIdea(db, idea, hashes);
+async function persistIdea(db, idea, hashes, source = "openai") {
+  const ideaId = await insertIdea(db, idea, hashes, source);
   const customOps = idea.custom_ops ?? [];
   for (const op of customOps) {
     await insertPendingOperator(db, op, ideaId);
@@ -2664,11 +2720,13 @@ async function persistIdea(db, idea, hashes) {
   return ideaId;
 }
 __name(persistIdea, "persistIdea");
-async function processIdeas(db, ideas, activeCustomOps) {
+async function processIdeas(db, ideas, activeCustomOps, source = "openai") {
   let created = 0;
   let skipped = 0;
   const errors = [];
+  const created_ids = [];
   for (const idea of ideas) {
+    normalizeImportIdea(idea);
     const validationError = validateIdea(idea);
     if (validationError) {
       errors.push(`${idea.title || "(untitled)"}: ${validationError}`);
@@ -2686,12 +2744,40 @@ async function processIdeas(db, ideas, activeCustomOps) {
       skipped++;
       continue;
     }
-    await persistIdea(db, idea, hashes);
+    const ideaId = await persistIdea(db, idea, hashes, source);
+    created_ids.push(ideaId);
     created++;
   }
-  return { created, skipped, errors };
+  return { created, skipped, errors, created_ids };
 }
 __name(processIdeas, "processIdeas");
+function normalizeImportIdeas(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { error: 'body must be {"ideas":[...]} or a single idea object' };
+  }
+  if (Array.isArray(body.ideas)) {
+    if (body.ideas.length === 0) {
+      return { error: "ideas array must not be empty" };
+    }
+    return { ideas: body.ideas, source: body.source };
+  }
+  if (isNonEmptyString(body.title) && isNonEmptyString(body.factor_expr)) {
+    return { ideas: [body], source: body.source };
+  }
+  return { error: 'body must be {"ideas":[...]} or a single idea object' };
+}
+__name(normalizeImportIdeas, "normalizeImportIdeas");
+async function runImportIdeas(env, body) {
+  const normalized = normalizeImportIdeas(body);
+  if ("error" in normalized) {
+    throw new Error(normalized.error);
+  }
+  const source = isNonEmptyString(normalized.source) ? normalized.source.trim() : "manual";
+  const activeOperators = await getActiveOperators(env.DB);
+  const activeCustomOps = new Set(activeOperators.map((op) => op.name));
+  return processIdeas(env.DB, normalized.ideas, activeCustomOps, source);
+}
+__name(runImportIdeas, "runImportIdeas");
 function parseMaxIdeas(env, maxIdeas) {
   if (typeof maxIdeas === "number" && Number.isFinite(maxIdeas) && maxIdeas > 0) {
     return Math.floor(maxIdeas);
@@ -2700,6 +2786,22 @@ function parseMaxIdeas(env, maxIdeas) {
   return Number.isFinite(fromEnv) && fromEnv > 0 ? Math.floor(fromEnv) : 3;
 }
 __name(parseMaxIdeas, "parseMaxIdeas");
+function buildFallbackFactorSql(signalSql, postprocess = "cs_rank") {
+  return {
+    version: "1",
+    dialect: "duckdb-factor-v1",
+    evaluation_type: postprocess === "none" ? "time_series" : "cross_sectional",
+    data_source: "yhydev97/quant-data",
+    signal_sql: signalSql,
+    postprocess,
+    universe: {
+      dropna: ["open", "high", "low", "close"],
+      min_symbol_bars: 168,
+      cs_quantile_gte: { col: "quote_volume", q: 0.2 }
+    }
+  };
+}
+__name(buildFallbackFactorSql, "buildFallbackFactorSql");
 function buildFallbackIdeas(count) {
   const nowTag = Date.now().toString().slice(-6);
   const templates = [
@@ -2708,35 +2810,48 @@ function buildFallbackIdeas(count) {
       hypothesis: "风险调整后的动量在横截面上具有持续性。",
       formula_sketch: "ret_24h / vol_24h 后做截面排序",
       expected_signal: "横截面：做多高分位，做空低分位",
-      factor_expr: "CSRank(Div($ret_24h, Add($vol_24h, 1e-8)))"
+      factor_expr: "CSRank(Div($ret_24h, Add($vol_24h, 1e-8)))",
+      factor_sql: buildFallbackFactorSql("ret_24h / (vol_24h + 1e-8)")
     },
     {
       suffix: "TakerRatioAccel",
       hypothesis: "主动买入强度提升通常对应短期价格延续。",
       formula_sketch: "主动买入成交额占比的短长窗比值做截面排序",
       expected_signal: "横截面：做多主动买盘占比加速资产",
-      factor_expr: "CSRank(Div(Mean(Div($taker_buy_quote_volume, Add($quote_volume, 1e-8)), 6), Add(Mean(Div($taker_buy_quote_volume, Add($quote_volume, 1e-8)), 24), 1e-8)))"
+      factor_expr: "CSRank(Div(Mean(Div($taker_buy_quote_volume, Add($quote_volume, 1e-8)), 6), Add(Mean(Div($taker_buy_quote_volume, Add($quote_volume, 1e-8)), 24), 1e-8)))",
+      factor_sql: buildFallbackFactorSql(
+        "AVG(taker_buy_quote_volume / (quote_volume + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 5 PRECEDING AND CURRENT ROW) / (AVG(taker_buy_quote_volume / (quote_volume + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8)"
+      )
     },
     {
       suffix: "VolumePerTradeMom",
       hypothesis: "单笔成交额上升反映资金质量提升。",
       formula_sketch: "quote_volume/count 的短窗均值与长窗均值比",
       expected_signal: "横截面：做多单笔成交额提升资产",
-      factor_expr: "CSRank(Div(Mean(Div($quote_volume, Add($count, 1e-8)), 12), Add(Mean(Div($quote_volume, Add($count, 1e-8)), 48), 1e-8)))"
+      factor_expr: "CSRank(Div(Mean(Div($quote_volume, Add($count, 1e-8)), 12), Add(Mean(Div($quote_volume, Add($count, 1e-8)), 48), 1e-8)))",
+      factor_sql: buildFallbackFactorSql(
+        "AVG(quote_volume / (count + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 11 PRECEDING AND CURRENT ROW) / (AVG(quote_volume / (count + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 47 PRECEDING AND CURRENT ROW) + 1e-8)"
+      )
     },
     {
       suffix: "RangeCompression",
       hypothesis: "波动收敛后更容易出现方向性突破。",
       formula_sketch: "高低振幅与近期均值比值做反向排序",
       expected_signal: "横截面：做多波动压缩资产",
-      factor_expr: "CSRank(Neg(Div(Div(Sub($high, $low), Add($close, 1e-8)), Add(Mean(Div(Sub($high, $low), Add($close, 1e-8)), 24), 1e-8))))"
+      factor_expr: "CSRank(Neg(Div(Div(Sub($high, $low), Add($close, 1e-8)), Add(Mean(Div(Sub($high, $low), Add($close, 1e-8)), 24), 1e-8))))",
+      factor_sql: buildFallbackFactorSql(
+        "-((high - low) / (close + 1e-8)) / (AVG((high - low) / (close + 1e-8)) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8)"
+      )
     },
     {
       suffix: "LiquidityShift",
       hypothesis: "成交额分位变化对短期收益有预测作用。",
       formula_sketch: "成交额短窗均值/长窗均值做截面排序",
       expected_signal: "横截面：做多流动性改善资产",
-      factor_expr: "CSRank(Div(Mean($quote_volume, 6), Add(Mean($quote_volume, 24), 1e-8)))"
+      factor_expr: "CSRank(Div(Mean($quote_volume, 6), Add(Mean($quote_volume, 24), 1e-8)))",
+      factor_sql: buildFallbackFactorSql(
+        "AVG(quote_volume) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 5 PRECEDING AND CURRENT ROW) / (AVG(quote_volume) OVER (PARTITION BY symbol ORDER BY open_time ROWS BETWEEN 23 PRECEDING AND CURRENT ROW) + 1e-8)"
+      )
     }
   ];
   const ideas = [];
@@ -2750,23 +2865,47 @@ function buildFallbackIdeas(count) {
       formula_sketch: base.formula_sketch,
       expected_signal: base.expected_signal,
       risks: ["流动性分层", "极端行情失效", "交易成本冲击"],
-      factor_expr: `Add(${base.factor_expr}, ${jitter})`
+      factor_expr: `Add(${base.factor_expr}, ${jitter})`,
+      factor_sql: base.factor_sql
     });
   }
   return ideas;
 }
 __name(buildFallbackIdeas, "buildFallbackIdeas");
+async function loadIdeaGenerationContext(env) {
+  const [activeOperators, saturatedPatterns, datasetSection] = await Promise.all([
+    getActiveOperators(env.DB),
+    getSaturatedPatterns(env.DB),
+    loadDatasetSection(env)
+  ]);
+  return { activeOperators, saturatedPatterns, datasetSection };
+}
+__name(loadIdeaGenerationContext, "loadIdeaGenerationContext");
+async function resolveIdeaGenerationPrompt(env, maxIdeas) {
+  const target = parseMaxIdeas(env, maxIdeas);
+  const { activeOperators, saturatedPatterns, datasetSection } = await loadIdeaGenerationContext(env);
+  const prompt = buildPrompt({
+    datasetSection,
+    activeOperators,
+    saturatedPatterns,
+    maxIdeas: target
+  });
+  return {
+    prompt,
+    max_ideas: target,
+    bytes: new TextEncoder().encode(prompt).length,
+    active_operators: activeOperators.length,
+    saturated_patterns: saturatedPatterns.length
+  };
+}
+__name(resolveIdeaGenerationPrompt, "resolveIdeaGenerationPrompt");
 async function runGenerate(env, maxIdeas) {
   const target = parseMaxIdeas(env, maxIdeas);
   let created = 0;
   let skipped = 0;
   const errors = [];
   const { withLlmFallback } = await import("./llm-providers.js");
-  const [activeOperators, saturatedPatterns, datasetSection] = await Promise.all([
-    getActiveOperators(env.DB),
-    getSaturatedPatterns(env.DB),
-    loadDatasetSection(env)
-  ]);
+  const { activeOperators, saturatedPatterns, datasetSection } = await loadIdeaGenerationContext(env);
   const activeCustomOps = new Set(activeOperators.map((op) => op.name));
   const maxAttempts = 3;
   for (let attempt = 0; attempt < maxAttempts && created < target; attempt++) {

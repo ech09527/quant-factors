@@ -4,12 +4,33 @@ const VALIDATION_WORKFLOW_JOB_FROM = `
     LEFT JOIN idea_validations iv
       ON iv.idea_id = i.id AND iv.profile_key = vp.key
     WHERE vp.enabled = 1
+      AND i.factor_sql IS NOT NULL
+      AND TRIM(i.factor_sql) != ''
+      AND TRIM(i.factor_sql) != 'null'
       AND (iv.id IS NULL OR iv.status NOT IN ('success', 'skipped'))
       AND (
         iv.id IS NULL
         OR iv.status != 'running'
         OR iv.updated_at < datetime('now', '-10 minutes')
       )`;
+
+function parseJsonObject(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 function parseJsonArray(value) {
   if (Array.isArray(value)) {
@@ -60,6 +81,7 @@ function rowToWorkflowJob(row) {
     formula_sketch: String(row.formula_sketch),
     expected_signal: String(row.expected_signal),
     data_sources: parseJsonArray(row.data_sources),
+    factor_sql: parseJsonObject(row.factor_sql),
     status: String(row.status)
   };
 }
@@ -130,7 +152,8 @@ export async function listPendingValidationWorkflowJobs(db, limit) {
          i.hypothesis,
          i.formula_sketch,
          i.expected_signal,
-         i.data_sources
+         i.data_sources,
+         i.factor_sql
        ${VALIDATION_WORKFLOW_JOB_FROM}
        ORDER BY
          CASE WHEN iv.id IS NULL THEN 0 WHEN iv.status = 'failed' THEN 1 ELSE 2 END,

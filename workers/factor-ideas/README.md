@@ -6,7 +6,7 @@
 
 1. Cron（`*/5`）调用 `runValidationBatch`
 2. 从 D1 拉取 pending 验证任务并 claim
-3. D1 配置的 LLM Provider 翻译 `factor_sql`（或 fallback 至 Worker Secret `OPENAI_*`）
+3. 仅验证 `ideas.factor_sql` 已存在的想法（不再在验证批处理中调用 LLM 翻译）
 4. 通过公网 `lynas-pub` 创建 Jupyter kernel，WebSocket **fire-and-forget** 提交评估代码
 5. Kernel 内 DuckDB 评估完成后 **POST** `/api/workflow/validation-jobs/report` 回写 D1
 6. 超时 `running` 任务由 `reclaimStaleValidationJobs`（默认 120 分钟）标为 failed
@@ -57,6 +57,7 @@ REST：
 - `GET/POST /api/llm-usage-routes`
 - `PATCH/DELETE /api/llm-usage-routes/:id`
 - `GET /api/workflow/llm-config?usage=...`（返回 `routes[]` 按优先级排序）
+- `GET /api/ideas/generation-prompt`（返回当前想法生成提示词；`?max_ideas=3` 对齐 Cron 条数；`?format=text` 纯文本）
 
 可选 fallback（未配置 D1 时）：
 

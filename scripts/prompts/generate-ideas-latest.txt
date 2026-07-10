@@ -1,0 +1,94 @@
+你是一位量化投研专家。基于下方数据上下文与 DSL 约束，提出**新的**量化因子想法。
+
+**优先横截面因子**：同一 open_time 对 universe 内各 symbol 排序/分位/z-score，用于多空轮动。
+
+## 约束
+
+1. 仅使用数据上下文中列出的字段；`data_sources` 填对应 slug。
+2. `factor_expr` 为 Qlib 风格 DSL；**至少 70% 为横截面**（含 CSRank 或 CSZScore）。
+3. 避开下方饱和模式；标题简洁、互不重复。
+4. 非内置算子须在 `custom_ops` 注明 name / signature / description。
+5. 每条 idea **必须同时输出** `factor_sql`（含可执行的 `signal_sql`），与 `formula_sketch` / `factor_expr` 一致。
+6. 输出须符合下方格式说明。
+
+严格 JSON：`{"ideas":[...]}`，不要 markdown 代码块。
+
+每条 idea 必填字段：
+- title, hypothesis, data_sources（如 ["yhydev97/quant-data"]）
+- formula_sketch, expected_signal, risks（字符串数组）
+- factor_expr：Qlib DSL，字段 `$` 前缀，须用白名单字段
+- factor_sql：DuckDB 翻译结果（含 signal_sql、postprocess、universe），与 formula_sketch 语义一致
+
+可选：custom_ops（使用非内置算子时，每项含 name, signature, description）
+
+横截面因子：factor_expr 应含 CSRank 或 CSZScore，factor_sql.evaluation_type=cross_sectional；时序类在 expected_signal 标注「时序」，factor_sql.evaluation_type=time_series。
+
+## factor_sql（每条 idea 必填）
+
+根据 `formula_sketch` 与 `factor_expr` 同步产出 DuckDB `signal_sql`，结构如下（不要 markdown 代码块包裹）：
+
+```json
+{
+  "version": "1",
+  "dialect": "duckdb-factor-v1",
+  "evaluation_type": "cross_sectional",
+  "data_source": "yhydev97/quant-data",
+  "signal_sql": "ret_24h / (vol_24h + 1e-8)",
+  "postprocess": "cs_rank",
+  "universe": {
+    "dropna": ["open", "high", "low", "close"],
+    "min_symbol_bars": 168,
+    "cs_quantile_gte": {"col": "quote_volume", "q": 0.20}
+  }
+}
+```
+
+### 字段约定
+
+- `data_source` 必须与 `data_sources[0]` 一致。
+- `factor_expr` 含 `CSRank` → `evaluation_type=cross_sectional`，`postprocess=cs_rank`。
+- `factor_expr` 含 `CSZScore` → `evaluation_type=cross_sectional`，`postprocess=cs_zscore`。
+- `expected_signal` 标注「时序」→ `evaluation_type=time_series`，`postprocess=none`。
+
+### signal_sql 规则
+
+1. 这是 SELECT 列表中的表达式，可引用列：`open, high, low, close, volume, quote_volume, count, taker_buy_volume, taker_buy_quote_volume`，以及预计算列 `log_ret_1, ret_24h, vol_24h`（**优先使用预计算列**，勿在 SQL 里重复推导）。
+2. 时序 lag 用 `LAG(col, n) OVER w`（`w` 由引擎提供：`PARTITION BY symbol ORDER BY open_time`）。
+3. **禁止嵌套窗口函数**（如 `MAX(AVG(x) OVER w)`）；允许多个并列窗口，如 `(x - AVG(x) OVER w) / (STDDEV_SAMP(x) OVER w + 1e-8)`。
+4. **禁止**在 `signal_sql` 里写截面 rank/zscore（由 `postprocess` 处理）；**禁止**计算 `fwd_ret`。
+5. **禁止** DDL/DML 关键字（COPY、CREATE、INSERT 等）。
+6. Qlib 映射：`Ref($close,n)` → `LAG(close, n) OVER w`；`Mean(x,n)` → `AVG(x) OVER (... ROWS BETWEEN n-1 PRECEDING AND CURRENT ROW)`；`Std` → `STDDEV_SAMP`；`Log` → `LN`。
+
+### universe
+
+从 `formula_sketch` 提取；横截面因子建议含 `cs_quantile_gte` 过滤低流动性标的。
+
+## 内置算子
+
+Ref, Mean, Std, Sum, Max, Min, Delta, Rank, Med, Quantile, Corr, Abs, Sign, Log, Neg, Add, Sub, Mul, Div, CSRank, CSZScore
+
+
+
+
+
+## 数据上下文
+
+### 数据集 `yhydev97/quant-data`
+
+- **类型**：Binance USDT 永续合约 1h K 线（多标的面板：symbol × open_time）
+- **Universe**：约 523 个 symbol，2020-01 ~ 2026-05
+- **主键**：`symbol`, `open_time`（毫秒时间戳）
+- **横截面**：每个 `open_time` 对 universe 内 symbol 做 rank/z-score；建议用 `quote_volume` 过滤低流动性
+
+**可用字段（factor_expr 用 `$` 前缀，仅限下列白名单）**
+
+| 字段 | 说明 |
+|------|------|
+| open, high, low, close | OHLC |
+| volume, quote_volume, count | 量、额、笔数 |
+| taker_buy_volume, taker_buy_quote_volume | 主动买入量/额 |
+| log_ret_1, ret_24h, vol_24h | 派生：1 期对数收益、24 期收益、24 期波动 |
+
+**DSL**：函数式 `Div($a, Add($b, 1e-8))` 或中缀 `$a / ($b + 1e-8)`；横截面用 `CSRank` / `CSZScore`；滚动窗口用 `Ref`/`Mean`/`Std`/`Delta`/`Corr` 等。
+
+请一次生成 3～5 条互不重复的新想法。

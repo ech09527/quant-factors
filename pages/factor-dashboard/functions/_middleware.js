@@ -5,7 +5,8 @@ export async function onRequest(context) {
   if (
     pathname.startsWith("/api/") ||
     pathname === "/health" ||
-    pathname === "/generate"
+    pathname === "/generate" ||
+    pathname === "/run-validation-batch"
   ) {
     if (!env.FACTOR_IDEAS) {
       return new Response(

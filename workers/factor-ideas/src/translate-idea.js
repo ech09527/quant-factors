@@ -4,6 +4,7 @@ import {
   chatCompletionWithFallback,
   LLM_USAGE_KEYS,
 } from "./llm-providers.js";
+import { validateFactorSqlBasic } from "./factor-sql-validate.js";
 
 const WORKFLOW_HTTP_USER_AGENT = "quant-factors-workflow/1.0";
 const DEFAULT_RAW_BASE = "https://raw.githubusercontent.com/ech09527/quant-factors/main";
@@ -18,24 +19,6 @@ function extractJsonObject(text) {
     throw new Error("模型输出中未找到 JSON 对象");
   }
   return JSON.parse(match[0]);
-}
-
-function validateFactorSqlBasic(factorSql) {
-  if (!factorSql || typeof factorSql !== "object" || Array.isArray(factorSql)) {
-    throw new Error("factor_sql 必须是对象");
-  }
-  for (const key of ["version", "dialect", "evaluation_type", "data_source", "signal_sql", "postprocess"]) {
-    if (!factorSql[key]) {
-      throw new Error(`factor_sql 缺少字段: ${key}`);
-    }
-  }
-  const signal = String(factorSql.signal_sql ?? "");
-  if (!signal.trim()) {
-    throw new Error("signal_sql 不能为空");
-  }
-  if (/\b(COPY|ATTACH|INSTALL|LOAD|EXPORT|READ_|CREATE|DROP|INSERT|UPDATE|DELETE|PRAGMA)\b/i.test(signal)) {
-    throw new Error("signal_sql 含禁止关键字");
-  }
 }
 
 async function fetchText(url) {

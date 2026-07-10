@@ -10,7 +10,7 @@
   --border: rgba(255, 255, 255, 0.08);
   --danger: #f87171;
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
-  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-family: "IBM Plex Sans", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
 }
 
 * {
@@ -67,23 +67,43 @@ body {
 
 .tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border);
+  width: fit-content;
+  max-width: 100%;
 }
 
 .tab {
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
-  padding: 10px 16px;
-  border-radius: 999px;
+  padding: 9px 16px;
+  border-radius: 10px;
   cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .tab.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
+  background: linear-gradient(180deg, #6b97ff, #4f7ef0);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(91, 140, 255, 0.28);
 }
 
 .panel {
@@ -101,7 +121,8 @@ body {
 .toolbar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -219,7 +240,7 @@ label {
 }
 
 select,
-button {
+.native-btn {
   font: inherit;
 }
 
@@ -231,7 +252,7 @@ select {
   padding: 8px 10px;
 }
 
-button {
+.native-btn {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -240,7 +261,7 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+.native-btn:hover {
   border-color: var(--accent);
 }
 
@@ -323,27 +344,68 @@ tbody tr:hover {
   cursor: not-allowed;
 }
 
-#detail-dialog {
+#detail-dialog,
+#factor-sql-dialog,
+#profile-dialog,
+#jupyter-dialog,
+#llm-dialog,
+#llm-route-dialog,
+#llm-models-dialog,
+#idea-import-dialog {
   width: min(760px, calc(100vw - 32px));
-  border: 1px solid var(--border);
-  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
   background: var(--panel);
   color: var(--text);
   padding: 0;
+  box-shadow: var(--shadow);
+}
+
+#jupyter-dialog,
+#llm-dialog {
+  width: min(640px, calc(100vw - 32px));
+}
+
+#idea-import-dialog {
+  width: min(720px, calc(100vw - 32px));
 }
 
 #factor-sql-dialog {
   width: min(960px, calc(100vw - 32px));
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: var(--panel);
-  color: var(--text);
-  padding: 0;
 }
 
+#detail-dialog::backdrop,
 #factor-sql-dialog::backdrop,
-#detail-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.55);
+#profile-dialog::backdrop,
+#jupyter-dialog::backdrop,
+#llm-dialog::backdrop,
+#llm-route-dialog::backdrop,
+#llm-models-dialog::backdrop,
+#idea-import-dialog::backdrop {
+  background: rgba(4, 8, 18, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.profile-form {
+  padding: 22px 24px 20px;
+  min-width: min(480px, 90vw);
+}
+
+.profile-form h2 {
+  margin: 0 0 18px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 24px 20px;
+}
+
+.dialog-footer sl-button {
+  min-width: 5.5rem;
 }
 
 .factor-sql-dialog-content {
@@ -566,101 +628,40 @@ tbody tr:hover {
   font-weight: 600;
 }
 
-.profile-form {
-  padding: 8px 4px 0;
-  min-width: min(420px, 90vw);
-}
-
-.profile-form h2 {
-  margin: 0 0 16px;
-}
-
-.profile-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 14px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.profile-form input,
-.profile-form select,
-.profile-form textarea {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 10px;
-  font: inherit;
-}
-
-.profile-form input:disabled {
-  opacity: 0.6;
-}
-
 .field-hint {
   font-size: 12px;
   color: var(--muted);
+  margin: 0 0 12px;
+  line-height: 1.5;
 }
 
-.profile-form-actions {
+.detail-section-header {
   display: flex;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.profile-form-actions button {
-  flex: 1;
-}
-
-.inline-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.jupyter-form input[type="url"] {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-}
-
-#profile-dialog::backdrop,
-#jupyter-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.55);
-}
-
-.table-actions {
-  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   flex-wrap: wrap;
-  gap: 6px;
-}
-
-.table-actions button {
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.table-actions button.danger {
-  border-color: rgba(248, 113, 113, 0.45);
-  color: #fecaca;
 }
 
 .muted {
   color: var(--muted);
 }
 
-.close-btn {
-  width: 100%;
-  border: 0;
+.dialog-footer {
   border-top: 1px solid var(--border);
-  border-radius: 0 0 20px 20px;
-  padding: 14px;
+  margin-top: 4px;
+  padding-top: 16px;
+}
+
+.close-btn {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 18px 18px;
+  padding: 14px 24px;
+  background: rgba(0, 0, 0, 0.12);
+  margin: 0;
 }
 
 .toast {

@@ -1,6 +1,33 @@
 const PAGE_SIZE = 20;
 const AUTH_STORAGE_KEY = "qf_auth_token";
 
+const IDEA_IMPORT_EXAMPLE = `{
+  "ideas": [
+    {
+      "title": "示例横截面因子",
+      "hypothesis": "风险调整动量在截面上具有持续性",
+      "data_sources": ["yhydev97/quant-data"],
+      "formula_sketch": "ret_24h / vol_24h，每个 open_time 横截面 rank",
+      "expected_signal": "横截面：做多高分位、做空低分位",
+      "risks": ["流动性分层", "极端行情失效"],
+      "factor_expr": "CSRank($ret_24h / ($vol_24h + 1e-8))",
+      "factor_sql": {
+        "version": "1",
+        "dialect": "duckdb-factor-v1",
+        "evaluation_type": "cross_sectional",
+        "data_source": "yhydev97/quant-data",
+        "signal_sql": "ret_24h / (vol_24h + 1e-8)",
+        "postprocess": "cs_rank",
+        "universe": {
+          "dropna": ["open", "high", "low", "close"],
+          "min_symbol_bars": 168,
+          "cs_quantile_gte": {"col": "quote_volume", "q": 0.20}
+        }
+      }
+    }
+  ]
+}`;
+
 /** API 前缀：默认跟随地址栏同源；?api= 可覆盖（本地调试） */
 function apiPrefix() {
   const override = new URLSearchParams(window.location.search).get("api");
@@ -23,10 +50,24 @@ function escapeHtml(text) {
     .replaceAll('"', "&quot;");
 }
 
+function tableActionButton(label, action, attrs = {}, { danger = false } = {}) {
+  const variant = danger ? "danger" : "default";
+  const attrText = Object.entries(attrs)
+    .map(([key, value]) => `${key}="${escapeHtml(String(value))}"`)
+    .join(" ");
+  return `<sl-button size="small" variant="${variant}" data-action="${escapeHtml(action)}"${attrText ? ` ${attrText}` : ""}>${escapeHtml(label)}</sl-button>`;
+}
+
+const IDEA_SOURCE_LABELS = {
+  openai: "OpenAI 生成",
+  manual: "手动导入",
+};
+
 const state = {
   validationById: {},
   tab: "ideas",
-  ideas: { offset: 0 },
+  ideas: { offset: 0, source: "" },
+  ideaSources: [],
   operators: { offset: 0, status: "" },
   validations: {
     sort: "updated_at",
@@ -35,7 +76,8 @@ const state = {
     limit: 30,
     offset: 0,
     status: "",
-    profile_key: "",
+    profile_keys: [],
+    source: "",
   },
   validationProfiles: [],
   profileFormMode: "create",
@@ -73,6 +115,8 @@ const els = {
   validationsLimit: document.getElementById("validations-limit"),
   validationsStatus: document.getElementById("validations-status"),
   validationsProfile: document.getElementById("validations-profile"),
+  validationsSource: document.getElementById("validations-source"),
+  ideasSource: document.getElementById("ideas-source"),
   profilesBody: document.getElementById("profiles-body"),
   profileDialog: document.getElementById("profile-dialog"),
   profileForm: document.getElementById("profile-form"),
@@ -136,7 +180,14 @@ const els = {
   llmNewModelNameInput: document.getElementById("llm-new-model-name"),
   llmModelsFormError: document.getElementById("llm-models-form-error"),
   ideasGenerate: document.getElementById("ideas-generate"),
+  ideasPromptPreview: document.getElementById("ideas-prompt-preview"),
   generateCount: document.getElementById("generate-count"),
+  ideasImportOpen: document.getElementById("ideas-import-open"),
+  ideaImportDialog: document.getElementById("idea-import-dialog"),
+  ideaImportForm: document.getElementById("idea-import-form"),
+  ideaImportJson: document.getElementById("idea-import-json"),
+  ideaImportError: document.getElementById("idea-import-error"),
+  ideaImportCancel: document.getElementById("idea-import-cancel"),
   operatorsStatus: document.getElementById("operators-status"),
   detailDialog: document.getElementById("detail-dialog"),
   detailContent: document.getElementById("detail-content"),
@@ -264,12 +315,12 @@ function renderPager(container, { total, offset, limit }, onPage) {
   const pages = Math.max(1, Math.ceil(total / limit));
   container.innerHTML = `
     <span>第 ${page} / ${pages} 页，共 ${total} 条</span>
-    <span>
-      <button type="button" data-dir="prev" ${offset <= 0 ? "disabled" : ""}>上一页</button>
-      <button type="button" data-dir="next" ${offset + limit >= total ? "disabled" : ""}>下一页</button>
+    <span class="pager-actions">
+      <sl-button size="small" data-dir="prev" ${offset <= 0 ? "disabled" : ""}>上一页</sl-button>
+      <sl-button size="small" data-dir="next" ${offset + limit >= total ? "disabled" : ""}>下一页</sl-button>
     </span>
   `;
-  container.querySelectorAll("button[data-dir]").forEach((button) => {
+  container.querySelectorAll("[data-dir]").forEach((button) => {
     button.addEventListener("click", () => {
       const dir = button.getAttribute("data-dir");
       const nextOffset = dir === "prev" ? Math.max(0, offset - limit) : offset + limit;
@@ -316,13 +367,14 @@ function renderFactorSqlCell(row) {
   }
   const preview = sql.length > 48 ? `${sql.slice(0, 47)}…` : sql;
   return `
-    <button
-      type="button"
-      class="link-button factor-sql-preview"
+    <sl-button
+      size="small"
+      variant="text"
+      class="factor-sql-preview"
       data-action="view-factor-sql"
       data-validation-id="${row.id}"
       title="${escapeHtml(sql)}"
-    >${escapeHtml(preview)}</button>
+    >${escapeHtml(preview)}</sl-button>
   `;
 }
 
@@ -368,13 +420,54 @@ function formatPercent(value) {
   return String(value);
 }
 
+function formatIdeaSourceLabel(source) {
+  if (!source) return "全部";
+  return IDEA_SOURCE_LABELS[source] || source;
+}
+
+function renderIdeaSourceOptions(selectEl, currentValue) {
+  const options = state.ideaSources
+    .map(
+      (source) =>
+        `<sl-option value="${escapeHtml(source)}">${escapeHtml(formatIdeaSourceLabel(source))}</sl-option>`,
+    )
+    .join("");
+  selectEl.innerHTML = `<sl-option value="">全部</sl-option>${options}`;
+  selectEl.value = currentValue || "";
+}
+
+async function loadIdeaSourceOptions() {
+  const data = await apiGet("/api/ideas/sources");
+  state.ideaSources = data.items || [];
+  renderIdeaSourceOptions(els.ideasSource, state.ideas.source);
+  renderIdeaSourceOptions(els.validationsSource, state.validations.source);
+}
+
+function readMultiSelectValues(selectEl) {
+  const raw = selectEl.value;
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (raw) return [raw];
+  return [];
+}
+
+function formatProfileKeysLabel(keys) {
+  if (!keys?.length) return "";
+  return keys
+    .map((key) => {
+      const profile = state.validationProfiles.find((item) => item.key === key);
+      return profile?.name || key;
+    })
+    .join("、");
+}
+
 function syncValidationControlsFromState() {
   els.validationsSort.value = state.validations.sort;
   els.validationsOrder.value = state.validations.order;
   els.validationsAbs.checked = state.validations.abs;
   els.validationsLimit.value = String(state.validations.limit);
   els.validationsStatus.value = state.validations.status;
-  els.validationsProfile.value = state.validations.profile_key;
+  els.validationsProfile.value = state.validations.profile_keys;
+  els.validationsSource.value = state.validations.source;
 }
 
 function readValidationControlsIntoState() {
@@ -386,11 +479,12 @@ function readValidationControlsIntoState() {
     Math.max(1, Number(els.validationsLimit.value) || 30),
   );
   state.validations.status = els.validationsStatus.value;
-  state.validations.profile_key = els.validationsProfile.value;
+  state.validations.profile_keys = readMultiSelectValues(els.validationsProfile);
+  state.validations.source = els.validationsSource.value;
 }
 
 function buildValidationQueryParams() {
-  const { sort, order, abs, limit, offset, status, profile_key } = state.validations;
+  const { sort, order, abs, limit, offset, status, profile_keys, source } = state.validations;
   const params = new URLSearchParams({
     sort,
     order,
@@ -399,7 +493,10 @@ function buildValidationQueryParams() {
     offset: String(offset),
   });
   if (status) params.set("status", status);
-  if (profile_key) params.set("profile_key", profile_key);
+  for (const profileKey of profile_keys) {
+    params.append("profile_key", profileKey);
+  }
+  if (source) params.set("source", source);
   return params;
 }
 
@@ -424,8 +521,14 @@ function validationQueryHint(data) {
   }[data.sort] || data.sort;
   const absLabel = data.abs && data.sort !== "evaluated_at" && data.sort !== "n_periods" ? "绝对值 " : "";
   const statusLabel = data.status ? `，状态=${data.status}` : "，全部状态";
-  const profileLabel = data.profile_key ? `，配置=${data.profile_key}` : "";
-  return `${absLabel}${metricLabel} ${data.order === "desc" ? "降序" : "升序"} Top ${data.limit}${statusLabel}${profileLabel}，共 ${data.total} 条`;
+  const profileKeys = data.profile_keys?.length
+    ? data.profile_keys
+    : data.profile_key
+      ? [data.profile_key]
+      : [];
+  const profileLabel = profileKeys.length ? `，配置=${formatProfileKeysLabel(profileKeys)}` : "";
+  const sourceLabel = data.source ? `，来源=${formatIdeaSourceLabel(data.source)}` : "";
+  return `${absLabel}${metricLabel} ${data.order === "desc" ? "降序" : "升序"} Top ${data.limit}${statusLabel}${profileLabel}${sourceLabel}，共 ${data.total} 条`;
 }
 
 async function loadValidationProfiles(includeDisabled = false) {
@@ -437,15 +540,13 @@ async function loadValidationProfiles(includeDisabled = false) {
 
 async function loadEnabledProfileOptions() {
   const data = await loadValidationProfiles(false);
-  const current = state.validations.profile_key;
-  els.validationsProfile.innerHTML =
-    `<option value="">全部</option>` +
-    state.validationProfiles
-      .map(
-        (profile) =>
-          `<option value="${profile.key}">${profile.name || profile.key}</option>`,
-      )
-      .join("");
+  const current = state.validations.profile_keys;
+  els.validationsProfile.innerHTML = state.validationProfiles
+    .map(
+      (profile) =>
+        `<sl-option value="${escapeHtml(profile.key)}">${escapeHtml(profile.name || profile.key)}</sl-option>`,
+    )
+    .join("");
   els.validationsProfile.value = current;
   return data;
 }
@@ -472,9 +573,9 @@ function renderProfilesTable(items) {
         <td>${profile.description || "-"}</td>
         <td>
           <div class="table-actions">
-            <button type="button" data-action="edit-profile" data-key="${profile.key}">编辑</button>
-            <button type="button" data-action="toggle-profile" data-key="${profile.key}">${profile.enabled ? "禁用" : "启用"}</button>
-            <button type="button" class="danger" data-action="delete-profile" data-key="${profile.key}">删除</button>
+            ${tableActionButton("编辑", "edit-profile", { "data-key": profile.key })}
+            ${tableActionButton(profile.enabled ? "禁用" : "启用", "toggle-profile", { "data-key": profile.key })}
+            ${tableActionButton("删除", "delete-profile", { "data-key": profile.key }, { danger: true })}
           </div>
         </td>
       </tr>
@@ -622,9 +723,9 @@ function renderJupyterTable(items) {
         <td>${server.last_used_at ? formatTime(server.last_used_at) : "-"}</td>
         <td>
           <div class="table-actions">
-            <button type="button" data-action="edit-jupyter" data-key="${server.key}">编辑</button>
-            <button type="button" data-action="toggle-jupyter" data-key="${server.key}">${server.enabled ? "禁用" : "启用"}</button>
-            <button type="button" class="danger" data-action="delete-jupyter" data-key="${server.key}">删除</button>
+            ${tableActionButton("编辑", "edit-jupyter", { "data-key": server.key })}
+            ${tableActionButton(server.enabled ? "禁用" : "启用", "toggle-jupyter", { "data-key": server.key })}
+            ${tableActionButton("删除", "delete-jupyter", { "data-key": server.key }, { danger: true })}
           </div>
         </td>
       </tr>
@@ -781,9 +882,9 @@ function renderLlmRoutesTable(items) {
         <td>${route.enabled ? '<span class="badge active">enabled</span>' : '<span class="badge">disabled</span>'}</td>
         <td>
           <div class="table-actions">
-            <button type="button" data-action="edit-llm-route" data-id="${route.id}">编辑</button>
-            <button type="button" data-action="toggle-llm-route" data-id="${route.id}">${route.enabled ? "禁用" : "启用"}</button>
-            <button type="button" class="danger" data-action="delete-llm-route" data-id="${route.id}">删除</button>
+            ${tableActionButton("编辑", "edit-llm-route", { "data-id": route.id })}
+            ${tableActionButton(route.enabled ? "禁用" : "启用", "toggle-llm-route", { "data-id": route.id })}
+            ${tableActionButton("删除", "delete-llm-route", { "data-id": route.id }, { danger: true })}
           </div>
         </td>
       </tr>
@@ -811,10 +912,10 @@ function renderLlmTable(items) {
         <td>${provider.last_used_at ? formatTime(provider.last_used_at) : "-"}</td>
         <td>
           <div class="table-actions">
-            <button type="button" data-action="manage-llm-models" data-key="${provider.key}">管理模型</button>
-            <button type="button" data-action="edit-llm" data-key="${provider.key}">编辑</button>
-            <button type="button" data-action="toggle-llm" data-key="${provider.key}">${provider.enabled ? "禁用" : "启用"}</button>
-            <button type="button" class="danger" data-action="delete-llm" data-key="${provider.key}">删除</button>
+            ${tableActionButton("管理模型", "manage-llm-models", { "data-key": provider.key })}
+            ${tableActionButton("编辑", "edit-llm", { "data-key": provider.key })}
+            ${tableActionButton(provider.enabled ? "禁用" : "启用", "toggle-llm", { "data-key": provider.key })}
+            ${tableActionButton("删除", "delete-llm", { "data-key": provider.key }, { danger: true })}
           </div>
         </td>
       </tr>
@@ -886,10 +987,10 @@ function populateRouteProviderSelect(selectedKey) {
   const options = (enabled.length ? enabled : state.llmProviders)
     .map(
       (provider) =>
-        `<option value="${provider.key}"${provider.key === selectedKey ? " selected" : ""}>${provider.name} (${provider.key})</option>`,
+        `<sl-option value="${escapeHtml(provider.key)}"${provider.key === selectedKey ? " selected" : ""}>${escapeHtml(provider.name)} (${escapeHtml(provider.key)})</sl-option>`,
     )
     .join("");
-  els.llmRouteProviderSelect.innerHTML = options || '<option value="">请先创建 Provider</option>';
+  els.llmRouteProviderSelect.innerHTML = options || '<sl-option value="">请先创建 Provider</sl-option>';
 }
 
 function populateRouteModelSelect(providerKey, selectedModel) {
@@ -898,10 +999,10 @@ function populateRouteModelSelect(providerKey, selectedModel) {
   const options = (enabled.length ? enabled : models)
     .map(
       (model) =>
-        `<option value="${model.model_name}"${model.model_name === selectedModel ? " selected" : ""}>${model.model_name}</option>`,
+        `<sl-option value="${escapeHtml(model.model_name)}"${model.model_name === selectedModel ? " selected" : ""}>${escapeHtml(model.model_name)}</sl-option>`,
     )
     .join("");
-  els.llmRouteModelSelect.innerHTML = options || '<option value="">请先添加模型</option>';
+  els.llmRouteModelSelect.innerHTML = options || '<sl-option value="">请先添加模型</sl-option>';
 }
 
 async function openLlmRouteDialog(mode, route = null) {
@@ -951,8 +1052,16 @@ function renderLlmModelsTable(providerKey) {
         <td>${model.sort_order ?? 0}</td>
         <td>${model.enabled ? '<span class="badge active">enabled</span>' : '<span class="badge">disabled</span>'}</td>
         <td>
-          <button type="button" data-action="toggle-llm-model" data-provider="${providerKey}" data-model="${model.model_name}">${model.enabled ? "禁用" : "启用"}</button>
-          <button type="button" class="danger" data-action="delete-llm-model" data-provider="${providerKey}" data-model="${model.model_name}">删除</button>
+          <div class="table-actions">
+            ${tableActionButton(model.enabled ? "禁用" : "启用", "toggle-llm-model", {
+              "data-provider": providerKey,
+              "data-model": model.model_name,
+            })}
+            ${tableActionButton("删除", "delete-llm-model", {
+              "data-provider": providerKey,
+              "data-model": model.model_name,
+            }, { danger: true })}
+          </div>
         </td>
       </tr>
     `,
@@ -1117,7 +1226,7 @@ async function loadValidationResults() {
         <tr data-id="${row.idea_id}" data-kind="idea" data-validation-id="${row.id}">
           <td>${row.id}</td>
           <td>
-            <button type="button" class="link-button" data-id="${row.idea_id}" data-kind="idea">${row.idea_title || `#${row.idea_id}`}</button>
+            <sl-button size="small" variant="text" class="idea-link" data-id="${row.idea_id}" data-kind="idea">${escapeHtml(row.idea_title || `#${row.idea_id}`)}</sl-button>
             ${err}
           </td>
           <td>${row.profile_name || row.profile_key}</td>
@@ -1129,14 +1238,13 @@ async function loadValidationResults() {
           <td>${formatPercent(metrics.ic_positive_ratio)}</td>
           <td>${formatTime(row.evaluated_at)}</td>
           <td>${validationStatusBadge(row.status)}</td>
-          <td>${renderFactorSqlCell(row)}</td>
         </tr>
       `;
     })
     .join("");
 
   if (!data.items.length) {
-    els.validationsBody.innerHTML = `<tr><td colspan="12" class="muted">暂无符合条件的验证结果。</td></tr>`;
+    els.validationsBody.innerHTML = `<tr><td colspan="11" class="muted">暂无符合条件的验证结果。</td></tr>`;
   }
 
   renderPager(els.validationsPager, data, (nextOffset) => {
@@ -1171,7 +1279,6 @@ function renderValidationsTable(validations) {
           <th>IC IR</th>
           <th>期数</th>
           <th>评估时间</th>
-          <th>翻译 SQL</th>
         </tr>
       </thead>
       <tbody>
@@ -1186,7 +1293,6 @@ function renderValidationsTable(validations) {
                 <td>${formatMetric(metrics.ic_ir)}</td>
                 <td>${metrics.n_periods ?? "-"}</td>
                 <td>${formatTime(row.evaluated_at)}</td>
-                <td>${renderFactorSqlCell(row)}</td>
               </tr>
             `;
           })
@@ -1223,7 +1329,7 @@ async function renderIdeaDetail(idea) {
     <div class="detail-section">
       <div class="detail-section-header">
         <h3>因子验证</h3>
-        <button type="button" id="enqueue-validations" class="btn-primary">创建全部验证任务</button>
+        <sl-button id="enqueue-validations" variant="primary" size="small">创建全部验证任务</sl-button>
       </div>
       <div id="validations-panel">${renderValidationsTable(validations)}</div>
     </div>
@@ -1231,6 +1337,8 @@ async function renderIdeaDetail(idea) {
   const enqueueButton = document.getElementById("enqueue-validations");
   enqueueButton?.addEventListener("click", async () => {
     enqueueButton.disabled = true;
+    enqueueButton.loading = true;
+    const originalText = enqueueButton.textContent;
     enqueueButton.textContent = "创建中…";
     try {
       const result = await apiPost(`/api/ideas/${idea.id}/validations`, {});
@@ -1243,7 +1351,8 @@ async function renderIdeaDetail(idea) {
       handleError(error);
     } finally {
       enqueueButton.disabled = false;
-      enqueueButton.textContent = "创建全部验证任务";
+      enqueueButton.loading = false;
+      enqueueButton.textContent = originalText;
     }
   });
   els.detailDialog.showModal();
@@ -1274,11 +1383,13 @@ async function loadStats() {
 }
 
 async function loadIdeas() {
-  const { offset } = state.ideas;
+  const { offset, source } = state.ideas;
   const params = new URLSearchParams({
     limit: String(PAGE_SIZE),
     offset: String(offset),
   });
+  if (source) params.set("source", source);
+  els.ideasSource.value = source || "";
 
   const data = await apiGet(`/api/ideas?${params}`);
   els.ideasBody.innerHTML = data.items
@@ -1287,7 +1398,7 @@ async function loadIdeas() {
       <tr data-id="${idea.id}" data-kind="idea">
         <td>${idea.id}</td>
         <td>${idea.title}</td>
-        <td>${idea.source}</td>
+        <td>${formatIdeaSourceLabel(idea.source)}</td>
         <td>${formatTime(idea.updated_at)}</td>
       </tr>
     `,
@@ -1347,7 +1458,8 @@ function switchTab(tab) {
     tab === "validations" || tab === "profiles" || tab === "jupyter" || tab === "llm",
   );
   if (tab === "validations") {
-    loadEnabledProfileOptions()
+    loadIdeaSourceOptions()
+      .then(() => loadEnabledProfileOptions())
       .then(() => loadValidationResults())
       .catch(handleError);
   } else if (tab === "profiles") {
@@ -1377,6 +1489,7 @@ async function triggerGenerate() {
   const originalText = button.textContent;
 
   button.disabled = true;
+  button.loading = true;
   button.textContent = "生成中…";
 
   try {
@@ -1394,7 +1507,123 @@ async function triggerGenerate() {
     await Promise.all([loadStats(), loadIdeas()]);
   } finally {
     button.disabled = false;
+    button.loading = false;
     button.textContent = originalText;
+  }
+}
+
+async function previewIdeaPrompt() {
+  const count = parseGenerateCount();
+  const button = els.ideasPromptPreview;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.loading = true;
+  button.textContent = "加载中…";
+  try {
+    const data = await apiGet(`/api/ideas/generation-prompt?max_ideas=${count}`);
+    els.detailContent.innerHTML = `
+      <h2>当前生成提示词</h2>
+      <p class="muted">max_ideas=${data.max_ideas}，长度=${data.bytes} bytes，活跃算子=${data.active_operators}，饱和模式=${data.saturated_patterns}</p>
+      <pre><code>${escapeHtml(data.prompt || "")}</code></pre>
+    `;
+    els.detailDialog.showModal();
+  } finally {
+    button.disabled = false;
+    button.loading = false;
+    button.textContent = originalText;
+  }
+}
+
+function showIdeaImportError(message) {
+  if (!message) {
+    els.ideaImportError.textContent = "";
+    els.ideaImportError.classList.add("hidden");
+    return;
+  }
+  els.ideaImportError.textContent = message;
+  els.ideaImportError.classList.remove("hidden");
+}
+
+function openIdeaImportDialog() {
+  if (!els.ideaImportJson.value.trim()) {
+    els.ideaImportJson.value = IDEA_IMPORT_EXAMPLE;
+  }
+  showIdeaImportError("");
+  els.ideaImportDialog.showModal();
+}
+
+function parseIdeaImportPayload(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error("JSON 不能为空");
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    throw new Error(`JSON 解析失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (Array.isArray(parsed)) {
+    if (parsed.length === 0) {
+      throw new Error("ideas 数组不能为空");
+    }
+    return { ideas: parsed };
+  }
+  if (parsed && typeof parsed === "object" && Array.isArray(parsed.ideas)) {
+    if (parsed.ideas.length === 0) {
+      throw new Error("ideas 数组不能为空");
+    }
+    return parsed;
+  }
+  if (parsed && typeof parsed === "object" && parsed.title && parsed.factor_expr) {
+    return parsed;
+  }
+  throw new Error('格式须为 {"ideas":[...]} 或单个 idea 对象');
+}
+
+async function submitIdeaImport(event) {
+  event.preventDefault();
+  showIdeaImportError("");
+
+  let payload;
+  try {
+    payload = parseIdeaImportPayload(els.ideaImportJson.value);
+  } catch (error) {
+    showIdeaImportError(error instanceof Error ? error.message : String(error));
+    return;
+  }
+
+  const submitButton = els.ideaImportForm.querySelector('sl-button[type="submit"]');
+  const originalText = submitButton.textContent;
+  submitButton.disabled = true;
+  submitButton.loading = true;
+  submitButton.textContent = "提交中…";
+
+  try {
+    const result = await apiPost("/api/ideas", payload);
+    const parts = [`新增 ${result.created} 条`];
+    if (result.skipped > 0) {
+      parts.push(`跳过重复 ${result.skipped} 条`);
+    }
+    if (result.created_ids?.length) {
+      parts.push(`ID: ${result.created_ids.join(", ")}`);
+    }
+    if (result.errors?.length) {
+      parts.push(`失败 ${result.errors.length} 条`);
+      showIdeaImportError(result.errors.join("\n"));
+    }
+    showToast(parts.join("，"), result.created > 0 ? "success" : "error");
+    if (result.created > 0) {
+      els.ideaImportDialog.close();
+      state.ideas.offset = 0;
+      await Promise.all([loadStats(), loadIdeas()]);
+    }
+  } catch (error) {
+    showIdeaImportError(error instanceof Error ? error.message : String(error));
+  } finally {
+    submitButton.disabled = false;
+    submitButton.loading = false;
+    submitButton.textContent = originalText;
   }
 }
 
@@ -1407,8 +1636,30 @@ document.getElementById("ideas-refresh").addEventListener("click", () => {
   Promise.all([loadStats(), loadIdeas()]).catch(handleError);
 });
 
+document.getElementById("ideas-apply").addEventListener("click", () => {
+  state.ideas.source = els.ideasSource.value;
+  state.ideas.offset = 0;
+  loadIdeas().catch(handleError);
+});
+
 els.ideasGenerate.addEventListener("click", () => {
   triggerGenerate().catch(handleError);
+});
+
+els.ideasPromptPreview.addEventListener("click", () => {
+  previewIdeaPrompt().catch(handleError);
+});
+
+els.ideasImportOpen.addEventListener("click", () => {
+  openIdeaImportDialog();
+});
+
+els.ideaImportForm.addEventListener("submit", (event) => {
+  submitIdeaImport(event).catch(handleError);
+});
+
+els.ideaImportCancel.addEventListener("click", () => {
+  els.ideaImportDialog.close();
 });
 
 document.getElementById("operators-refresh").addEventListener("click", () => {
@@ -1452,7 +1703,7 @@ document.getElementById("profile-form-cancel").addEventListener("click", () => {
 });
 
 els.profilesBody.addEventListener("click", async (event) => {
-  const button = event.target.closest("button[data-action]");
+  const button = event.target.closest("[data-action]");
   if (!button) return;
   const key = button.getAttribute("data-key");
   const action = button.getAttribute("data-action");
@@ -1499,7 +1750,7 @@ els.jupyterBaseUrlInput.addEventListener("change", () => {
 });
 
 els.jupyterBody.addEventListener("click", async (event) => {
-  const button = event.target.closest("button[data-action]");
+  const button = event.target.closest("[data-action]");
   if (!button) return;
   const key = button.getAttribute("data-key");
   const action = button.getAttribute("data-action");
@@ -1569,7 +1820,7 @@ document.getElementById("llm-models-form-close").addEventListener("click", () =>
 });
 
 els.llmModelsBody.addEventListener("click", async (event) => {
-  const button = event.target.closest("button[data-action]");
+  const button = event.target.closest("[data-action]");
   if (!button) return;
   const providerKey = button.getAttribute("data-provider");
   const modelName = button.getAttribute("data-model");
@@ -1591,7 +1842,7 @@ els.llmModelsBody.addEventListener("click", async (event) => {
 });
 
 els.llmRoutesBody.addEventListener("click", async (event) => {
-  const button = event.target.closest("button[data-action]");
+  const button = event.target.closest("[data-action]");
   if (!button) return;
   const routeId = Number(button.getAttribute("data-id"));
   const action = button.getAttribute("data-action");
@@ -1615,7 +1866,7 @@ els.llmRoutesBody.addEventListener("click", async (event) => {
 });
 
 els.llmBody.addEventListener("click", async (event) => {
-  const button = event.target.closest("button[data-action]");
+  const button = event.target.closest("[data-action]");
   if (!button) return;
   const key = button.getAttribute("data-key");
   const action = button.getAttribute("data-action");
@@ -1665,14 +1916,14 @@ els.operatorsStatus.addEventListener("change", () => {
 });
 
 document.body.addEventListener("click", async (event) => {
-  const sqlButton = event.target.closest("button[data-action='view-factor-sql']");
+  const sqlButton = event.target.closest("[data-action='view-factor-sql']");
   if (sqlButton) {
     event.stopPropagation();
     openFactorSqlDialogById(Number(sqlButton.getAttribute("data-validation-id")));
     return;
   }
 
-  const linkButton = event.target.closest("button.link-button[data-id]");
+  const linkButton = event.target.closest(".idea-link[data-id]");
   if (linkButton) {
     event.stopPropagation();
     const id = linkButton.getAttribute("data-id");
@@ -1711,7 +1962,7 @@ async function verifyAuthAndBoot() {
   try {
     await apiGet("/api/auth/check");
     hideAuthGate();
-    await Promise.all([loadStats(), loadIdeas(), loadOperators()]);
+    await Promise.all([loadStats(), loadIdeaSourceOptions(), loadIdeas(), loadOperators()]);
   } catch {
     showAuthGate();
   }
@@ -1729,7 +1980,7 @@ els.authForm.addEventListener("submit", async (event) => {
   try {
     await apiGet("/api/auth/check");
     hideAuthGate();
-    await Promise.all([loadStats(), loadIdeas(), loadOperators()]);
+    await Promise.all([loadStats(), loadIdeaSourceOptions(), loadIdeas(), loadOperators()]);
   } catch (err) {
     clearAuthToken();
     const msg = err?.message || "";
