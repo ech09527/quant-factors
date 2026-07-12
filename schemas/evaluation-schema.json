@@ -79,11 +79,19 @@
         "mean_rank_ic": { "type": "number" },
         "rank_ic_ir": { "type": ["number", "null"] },
         "n_periods": { "type": "integer", "minimum": 0 },
-        "ic_positive_ratio": { "type": "number", "minimum": 0, "maximum": 1 }
+        "ic_positive_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "validation_profile_key": { "type": "string" },
+        "label_kind": { "type": "string" },
+        "horizon_bars": { "type": "integer", "minimum": 1 }
       }
     },
     "diagnostics": {
       "type": "object",
+      "additionalProperties": true
+    },
+    "ic_series": {
+      "type": "object",
+      "description": "逐期 IC / Rank IC 序列（写入 MLflow artifact）",
       "additionalProperties": true
     }
   }

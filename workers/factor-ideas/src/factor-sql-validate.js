@@ -19,6 +19,20 @@ export function hasStoredFactorSql(factorSql) {
   return Boolean(String(factorSql.signal_sql ?? "").trim());
 }
 
+const DSL_FUNCTION_LEAK =
+  /\b(Div|Add|Sub|Mul|Neg|Log|CSRank|CSZScore|Mean|Delta|Ref|Corr|Std|Abs)\s*\(/i;
+
+export function detectDslLeakInSignalSql(signalSql) {
+  const signal = String(signalSql ?? "").trim();
+  if (!signal) {
+    return null;
+  }
+  if (DSL_FUNCTION_LEAK.test(signal)) {
+    return "signal_sql 含 DSL 函数名（如 Div/Log），须改写为 DuckDB SQL（如 a / b、LN(a)）";
+  }
+  return null;
+}
+
 export function validateFactorSqlBasic(factorSql) {
   if (!factorSql || typeof factorSql !== "object" || Array.isArray(factorSql)) {
     throw new Error("factor_sql 必须是对象");
@@ -34,6 +48,10 @@ export function validateFactorSqlBasic(factorSql) {
   }
   if (/\b(COPY|ATTACH|INSTALL|LOAD|EXPORT|READ_|CREATE|DROP|INSERT|UPDATE|DELETE|PRAGMA)\b/i.test(signal)) {
     throw new Error("signal_sql 含禁止关键字");
+  }
+  const dslLeak = detectDslLeakInSignalSql(signal);
+  if (dslLeak) {
+    throw new Error(dslLeak);
   }
   const evaluationType = String(factorSql.evaluation_type);
   const postprocess = String(factorSql.postprocess);

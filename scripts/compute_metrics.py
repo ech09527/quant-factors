@@ -21,6 +21,58 @@ def _safe_ir(series: list[float]) -> float | None:
     return float(np.mean(series) / std)
 
 
+def _corr_ic_values(valid: pd.DataFrame) -> tuple[float | None, float | None]:
+    ic_t = valid["factor"].corr(valid["fwd_ret"])
+    rank_ic_t = valid["factor"].rank().corr(valid["fwd_ret"].rank())
+    ic = float(ic_t) if ic_t is not None and not np.isnan(ic_t) else None
+    rank_ic = (
+        float(rank_ic_t) if rank_ic_t is not None and not np.isnan(rank_ic_t) else None
+    )
+    return ic, rank_ic
+
+
+def compute_ic_series(panel: pd.DataFrame, evaluation_type: str) -> dict[str, Any]:
+    """返回逐期 IC / Rank IC 序列（用于 MLflow artifact 与图表）。"""
+    required = {"symbol", "open_time", "factor", "fwd_ret"}
+    missing = required - set(panel.columns)
+    if missing:
+        raise ValueError(f"panel 缺少列: {sorted(missing)}")
+
+    points: list[dict[str, Any]] = []
+    if evaluation_type == "cross_sectional":
+        period_axis = "open_time"
+        min_n = MIN_CROSS_SECTIONAL_N
+        grouped = panel.groupby("open_time", sort=True)
+    elif evaluation_type == "time_series":
+        period_axis = "symbol"
+        min_n = MIN_TIME_SERIES_N
+        grouped = panel.groupby("symbol", sort=True)
+    else:
+        raise ValueError(f"未知 evaluation_type: {evaluation_type}")
+
+    for period_key, grp in grouped:
+        valid = grp.dropna(subset=["factor", "fwd_ret"])
+        if len(valid) < min_n:
+            continue
+        ic, rank_ic = _corr_ic_values(valid)
+        if ic is None and rank_ic is None:
+            continue
+        points.append(
+            {
+                "t": str(period_key),
+                "ic": ic,
+                "rank_ic": rank_ic,
+                "n": int(len(valid)),
+            }
+        )
+
+    return {
+        "period_axis": period_axis,
+        "points": points,
+        "n_points": len(points),
+    }
+
+
 def compute_cross_sectional_metrics(panel: pd.DataFrame) -> dict[str, Any]:
     """横截面 IC：按 open_time 分组计算 Pearson / Spearman 相关。"""
     ic_series: list[float] = []
@@ -32,12 +84,11 @@ def compute_cross_sectional_metrics(panel: pd.DataFrame) -> dict[str, Any]:
         if len(valid) < MIN_CROSS_SECTIONAL_N:
             skipped_low_n += 1
             continue
-        ic_t = valid["factor"].corr(valid["fwd_ret"])
-        if ic_t is not None and not np.isnan(ic_t):
-            ic_series.append(float(ic_t))
-        rank_ic_t = valid["factor"].rank().corr(valid["fwd_ret"].rank())
-        if rank_ic_t is not None and not np.isnan(rank_ic_t):
-            rank_ic_series.append(float(rank_ic_t))
+        ic_t, rank_ic_t = _corr_ic_values(valid)
+        if ic_t is not None:
+            ic_series.append(ic_t)
+        if rank_ic_t is not None:
+            rank_ic_series.append(rank_ic_t)
 
     if not ic_series:
         raise ValueError(
@@ -72,12 +123,11 @@ def compute_time_series_metrics(panel: pd.DataFrame) -> dict[str, Any]:
         if len(valid) < MIN_TIME_SERIES_N:
             skipped_low_n += 1
             continue
-        ic_t = valid["factor"].corr(valid["fwd_ret"])
-        if ic_t is not None and not np.isnan(ic_t):
-            ic_series.append(float(ic_t))
-        rank_ic_t = valid["factor"].rank().corr(valid["fwd_ret"].rank())
-        if rank_ic_t is not None and not np.isnan(rank_ic_t):
-            rank_ic_series.append(float(rank_ic_t))
+        ic_t, rank_ic_t = _corr_ic_values(valid)
+        if ic_t is not None:
+            ic_series.append(ic_t)
+        if rank_ic_t is not None:
+            rank_ic_series.append(rank_ic_t)
 
     if not ic_series:
         raise ValueError(

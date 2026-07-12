@@ -344,14 +344,7 @@ tbody tr:hover {
   cursor: not-allowed;
 }
 
-#detail-dialog,
-#factor-sql-dialog,
-#profile-dialog,
-#jupyter-dialog,
-#llm-dialog,
-#llm-route-dialog,
-#llm-models-dialog,
-#idea-import-dialog {
+#detail-dialog {
   width: min(760px, calc(100vw - 32px));
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
@@ -361,9 +354,32 @@ tbody tr:hover {
   box-shadow: var(--shadow);
 }
 
+#detail-dialog.detail-dialog--wide {
+  width: min(960px, calc(100vw - 32px));
+}
+
 #jupyter-dialog,
-#llm-dialog {
+#llm-dialog,
+#profile-dialog,
+#llm-route-dialog,
+#llm-models-dialog {
   width: min(640px, calc(100vw - 32px));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0;
+  box-shadow: var(--shadow);
+}
+
+#idea-import-dialog,
+#factor-sql-dialog {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0;
+  box-shadow: var(--shadow);
 }
 
 #idea-import-dialog {
@@ -521,6 +537,100 @@ tbody tr:hover {
   margin: 0;
 }
 
+.ic-series-chart-host {
+  margin: 8px 0 16px;
+}
+
+.ic-series-chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.ic-series-chart-range {
+  font-size: 13px;
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--text);
+}
+
+.ic-series-chart-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ic-series-chart-meta {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+.ic-series-chart-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.ic-series-chart-brush-wrap {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.ic-series-chart-brush {
+  display: block;
+  width: 100%;
+  cursor: ew-resize;
+}
+
+.ic-series-chart-canvas {
+  display: block;
+  width: 100%;
+  cursor: crosshair;
+}
+
+.ic-series-chart-tooltip {
+  position: absolute;
+  z-index: 2;
+  min-width: 148px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(12, 18, 32, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.ic-series-chart-tooltip.hidden {
+  display: none;
+}
+
+.ic-series-chart-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ic-series-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.ic-series-swatch.ic {
+  background: #5b9cff;
+}
+
+.ic-series-swatch.rank-ic {
+  background: #f0a05a;
+}
+
 .validation-table {
   width: 100%;
   border-collapse: collapse;
@@ -667,7 +777,73 @@ tbody tr:hover {
   margin-bottom: 4px;
 }
 
+.jupyter-execution-panel {
+  margin-top: 1.5rem;
+}
+
+.jupyter-execution-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.jupyter-execution-server {
+  border: 1px solid var(--sl-color-neutral-200);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--sl-color-neutral-0);
+}
+
+.jupyter-execution-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  margin: 0.75rem 0 1rem;
+  font-size: 0.92rem;
+}
+
+.jupyter-execution-issues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.jupyter-execution-metric {
+  font-weight: 600;
+}
+
+.jupyter-coordinator-cell,
+.jupyter-coordinator-unavailable {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.jupyter-execution-table code,
+.jupyter-kernel-exec code {
+  font-size: 0.85em;
+}
+
+.jupyter-execution-queued {
+  margin-top: 0.75rem;
+}
+
+.jupyter-execution-queued summary {
+  cursor: pointer;
+  color: var(--sl-color-neutral-600);
+  margin-bottom: 0.5rem;
+}
+
+.jupyter-execution-hint {
+  margin: 0;
+}
+
 .jupyter-kernels-panel {
+  margin-top: 20px;
+}
+
+.ml-task-kernels-panel {
   margin-top: 20px;
 }
 
@@ -735,6 +911,40 @@ tbody tr:hover {
 .jupyter-capacity {
   font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
   font-weight: 500;
+}
+
+.jupyter-kernel-count-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.jupyter-kernel-count-detail {
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.jupyter-fetched-at {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.jupyter-servers-kernel-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.jupyter-kernels-fetched {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.jupyter-kernel-pending {
+  font-size: 12px;
+}
+
+.jupyter-kernel-error {
+  cursor: help;
 }
 
 .jupyter-kernels-table code {

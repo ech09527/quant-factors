@@ -433,6 +433,40 @@ export async function releaseValidationWorkflowClaims(db, validationIds, errorRe
   return { released };
 }
 
+export async function listValidationsWithUncleanedKernels(db, { limit }) {
+  const result = await db.prepare(
+    `SELECT id, diagnostics, status, updated_at
+       FROM idea_validations
+       WHERE diagnostics IS NOT NULL
+         AND json_extract(diagnostics, '$.kernel_id') IS NOT NULL
+         AND TRIM(json_extract(diagnostics, '$.kernel_id')) != ''
+         AND json_extract(diagnostics, '$.kernel_cleaned_at') IS NULL
+       ORDER BY updated_at ASC
+       LIMIT ?`
+  ).bind(limit).all();
+
+  return (result.results ?? []).map((row) => {
+    const diagnostics = parseJsonObject(row.diagnostics) ?? {};
+    return {
+      validation_id: Number(row.id),
+      status: String(row.status ?? ""),
+      kernel_id: String(diagnostics.kernel_id ?? "").trim(),
+      jupyter_server_key: String(diagnostics.jupyter_server_key ?? "").trim(),
+    };
+  });
+}
+
+export async function failValidationIfRunning(db, validationId, reason = "force kernel cleanup") {
+  const result = await db.prepare(
+    `UPDATE idea_validations
+       SET status = 'failed',
+           error_reason = COALESCE(error_reason, ?),
+           updated_at = datetime('now')
+       WHERE id = ? AND status = 'running'`
+  ).bind(reason, validationId).run();
+  return { updated: Number(result.meta.changes ?? 0) };
+}
+
 export async function listValidationsPendingKernelCleanup(db, { limit, graceMinutes }) {
   const result = await db.prepare(
     `SELECT id, diagnostics, status, updated_at

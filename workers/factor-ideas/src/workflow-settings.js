@@ -1,7 +1,9 @@
-export const VALIDATION_SCHEDULE_CRON = "*/2 * * * *";
+export const VALIDATION_SCHEDULE_CRON = "*/1 * * * *";
 export const IDEA_GENERATION_CRON = "*/5 * * * *";
 
 const VALIDATION_BATCH_KEY = "validation_batch_enabled";
+const FACTOR_VALIDATION_BATCH_KEY = "factor_validation_batch_enabled";
+const TEST_FACTOR_VALIDATION_BATCH_KEY = "test_factor_validation_batch_enabled";
 const KERNEL_CLEANUP_KEY = "kernel_cleanup_enabled";
 const VALIDATION_BATCH_LIMIT_KEY = "validation_batch_limit";
 
@@ -9,16 +11,34 @@ export const SYSTEM_SETTING_DEFS = [
   {
     key: VALIDATION_BATCH_KEY,
     label: "验证调度",
-    description: "开启后 Cron 每 2 分钟自动提交待验证任务；关闭时仅执行 kernel 清理。",
+    description: "（已停用 Cron）旧版 idea_validations 验证；仅可通过 POST /run-validation-batch 手动触发。",
     type: "boolean",
     envKey: "VALIDATION_BATCH_ENABLED",
     defaultBoolean: false,
     group: "workflow",
   },
   {
+    key: FACTOR_VALIDATION_BATCH_KEY,
+    label: "因子验证（MLflow）调度",
+    description: "开启后 Cron 每 1 分钟自动提交 factor_validations + ml_tasks 任务到 Jupyter，结果写入 DagsHub MLflow。",
+    type: "boolean",
+    envKey: "FACTOR_VALIDATION_BATCH_ENABLED",
+    defaultBoolean: false,
+    group: "workflow",
+  },
+  {
+    key: TEST_FACTOR_VALIDATION_BATCH_KEY,
+    label: "测试因子验证调度",
+    description: "开启后 Cron 每 1 分钟从 ideas×validation_profiles 自动拉取待测任务（与生产相同因子想法），kernel 返回 mock 数据用于端到端流程验证。",
+    type: "boolean",
+    envKey: "TEST_FACTOR_VALIDATION_BATCH_ENABLED",
+    defaultBoolean: false,
+    group: "workflow",
+  },
+  {
     key: KERNEL_CLEANUP_KEY,
     label: "Kernel 清理",
-    description: "开启后 Cron 每 2 分钟清理已完成验证的 Jupyter kernel，并执行孤儿 kernel 扫描。",
+    description: "开启后 Cron 每 1 分钟清理已完成验证的 Jupyter kernel，并执行孤儿 kernel 扫描。",
     type: "boolean",
     envKey: "KERNEL_CLEANUP_ENABLED",
     defaultBoolean: true,
@@ -132,7 +152,7 @@ export async function getSystemSettings(db, env) {
         key: "validation_batch",
         label: "验证调度 / Kernel 清理",
         cron: VALIDATION_SCHEDULE_CRON,
-        cron_label: "每 2 分钟",
+        cron_label: "每 1 分钟",
       },
       {
         key: "idea_generation",
@@ -199,8 +219,18 @@ export async function getValidationScheduleSettings(db, env) {
   return {
     enabled,
     cron: VALIDATION_SCHEDULE_CRON,
-    cron_label: "每 2 分钟",
+    cron_label: "每 1 分钟",
   };
+}
+
+export async function getFactorValidationBatchEnabled(db, env) {
+  const def = SETTING_DEF_BY_KEY.get(FACTOR_VALIDATION_BATCH_KEY);
+  return readWorkflowSettingValue(db, env, def);
+}
+
+export async function getTestFactorValidationBatchEnabled(db, env) {
+  const def = SETTING_DEF_BY_KEY.get(TEST_FACTOR_VALIDATION_BATCH_KEY);
+  return readWorkflowSettingValue(db, env, def);
 }
 
 export async function isValidationBatchEnabled(db, env) {

@@ -40,6 +40,7 @@
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="ideas" role="tab" aria-selected="true">因子想法</button>
         <button class="tab" data-tab="validations" role="tab" aria-selected="false">验证结果</button>
+        <button class="tab" data-tab="factor-validations" role="tab" aria-selected="false">因子验证</button>
         <button class="tab" data-tab="profiles" role="tab" aria-selected="false">验证配置</button>
         <button class="tab" data-tab="jupyter" role="tab" aria-selected="false">Jupyter 服务器</button>
         <button class="tab" data-tab="llm" role="tab" aria-selected="false">LLM API</button>
@@ -167,6 +168,60 @@
         <div class="pager" id="validations-pager"></div>
       </section>
 
+      <section class="panel hidden" id="panel-factor-validations">
+        <div class="toolbar validations-toolbar">
+          <div class="filter-grid">
+            <label class="filter-cell filter-cell--narrow">
+              <span class="filter-label">Top N</span>
+              <sl-input id="factor-validations-limit" type="number" min="1" max="200" value="30" size="small"></sl-input>
+            </label>
+            <label class="filter-cell">
+              <span class="filter-label">状态</span>
+              <sl-select id="factor-validations-status" size="small" value="" hoist>
+                <sl-option value="">全部</sl-option>
+                <sl-option value="success">success</sl-option>
+                <sl-option value="failed">failed</sl-option>
+                <sl-option value="skipped">skipped</sl-option>
+                <sl-option value="pending">pending</sl-option>
+                <sl-option value="running">running</sl-option>
+              </sl-select>
+            </label>
+            <label class="filter-cell">
+              <span class="filter-label">验证配置</span>
+              <sl-select id="factor-validations-profile" size="small" multiple clearable placeholder="全部" hoist>
+              </sl-select>
+            </label>
+          </div>
+          <div class="toolbar-actions validations-actions">
+            <sl-button id="factor-validations-preset-success" size="small">成功 · Top 30</sl-button>
+            <sl-button id="factor-validations-apply" variant="primary" size="small">查询</sl-button>
+            <sl-button id="factor-validations-refresh" size="small">刷新</sl-button>
+          </div>
+        </div>
+        <p class="muted validations-hint" id="factor-validations-hint"></p>
+        <div class="table-wrap">
+          <table class="validation-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>任务</th>
+                <th>因子</th>
+                <th>验证配置</th>
+                <th>Mean IC</th>
+                <th>Mean Rank IC</th>
+                <th>IC IR</th>
+                <th>期数</th>
+                <th>评估时间</th>
+                <th>状态</th>
+                <th>MLflow</th>
+              </tr>
+            </thead>
+            <tbody id="factor-validations-body"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="factor-validations-pager"></div>
+      </section>
+
       <section class="panel hidden" id="panel-profiles">
         <div class="toolbar">
           <div class="toolbar-left">
@@ -200,6 +255,7 @@
         <div class="toolbar">
           <div class="toolbar-left">
             <p class="muted profile-hint">管理验证批处理使用的 Jupyter / Kaggle Server。Workflow 按 sort_order 选择已启用实例。</p>
+            <p class="muted jupyter-servers-kernel-hint" id="jupyter-servers-kernel-hint"></p>
           </div>
           <div class="toolbar-right toolbar-actions">
             <sl-button id="jupyter-create" variant="primary" size="small">新建服务器</sl-button>
@@ -214,7 +270,9 @@
                 <th>名称</th>
                 <th>Base URL</th>
                 <th>Max Kernels</th>
-                <th>当前占用</th>
+                <th>Coordinator</th>
+                <th>Kernel 数量</th>
+                <th>采集时间</th>
                 <th>排序</th>
                 <th>状态</th>
                 <th>最近使用</th>
@@ -224,16 +282,23 @@
             <tbody id="jupyter-body"></tbody>
           </table>
         </div>
-        <div class="jupyter-kernels-panel">
+        <div class="jupyter-execution-panel">
           <div class="jupyter-kernels-toolbar">
-            <h3 class="section-subtitle">Kernel 实时监控</h3>
+            <h3 class="section-subtitle">执行队列与对账</h3>
+            <p class="muted jupyter-execution-hint" id="jupyter-execution-hint"></p>
+          </div>
+          <div id="jupyter-execution-body" class="jupyter-execution-body"></div>
+        </div>
+        <div class="jupyter-kernels-panel ml-task-kernels-panel">
+          <div class="jupyter-kernels-toolbar">
+            <h3 class="section-subtitle">Kernel 实况</h3>
             <div class="toolbar-right toolbar-actions">
-              <sl-checkbox id="jupyter-kernels-auto-refresh" checked>每 30 秒自动刷新</sl-checkbox>
-              <sl-button id="jupyter-kernels-refresh" size="small">刷新 Kernel</sl-button>
+              <sl-checkbox id="ml-task-kernels-auto-refresh" checked>每 30 秒自动刷新</sl-checkbox>
+              <sl-button id="ml-task-kernels-refresh" size="small">刷新 Kernel 实况</sl-button>
             </div>
           </div>
-          <p class="muted jupyter-kernels-hint" id="jupyter-kernels-hint"></p>
-          <div id="jupyter-kernels-body" class="jupyter-kernels-body"></div>
+          <p class="muted jupyter-kernels-hint" id="ml-task-kernels-hint"></p>
+          <div id="ml-task-kernels-body" class="jupyter-kernels-body"></div>
         </div>
       </section>
 
@@ -338,6 +403,7 @@
             <div class="settings-actions">
               <sl-button id="settings-run-validation" variant="primary" size="small">运行验证批处理</sl-button>
               <sl-button id="settings-run-cleanup" size="small">运行 Kernel 清理</sl-button>
+              <sl-button id="settings-run-force-cleanup" variant="danger" size="small">强制清理 Kernel</sl-button>
             </div>
             <pre id="settings-manual-result" class="settings-manual-result hidden"></pre>
           </div>

@@ -6,7 +6,12 @@ export async function onRequest(context) {
     pathname.startsWith("/api/") ||
     pathname === "/health" ||
     pathname === "/generate" ||
-    pathname === "/run-validation-batch"
+    pathname === "/run-validation-batch" ||
+    pathname === "/run-factor-validation-batch" ||
+    pathname === "/run-test-factor-validation-batch" ||
+    pathname === "/run-jupyter-execution-queue-reconcile" ||
+    pathname === "/reset-test-factor-validation" ||
+    pathname === "/run-kernel-cleanup"
   ) {
     if (!env.FACTOR_IDEAS) {
       return new Response(

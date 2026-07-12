@@ -1,3 +1,5 @@
+import { monitorJupyterWebSocket } from "./jupyter-websocket-monitor.js";
+
 const WORKFLOW_HTTP_USER_AGENT = "quant-factors-workflow/1.0";
 
 function authHeader(server) {
@@ -139,7 +141,7 @@ export class JupyterWorkerClient {
     });
   }
 
-  async submitExecuteAsync(code) {
+  async submitExecuteStart(code, { listenTimeoutMs = null } = {}) {
     await this.warmupSession();
     const kernelId = await this.createKernel();
     const sessionId = crypto.randomUUID();
@@ -185,6 +187,22 @@ export class JupyterWorkerClient {
       buffers: []
     };
     ws.send(JSON.stringify(message));
+    const monitorPromise =
+      listenTimeoutMs == null
+        ? null
+        : monitorJupyterWebSocket(ws, msgId, { timeoutMs: listenTimeoutMs });
+    return {
+      kernel_id: kernelId,
+      session_id: sessionId,
+      msg_id: msgId,
+      webSocket: ws,
+      monitorPromise
+    };
+  }
+
+  async submitExecuteAsync(code) {
+    const submitInfo = await this.submitExecuteStart(code);
+    const ws = submitInfo.webSocket;
     await new Promise((resolve) => {
       const timeout = setTimeout(resolve, 3000);
       ws.addEventListener(
@@ -205,7 +223,11 @@ export class JupyterWorkerClient {
       );
     });
     ws.close(1000, "submitted");
-    return { kernel_id: kernelId, session_id: sessionId, msg_id: msgId };
+    return {
+      kernel_id: submitInfo.kernel_id,
+      session_id: submitInfo.session_id,
+      msg_id: submitInfo.msg_id
+    };
   }
 }
 

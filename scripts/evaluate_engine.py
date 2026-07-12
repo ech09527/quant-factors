@@ -11,7 +11,7 @@ import pandas as pd
 from jinja2 import Template
 
 try:
-    from scripts.compute_metrics import METRICS_VERSION, compute_metrics
+    from scripts.compute_metrics import METRICS_VERSION, compute_ic_series, compute_metrics
     from scripts.validation_profiles import (
         DEFAULT_PROFILE_KEY,
         build_label_expr,
@@ -19,7 +19,7 @@ try:
         resolve_validation_profile,
     )
 except ImportError:
-    from compute_metrics import METRICS_VERSION, compute_metrics
+    from compute_metrics import METRICS_VERSION, compute_ic_series, compute_metrics
     from validation_profiles import (
         DEFAULT_PROFILE_KEY,
         build_label_expr,
@@ -345,6 +345,7 @@ def evaluate_factor_sql(
         for k in list(metrics.keys())
         if k.startswith("skipped_") or k.startswith("avg_")
     }
+    ic_series = compute_ic_series(panel, evaluation_type)
 
     return {
         "status": "success",
@@ -359,6 +360,7 @@ def evaluate_factor_sql(
         "evaluated_at": evaluated_at,
         "data_range": summarize_data_range(panel, sample_start),
         "factor_sql": factor_sql,
+        "ic_series": ic_series,
         "metrics": {
             "validation_profile_key": validation_profile["key"],
             "label_kind": validation_profile["label_kind"],

@@ -1,3 +1,5 @@
+import { mountIcSeriesChart } from "./ic-series-chart.js";
+
 const PAGE_SIZE = 20;
 const AUTH_STORAGE_KEY = "qf_auth_token";
 
@@ -79,12 +81,22 @@ const state = {
     profile_keys: [],
     source: "",
   },
+  factorValidations: {
+    limit: 30,
+    offset: 0,
+    status: "",
+    profile_keys: [],
+  },
+  factorValidationById: {},
+  icSeriesChartDispose: null,
   validationProfiles: [],
   profileFormMode: "create",
   editingProfileKey: null,
   jupyterServers: [],
   jupyterKernelStatus: null,
-  jupyterKernelPollTimer: null,
+  jupyterExecutionOverview: null,
+  mlTaskKernelStatus: null,
+  mlTaskKernelPollTimer: null,
   jupyterFormMode: "create",
   editingJupyterKey: null,
   llmProviders: [],
@@ -110,6 +122,12 @@ const els = {
   operatorsPager: document.getElementById("operators-pager"),
   validationsBody: document.getElementById("validations-body"),
   validationsPager: document.getElementById("validations-pager"),
+  factorValidationsBody: document.getElementById("factor-validations-body"),
+  factorValidationsPager: document.getElementById("factor-validations-pager"),
+  factorValidationsHint: document.getElementById("factor-validations-hint"),
+  factorValidationsLimit: document.getElementById("factor-validations-limit"),
+  factorValidationsStatus: document.getElementById("factor-validations-status"),
+  factorValidationsProfile: document.getElementById("factor-validations-profile"),
   validationsHint: document.getElementById("validations-hint"),
   validationsSort: document.getElementById("validations-sort"),
   validationsOrder: document.getElementById("validations-order"),
@@ -123,6 +141,7 @@ const els = {
   settingsManualResult: document.getElementById("settings-manual-result"),
   settingsRunValidation: document.getElementById("settings-run-validation"),
   settingsRunCleanup: document.getElementById("settings-run-cleanup"),
+  settingsRunForceCleanup: document.getElementById("settings-run-force-cleanup"),
   ideasSource: document.getElementById("ideas-source"),
   profilesBody: document.getElementById("profiles-body"),
   profileDialog: document.getElementById("profile-dialog"),
@@ -137,10 +156,13 @@ const els = {
   profileEnabledInput: document.getElementById("profile-enabled"),
   profileFormError: document.getElementById("profile-form-error"),
   jupyterBody: document.getElementById("jupyter-body"),
-  jupyterKernelsBody: document.getElementById("jupyter-kernels-body"),
-  jupyterKernelsHint: document.getElementById("jupyter-kernels-hint"),
-  jupyterKernelsAutoRefresh: document.getElementById("jupyter-kernels-auto-refresh"),
-  jupyterKernelsRefresh: document.getElementById("jupyter-kernels-refresh"),
+  jupyterServersKernelHint: document.getElementById("jupyter-servers-kernel-hint"),
+  jupyterExecutionBody: document.getElementById("jupyter-execution-body"),
+  jupyterExecutionHint: document.getElementById("jupyter-execution-hint"),
+  mlTaskKernelsBody: document.getElementById("ml-task-kernels-body"),
+  mlTaskKernelsHint: document.getElementById("ml-task-kernels-hint"),
+  mlTaskKernelsAutoRefresh: document.getElementById("ml-task-kernels-auto-refresh"),
+  mlTaskKernelsRefresh: document.getElementById("ml-task-kernels-refresh"),
   jupyterDialog: document.getElementById("jupyter-dialog"),
   jupyterForm: document.getElementById("jupyter-form"),
   jupyterFormTitle: document.getElementById("jupyter-form-title"),
@@ -336,6 +358,202 @@ const JUPYTER_QUERY_REASON_LABELS = {
   connect_mode_not_supported: "连接模式不支持实时查询",
 };
 
+const JUPYTER_ISSUE_LABELS = {
+  zombie_running: "僵尸 execution（running + cleanup_at）",
+  ghost_execution: "幽灵 execution（kernel 已不存在）",
+  orphan_task: "任务已终态但 execution 仍活跃",
+  orphan_kernel: "未关联任务的孤儿 kernel",
+  slot_drift: "D1 running 与 Jupyter kernel 数偏差",
+  coordinator_over_capacity: "Coordinator 超容量"
+};
+
+function getJupyterExecutionOverviewItem(serverKey) {
+  return (state.jupyterExecutionOverview?.items || []).find((item) => item.key === serverKey) || null;
+}
+
+function renderCoordinatorCell(serverKey) {
+  const overview = getJupyterExecutionOverviewItem(serverKey);
+  if (!overview) {
+    return '<span class="muted jupyter-kernel-pending">待查询</span>';
+  }
+  const coord = overview.coordinator || {};
+  if (!coord.available) {
+    const err = coord.error ? ` title="${escapeHtml(coord.error)}"` : "";
+    return `<span class="muted jupyter-coordinator-unavailable"${err}>不可用</span>`;
+  }
+  const max = coord.max_slots ?? overview.max_kernels ?? "?";
+  const running = coord.running_count ?? 0;
+  const queued = coord.queue_length ?? 0;
+  const atLimit = max > 0 && running >= max ? " at-limit" : "";
+  return `<span class="jupyter-coordinator-cell"><span class="jupyter-capacity${atLimit}">${running} / ${max}</span><span class="muted jupyter-kernel-count-detail">队列 ${queued}</span></span>`;
+}
+
+function renderExecutionIssueBadge(issue) {
+  const label = JUPYTER_ISSUE_LABELS[issue.type] || issue.type;
+  const cls = issue.severity === "error" ? "pending" : "";
+  const extra = issue.drift != null ? ` (${issue.drift > 0 ? "+" : ""}${issue.drift})` : "";
+  return `<span class="badge ${cls}" title="${escapeHtml(label)}">${escapeHtml(issue.type)}${extra} ×${issue.count}</span>`;
+}
+
+function renderBusinessTypeLabel(value) {
+  const text = String(value || "");
+  if (text === "test_factor_validation") return "test";
+  if (text === "factor_validation") return "factor";
+  return text || "-";
+}
+
+function renderJupyterExecutionPanels(data) {
+  const items = data?.items || [];
+  if (!els.jupyterExecutionBody) {
+    return;
+  }
+  if (!items.length) {
+    els.jupyterExecutionBody.innerHTML = `<p class="muted">暂无 Jupyter Server 配置。</p>`;
+    return;
+  }
+
+  els.jupyterExecutionBody.innerHTML = items
+    .map((server) => {
+      const coord = server.coordinator || {};
+      const exec = server.executions || {};
+      const reconcile = server.reconcile || {};
+      const kernels = server.kernels || {};
+      const issues = reconcile.issues || [];
+      const issueHtml = issues.length
+        ? `<div class="jupyter-execution-issues">${issues.map((issue) => renderExecutionIssueBadge(issue)).join(" ")}</div>`
+        : `<span class="muted">无对账异常</span>`;
+
+      const activeRows = (server.active || [])
+        .map((row) => {
+          const issueTags = (row.issues || [])
+            .map((type) => `<span class="badge pending">${escapeHtml(type)}</span>`)
+            .join(" ");
+          const kernelCell = row.kernel_id
+            ? `<code title="${escapeHtml(row.kernel_id)}">${escapeHtml(row.kernel_id.slice(0, 12))}${row.kernel_id.length > 12 ? "…" : ""}</code>${row.kernel_live === false ? ' <span class="badge pending">gone</span>' : ""}`
+            : '<span class="muted">-</span>';
+          return `
+            <tr>
+              <td><code title="${escapeHtml(row.execution_id)}">${escapeHtml(row.execution_id.slice(0, 8))}…</code></td>
+              <td>${escapeHtml(renderBusinessTypeLabel(row.business_type))}</td>
+              <td>${escapeHtml(row.business_id)}</td>
+              <td><span class="badge active">${escapeHtml(row.status)}</span></td>
+              <td>${kernelCell}</td>
+              <td>${escapeHtml(row.task_status || "-")}${row.task_stage ? ` <span class="muted">· ${escapeHtml(row.task_stage)}</span>` : ""}</td>
+              <td title="${escapeHtml(row.submitted_at || "")}">${formatRelativeTime(row.submitted_at)}</td>
+              <td>${issueTags || '<span class="muted">-</span>'}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      const queuedRows = (server.queued || [])
+        .map(
+          (row) => `
+          <tr>
+            <td><code title="${escapeHtml(row.execution_id)}">${escapeHtml(row.execution_id.slice(0, 8))}…</code></td>
+            <td>${escapeHtml(renderBusinessTypeLabel(row.business_type))}</td>
+            <td>${escapeHtml(row.business_id)}</td>
+            <td>${row.priority}</td>
+            <td>${escapeHtml(row.task_status || "-")}</td>
+            <td title="${escapeHtml(row.created_at || "")}">${formatRelativeTime(row.created_at)}</td>
+          </tr>
+        `,
+        )
+        .join("");
+
+      const coordLabel = coord.available
+        ? `${coord.running_count ?? 0} / ${coord.max_slots ?? "?"} · 队列 ${coord.queue_length ?? 0}`
+        : coord.error || "不可用";
+      const drift =
+        reconcile.slot_drift == null
+          ? "-"
+          : `${reconcile.d1_running ?? 0} / ${reconcile.jupyter_kernels ?? 0}${reconcile.slot_drift !== 0 ? ` (${reconcile.slot_drift > 0 ? "+" : ""}${reconcile.slot_drift})` : ""}`;
+
+      return `
+        <div class="jupyter-execution-server">
+          <div class="jupyter-kernels-server-header">
+            <div class="jupyter-kernels-server-title">
+              <strong>${escapeHtml(server.name || server.key)}</strong>
+              <code>${escapeHtml(server.key)}</code>
+            </div>
+            <div class="jupyter-kernels-capacity">
+              <span class="jupyter-execution-metric">Coordinator ${escapeHtml(String(coordLabel))}</span>
+              <span class="muted">queued ${exec.queued ?? 0} · running ${exec.running ?? 0} · 近1分钟成功 ${exec.succeeded_1m ?? 0}</span>
+            </div>
+          </div>
+          <div class="jupyter-execution-summary">
+            <span>D1 running / Jupyter kernel：${escapeHtml(String(drift))}</span>
+            <span>zombie ${exec.zombie ?? 0} · 孤儿 kernel ${kernels.orphan ?? 0}</span>
+            ${issueHtml}
+          </div>
+          ${
+            activeRows
+              ? `<div class="table-wrap">
+            <table class="validation-table jupyter-execution-table">
+              <thead>
+                <tr>
+                  <th>Execution</th>
+                  <th>业务</th>
+                  <th>Task ID</th>
+                  <th>状态</th>
+                  <th>Kernel</th>
+                  <th>ML Task</th>
+                  <th>提交</th>
+                  <th>异常</th>
+                </tr>
+              </thead>
+              <tbody>${activeRows}</tbody>
+            </table>
+          </div>`
+              : `<p class="muted">当前无活跃 execution。</p>`
+          }
+          ${
+            queuedRows
+              ? `<details class="jupyter-execution-queued">
+            <summary>排队中 (${(server.queued || []).length})</summary>
+            <div class="table-wrap">
+              <table class="validation-table jupyter-execution-table">
+                <thead>
+                  <tr>
+                    <th>Execution</th>
+                    <th>业务</th>
+                    <th>Task ID</th>
+                    <th>优先级</th>
+                    <th>ML Task</th>
+                    <th>入队</th>
+                  </tr>
+                </thead>
+                <tbody>${queuedRows}</tbody>
+              </table>
+            </div>
+          </details>`
+              : ""
+          }
+        </div>
+      `;
+    })
+    .join("");
+}
+
+async function loadJupyterExecutionOverview() {
+  const data = await apiGet("/api/jupyter-servers/execution-overview?include_disabled=1");
+  state.jupyterExecutionOverview = data;
+  renderJupyterExecutionPanels(data);
+  if (els.jupyterExecutionHint) {
+    const issueCount = (data.items || []).reduce(
+      (sum, item) => sum + (item.reconcile?.issues?.length || 0),
+      0,
+    );
+    els.jupyterExecutionHint.textContent = data.fetched_at
+      ? `最近更新：${formatTime(data.fetched_at)}（${formatRelativeTime(data.fetched_at)}）${issueCount ? ` · ${issueCount} 项对账异常` : ""}`
+      : "";
+  }
+  if (state.jupyterServers.length) {
+    renderJupyterTable(state.jupyterServers);
+  }
+  return data;
+}
+
 function kernelExecutionBadge(state) {
   const normalized = String(state || "unknown");
   const cls =
@@ -343,39 +561,109 @@ function kernelExecutionBadge(state) {
   return `<span class="badge ${cls}">${escapeHtml(normalized)}</span>`;
 }
 
-function renderJupyterCapacityCell(serverKey) {
-  const status = (state.jupyterKernelStatus?.items || []).find((item) => item.key === serverKey);
-  if (!status) {
-    return '<span class="muted">-</span>';
-  }
-  if (!status.queryable) {
-    return `<span class="muted" title="${escapeHtml(JUPYTER_QUERY_REASON_LABELS[status.query_reason] || status.query_reason || "")}">不可查</span>`;
-  }
-  if (status.error) {
-    return '<span class="badge pending" title="查询失败">错误</span>';
-  }
-  const capacity = status.capacity || {};
-  if (!capacity.limited) {
-    const current = capacity.current ?? status.summary?.total ?? 0;
-    return `<span class="jupyter-capacity">${current} / 不限</span>`;
-  }
-  const current = capacity.current ?? 0;
-  const limit = capacity.limit ?? "?";
-  const atLimit = capacity.at_limit ? " at-limit" : "";
-  return `<span class="jupyter-capacity${atLimit}">${current} / ${limit}</span>`;
+function getJupyterKernelStatusItem(serverKey) {
+  return (state.jupyterKernelStatus?.items || []).find((item) => item.key === serverKey) || null;
 }
 
-function renderJupyterKernelPanels(data) {
+function renderJupyterKernelFetchedAt(fetchedAt) {
+  if (!fetchedAt) {
+    return "";
+  }
+  const absolute = formatTime(fetchedAt);
+  const relative = formatRelativeTime(fetchedAt);
+  return `<span class="jupyter-fetched-at" title="${escapeHtml(absolute)}">${relative}</span>`;
+}
+
+function renderJupyterKernelCountCell(serverKey) {
+  const status = getJupyterKernelStatusItem(serverKey);
+  if (!status) {
+    return '<span class="muted jupyter-kernel-pending">待查询</span>';
+  }
+  if (!status.queryable) {
+    const reason = JUPYTER_QUERY_REASON_LABELS[status.query_reason] || status.query_reason || "";
+    return `<span class="muted" title="${escapeHtml(reason)}">不可查</span>`;
+  }
+  if (status.error) {
+    return `<span class="badge pending jupyter-kernel-error" title="${escapeHtml(status.error)}">查询失败</span>`;
+  }
+  const capacity = status.capacity || {};
+  const total = capacity.current ?? status.summary?.total ?? 0;
+  if (!capacity.limited) {
+    return `<span class="jupyter-capacity" title="当前 kernel 总数">${total}</span>`;
+  }
+  const limit = capacity.limit ?? "?";
+  const atLimit = capacity.at_limit ? " at-limit" : "";
+  const summary = status.summary || {};
+  const detail = `idle ${summary.idle ?? 0} · busy ${summary.busy ?? 0} · 孤儿 ${summary.orphan ?? 0}`;
+  return `<span class="jupyter-kernel-count-cell"><span class="jupyter-capacity${atLimit}">${total} / ${limit}</span><span class="muted jupyter-kernel-count-detail">${detail}</span></span>`;
+}
+
+function renderJupyterKernelFetchedAtCell(serverKey) {
+  const status = getJupyterKernelStatusItem(serverKey);
+  if (!status?.fetched_at) {
+    return '<span class="muted">-</span>';
+  }
+  return renderJupyterKernelFetchedAt(status.fetched_at);
+}
+
+function updateJupyterServersKernelHint(data) {
+  if (!els.jupyterServersKernelHint) {
+    return;
+  }
   const items = data?.items || [];
-  if (!els.jupyterKernelsBody) {
+  if (!items.length) {
+    els.jupyterServersKernelHint.textContent = "";
+    return;
+  }
+  const queried = items.filter((item) => item.fetched_at);
+  const failed = items.filter((item) => item.error);
+  const totalKernels = items.reduce((sum, item) => {
+    if (item.error || !item.queryable) {
+      return sum;
+    }
+    const count = item.capacity?.current ?? item.summary?.total ?? 0;
+    return sum + count;
+  }, 0);
+  const parts = [`当前共 ${totalKernels} 个 kernel`];
+  if (data.fetched_at) {
+    parts.push(`批量采集于 ${formatTime(data.fetched_at)}（${formatRelativeTime(data.fetched_at)}）`);
+  }
+  if (failed.length) {
+    parts.push(`${failed.length} 台查询失败`);
+  } else if (queried.length < items.length) {
+    parts.push(`${items.length - queried.length} 台未采集`);
+  }
+  els.jupyterServersKernelHint.textContent = parts.join(" · ");
+}
+
+function renderMlTaskLabel(task) {
+  if (!task) {
+    return "";
+  }
+  const parts = [`#${task.task_id}`];
+  if (task.factor_validation_id) {
+    parts.push(`fv:${task.factor_validation_id}`);
+  }
+  if (task.idea_id) {
+    parts.push(`idea:${task.idea_id}`);
+  }
+  if (task.profile_key) {
+    parts.push(task.profile_key);
+  }
+  return parts.join(" · ");
+}
+
+function renderMlTaskKernelPanels(data) {
+  const items = data?.items || [];
+  if (!els.mlTaskKernelsBody) {
     return;
   }
   if (!items.length) {
-    els.jupyterKernelsBody.innerHTML = `<p class="muted">暂无 Jupyter Server 配置。</p>`;
+    els.mlTaskKernelsBody.innerHTML = `<p class="muted">暂无 Jupyter Server 配置。</p>`;
     return;
   }
 
-  els.jupyterKernelsBody.innerHTML = items
+  els.mlTaskKernelsBody.innerHTML = items
     .map((server) => {
       const capacity = server.capacity || {};
       const summary = server.summary || {};
@@ -383,6 +671,9 @@ function renderJupyterKernelPanels(data) {
         ? `${capacity.current ?? "?"} / ${capacity.limit}`
         : `${summary.total ?? capacity.current ?? 0} / 不限`;
       const atLimitClass = capacity.at_limit ? " at-limit" : "";
+      const fetchedLabel = server.fetched_at
+        ? `<span class="jupyter-kernels-fetched muted">采集 ${formatRelativeTime(server.fetched_at)}</span>`
+        : "";
 
       if (!server.queryable) {
         const reason = JUPYTER_QUERY_REASON_LABELS[server.query_reason] || server.query_reason || "无法查询";
@@ -393,6 +684,7 @@ function renderJupyterKernelPanels(data) {
                 <strong>${escapeHtml(server.name || server.key)}</strong>
                 <code>${escapeHtml(server.key)}</code>
               </div>
+              ${fetchedLabel}
             </div>
             <p class="muted">${escapeHtml(reason)}</p>
           </div>
@@ -407,6 +699,10 @@ function renderJupyterKernelPanels(data) {
                 <strong>${escapeHtml(server.name || server.key)}</strong>
                 <code>${escapeHtml(server.key)}</code>
               </div>
+              <div class="jupyter-kernels-capacity">
+                <span class="badge pending">查询失败</span>
+                ${fetchedLabel}
+              </div>
             </div>
             <p class="auth-error">${escapeHtml(server.error)}</p>
           </div>
@@ -415,17 +711,24 @@ function renderJupyterKernelPanels(data) {
 
       const kernelRows = (server.kernels || [])
         .map((kernel) => {
-          const validationCell = kernel.linked
-            ? `<a href="#" data-action="view-validation-kernel" data-validation-id="${kernel.validation.validation_id}">#${kernel.validation.validation_id}</a> · ${escapeHtml(kernel.validation.title || "-")} <span class="muted">(${escapeHtml(kernel.validation.status)})</span>`
-            : kernel.validation?.kernel_cleaned_at
-              ? `<span class="muted">已清理 · #${kernel.validation.validation_id}</span>`
-              : `<span class="muted">未关联</span>`;
+          const task = kernel.ml_task;
+          const execution = kernel.execution;
+          let taskCell = "";
+          if (execution) {
+            taskCell = `<span class="jupyter-kernel-exec"><code title="${escapeHtml(execution.execution_id)}">${escapeHtml(execution.execution_id.slice(0, 8))}…</code> · ${escapeHtml(renderBusinessTypeLabel(execution.business_type))} #${escapeHtml(execution.business_id)} <span class="muted">(${escapeHtml(execution.execution_status)}${execution.task_status ? ` · task ${escapeHtml(execution.task_status)}` : ""})</span></span>`;
+          } else if (kernel.linked) {
+            taskCell = `<a href="#" data-action="view-ml-task-kernel" data-task-id="${task.task_id}">${escapeHtml(renderMlTaskLabel(task))}</a> · ${escapeHtml(task.title || "-")} <span class="muted">(${escapeHtml(task.status)}${task.stage ? ` · ${escapeHtml(task.stage)}` : ""})</span>`;
+          } else if (task?.kernel_cleaned_at) {
+            taskCell = `<span class="muted">已清理 · ${escapeHtml(renderMlTaskLabel(task))}</span>`;
+          } else {
+            taskCell = `<span class="muted">未关联 execution / ML 任务</span>`;
+          }
           return `
             <tr>
               <td><code title="${escapeHtml(kernel.kernel_id)}">${escapeHtml(kernel.kernel_id.slice(0, 12))}${kernel.kernel_id.length > 12 ? "…" : ""}</code></td>
               <td>${kernelExecutionBadge(kernel.execution_state)}</td>
               <td title="${escapeHtml(kernel.last_activity || "")}">${formatRelativeTime(kernel.last_activity_ms ?? kernel.last_activity)}</td>
-              <td>${validationCell}</td>
+              <td>${taskCell}</td>
             </tr>
           `;
         })
@@ -440,6 +743,7 @@ function renderJupyterKernelPanels(data) {
             </div>
             <div class="jupyter-kernels-capacity">
               <span class="jupyter-kernels-count${atLimitClass}">${capacityLabel}</span>
+              ${fetchedLabel}
               <span class="muted">idle ${summary.idle ?? 0} · busy ${summary.busy ?? 0} · 孤儿 ${summary.orphan ?? 0}</span>
             </div>
           </div>
@@ -452,7 +756,7 @@ function renderJupyterKernelPanels(data) {
                   <th>Kernel ID</th>
                   <th>状态</th>
                   <th>最后活动</th>
-                  <th>关联验证</th>
+                  <th>关联 Execution / ML 任务</th>
                 </tr>
               </thead>
               <tbody>${kernelRows}</tbody>
@@ -466,44 +770,59 @@ function renderJupyterKernelPanels(data) {
     .join("");
 }
 
-async function loadJupyterKernelStatus(options = {}) {
+async function loadJupyterKernelStatus() {
   const data = await apiGet("/api/jupyter-servers/kernel-status?include_disabled=1");
   state.jupyterKernelStatus = data;
-  renderJupyterKernelPanels(data);
-  if (els.jupyterKernelsHint) {
-    els.jupyterKernelsHint.textContent = data.fetched_at
-      ? `最近更新：${formatTime(data.fetched_at)} · 共 ${(data.items || []).length} 台服务器`
-      : "";
-  }
+  updateJupyterServersKernelHint(data);
   if (state.jupyterServers.length) {
     renderJupyterTable(state.jupyterServers);
   }
   return data;
 }
 
-function stopJupyterKernelPolling() {
-  if (state.jupyterKernelPollTimer) {
-    clearInterval(state.jupyterKernelPollTimer);
-    state.jupyterKernelPollTimer = null;
+async function loadMlTaskKernelStatus() {
+  const data = await apiGet("/api/ml-tasks/kernel-status?include_disabled=1");
+  state.mlTaskKernelStatus = data;
+  renderMlTaskKernelPanels(data);
+  if (els.mlTaskKernelsHint) {
+    els.mlTaskKernelsHint.textContent = data.fetched_at
+      ? `最近更新：${formatTime(data.fetched_at)}（${formatRelativeTime(data.fetched_at)}） · 共 ${(data.items || []).length} 台服务器`
+      : "";
+  }
+  return data;
+}
+
+function stopMlTaskKernelPolling() {
+  if (state.mlTaskKernelPollTimer) {
+    clearInterval(state.mlTaskKernelPollTimer);
+    state.mlTaskKernelPollTimer = null;
   }
 }
 
-function startJupyterKernelPolling() {
-  stopJupyterKernelPolling();
-  if (!els.jupyterKernelsAutoRefresh?.checked) {
+function startMlTaskKernelPolling() {
+  stopMlTaskKernelPolling();
+  if (!els.mlTaskKernelsAutoRefresh?.checked) {
     return;
   }
-  state.jupyterKernelPollTimer = window.setInterval(() => {
+  state.mlTaskKernelPollTimer = window.setInterval(() => {
     if (state.tab === "jupyter") {
-      loadJupyterKernelStatus({ quiet: true }).catch(() => {});
+      Promise.all([
+        loadJupyterExecutionOverview(),
+        loadMlTaskKernelStatus(),
+        loadJupyterKernelStatus(),
+      ]).catch(() => {});
     }
   }, 30000);
 }
 
 async function loadJupyterAdmin() {
   await loadJupyterServersAdmin();
-  await loadJupyterKernelStatus();
-  startJupyterKernelPolling();
+  await Promise.all([
+    loadJupyterExecutionOverview(),
+    loadJupyterKernelStatus(),
+    loadMlTaskKernelStatus(),
+  ]);
+  startMlTaskKernelPolling();
 }
 
 function badge(status) {
@@ -832,22 +1151,34 @@ async function runValidationBatchNow() {
   }
 }
 
-async function runKernelCleanupNow() {
-  const button = els.settingsRunCleanup;
+async function runKernelCleanupNow({ force = false } = {}) {
+  const button = force ? els.settingsRunForceCleanup : els.settingsRunCleanup;
   const originalText = button.textContent;
   button.disabled = true;
   button.loading = true;
   button.textContent = "运行中…";
   try {
-    const result = await apiPost("/run-kernel-cleanup");
+    const result = await apiPost(force ? "/run-kernel-cleanup?force=1" : "/run-kernel-cleanup");
     showManualActionResult(result);
-    showToast("Kernel 清理已执行", "success");
+    showToast(force ? "Kernel 强制清理已执行" : "Kernel 清理已执行", "success");
     return result;
   } finally {
     button.disabled = false;
     button.loading = false;
     button.textContent = originalText;
   }
+}
+
+async function loadEnabledProfileOptionsForFactorValidations() {
+  await loadValidationProfiles(false);
+  const current = state.factorValidations.profile_keys;
+  els.factorValidationsProfile.innerHTML = state.validationProfiles
+    .map(
+      (profile) =>
+        `<sl-option value="${escapeHtml(profile.key)}">${escapeHtml(profile.name || profile.key)}</sl-option>`,
+    )
+    .join("");
+  els.factorValidationsProfile.value = current;
 }
 
 async function loadEnabledProfileOptions() {
@@ -1020,7 +1351,7 @@ async function loadJupyterServers(includeDisabled = true) {
 
 function renderJupyterTable(items) {
   if (!items.length) {
-    els.jupyterBody.innerHTML = `<tr><td colspan="9" class="muted">暂无 Jupyter Server 配置。</td></tr>`;
+    els.jupyterBody.innerHTML = `<tr><td colspan="11" class="muted">暂无 Jupyter Server 配置。</td></tr>`;
     return;
   }
   els.jupyterBody.innerHTML = items
@@ -1031,7 +1362,9 @@ function renderJupyterTable(items) {
         <td>${server.name}</td>
         <td title="${server.base_url}"><code>${truncateUrl(server.base_url)}</code></td>
         <td>${server.max_kernels == null ? "不限" : server.max_kernels}</td>
-        <td>${renderJupyterCapacityCell(server.key)}</td>
+        <td>${renderCoordinatorCell(server.key)}</td>
+        <td>${renderJupyterKernelCountCell(server.key)}</td>
+        <td>${renderJupyterKernelFetchedAtCell(server.key)}</td>
         <td>${server.sort_order ?? 0}</td>
         <td>${server.enabled ? '<span class="badge active">enabled</span>' : '<span class="badge">disabled</span>'}</td>
         <td>${server.last_used_at ? formatTime(server.last_used_at) : "-"}</td>
@@ -1577,6 +1910,269 @@ async function loadValidationResults() {
   });
 }
 
+function buildFactorValidationQueryParams() {
+  const params = new URLSearchParams();
+  params.set("limit", String(state.factorValidations.limit));
+  params.set("offset", String(state.factorValidations.offset));
+  if (state.factorValidations.status) {
+    params.set("status", state.factorValidations.status);
+  }
+  if (state.factorValidations.profile_keys.length) {
+    params.set("profile_keys", state.factorValidations.profile_keys.join(","));
+  }
+  return params.toString();
+}
+
+function syncFactorValidationControlsFromState() {
+  if (els.factorValidationsLimit) {
+    els.factorValidationsLimit.value = String(state.factorValidations.limit);
+  }
+  if (els.factorValidationsStatus) {
+    els.factorValidationsStatus.value = state.factorValidations.status;
+  }
+  if (els.factorValidationsProfile) {
+    els.factorValidationsProfile.value = state.factorValidations.profile_keys;
+  }
+}
+
+function readFactorValidationControlsToState() {
+  state.factorValidations.limit = Math.min(
+    200,
+    Math.max(1, Number(els.factorValidationsLimit?.value ?? 30) || 30),
+  );
+  state.factorValidations.status = String(els.factorValidationsStatus?.value ?? "").trim();
+  state.factorValidations.profile_keys = Array.isArray(els.factorValidationsProfile?.value)
+    ? els.factorValidationsProfile.value.map(String).filter(Boolean)
+    : [];
+}
+
+function parseMlflowRunMetrics(payload) {
+  const metricsList = payload?.run?.data?.metrics;
+  if (!Array.isArray(metricsList)) {
+    return {};
+  }
+  const metrics = {};
+  for (const item of metricsList) {
+    const key = String(item?.key ?? "").trim();
+    if (!key) {
+      continue;
+    }
+    const value = Number(item?.value);
+    if (Number.isFinite(value)) {
+      metrics[key] = value;
+    }
+  }
+  return metrics;
+}
+
+function factorValidationMetricsFromRow(row) {
+  if (row?.metrics && typeof row.metrics === "object") {
+    return row.metrics;
+  }
+  const cached = row?.diagnostics?.metrics;
+  if (cached && typeof cached === "object") {
+    return cached;
+  }
+  return {};
+}
+
+async function fetchMlflowMetricsMap(items) {
+  const runIds = [
+    ...new Set(
+      items
+        .filter((row) => {
+          if (!row?.mlflow_run_id) {
+            return false;
+          }
+          const cached = factorValidationMetricsFromRow(row);
+          return !Number.isFinite(Number(cached.mean_ic)) && !Number.isFinite(Number(cached.mean_rank_ic));
+        })
+        .map((row) => String(row.mlflow_run_id).trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (!runIds.length) {
+    return new Map();
+  }
+  const entries = await Promise.all(
+    runIds.map(async (runId) => {
+      try {
+        const data = await apiGet(`/api/mlflow/runs/${encodeURIComponent(runId)}`);
+        return [runId, parseMlflowRunMetrics(data)];
+      } catch {
+        return [runId, null];
+      }
+    }),
+  );
+  return new Map(entries);
+}
+
+function factorValidationMlflowCell(row) {
+  if (row.mlflow_run_url) {
+    return `<a href="${escapeHtml(row.mlflow_run_url)}" target="_blank" rel="noopener noreferrer">打开</a>`;
+  }
+  if (row.mlflow_run_id) {
+    return `<code title="${escapeHtml(row.mlflow_run_id)}">${escapeHtml(row.mlflow_run_id.slice(0, 8))}…</code>`;
+  }
+  return `<span class="muted">-</span>`;
+}
+
+async function loadFactorValidations() {
+  syncFactorValidationControlsFromState();
+  const params = buildFactorValidationQueryParams();
+  const data = await apiGet(`/api/factor-validations?${params}`);
+  const metricsMap = await fetchMlflowMetricsMap(data.items || []);
+
+  for (const row of data.items || []) {
+    state.factorValidationById[row.id] = row;
+  }
+
+  if (els.factorValidationsHint) {
+    const successCount = (data.items || []).filter((row) => row.status === "success").length;
+    const mlflowFallbackCount = (data.items || []).filter((row) => {
+      if (!row.mlflow_run_id) {
+        return false;
+      }
+      const cached = factorValidationMetricsFromRow(row);
+      return !Number.isFinite(Number(cached.mean_ic)) && !Number.isFinite(Number(cached.mean_rank_ic));
+    }).length;
+    const metricsNote =
+      mlflowFallbackCount > 0
+        ? ` · ${mlflowFallbackCount} 条旧记录回退 MLflow`
+        : "";
+    els.factorValidationsHint.textContent = `共 ${data.total ?? 0} 条 · 本页 ${(data.items || []).length} 条 · 成功 ${successCount} 条（指标优先读 D1）${metricsNote}`;
+  }
+
+  els.factorValidationsBody.innerHTML = (data.items || [])
+    .map((row) => {
+      const cachedMetrics = factorValidationMetricsFromRow(row);
+      const metrics =
+        Number.isFinite(Number(cachedMetrics.mean_ic)) ||
+        Number.isFinite(Number(cachedMetrics.mean_rank_ic))
+          ? cachedMetrics
+          : row.mlflow_run_id
+            ? metricsMap.get(row.mlflow_run_id) || {}
+            : {};
+      const err = row.error_reason
+        ? `<div class="muted validation-error" title="${escapeHtml(row.error_reason)}">${escapeHtml(row.error_reason.slice(0, 80))}${row.error_reason.length > 80 ? "…" : ""}</div>`
+        : "";
+      return `
+        <tr data-factor-validation-id="${row.id}" data-task-id="${row.task_id}">
+          <td>${row.id}</td>
+          <td><code title="task #${row.task_id}">#${row.task_id}</code></td>
+          <td>
+            <sl-button size="small" variant="text" class="idea-link" data-id="${row.idea_id}" data-kind="idea">${escapeHtml(row.idea_title || `#${row.idea_id}`)}</sl-button>
+            ${err}
+          </td>
+          <td>${escapeHtml(row.profile_name || row.profile_key)}</td>
+          <td>${formatMetric(metrics.mean_ic)}</td>
+          <td>${formatMetric(metrics.mean_rank_ic)}</td>
+          <td>${formatMetric(metrics.ic_ir)}</td>
+          <td>${metrics.n_periods ?? "-"}</td>
+          <td>${formatTime(row.evaluated_at || row.updated_at)}</td>
+          <td>${validationStatusBadge(row.status)}</td>
+          <td>${factorValidationMlflowCell(row)}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  if (!(data.items || []).length) {
+    els.factorValidationsBody.innerHTML = `<tr><td colspan="11" class="muted">暂无因子验证记录。</td></tr>`;
+  }
+
+  renderPager(els.factorValidationsPager, data, (nextOffset) => {
+    state.factorValidations.offset = nextOffset;
+    loadFactorValidations().catch(handleError);
+  });
+}
+
+async function showFactorValidationDetail(factorValidationId) {
+  if (state.icSeriesChartDispose) {
+    state.icSeriesChartDispose();
+    state.icSeriesChartDispose = null;
+  }
+
+  const cached = state.factorValidationById[factorValidationId];
+  let item = cached;
+  if (!item) {
+    const data = await apiGet(`/api/factor-validations/${factorValidationId}`);
+    item = data.item;
+    state.factorValidationById[factorValidationId] = item;
+  }
+  if (!item) {
+    showToast("未找到因子验证记录");
+    return;
+  }
+
+  let metrics = factorValidationMetricsFromRow(item);
+  let mlflowNote = "";
+  const needsMlflowMetrics =
+    item.mlflow_run_id &&
+    !Number.isFinite(Number(metrics.mean_ic)) &&
+    !Number.isFinite(Number(metrics.mean_rank_ic));
+  if (needsMlflowMetrics) {
+    try {
+      const mlflow = await apiGet(`/api/mlflow/runs/${encodeURIComponent(item.mlflow_run_id)}`);
+      metrics = parseMlflowRunMetrics(mlflow);
+    } catch (error) {
+      mlflowNote = `<p class="auth-error">MLflow 读取失败：${escapeHtml(String(error.message || error))}</p>`;
+    }
+  }
+
+  const showChart = item.status === "success" && Boolean(item.mlflow_run_id);
+  els.detailDialog.classList.toggle("detail-dialog--wide", showChart);
+
+  els.detailContent.innerHTML = `
+    <h2>因子验证 #${item.id}</h2>
+    <dl>
+      <dt>ML 任务</dt><dd>#${item.task_id}</dd>
+      <dt>因子想法</dt><dd>#${item.idea_id} ${escapeHtml(item.idea_title || "")}</dd>
+      <dt>验证配置</dt><dd>${escapeHtml(item.profile_name || item.profile_key)}</dd>
+      <dt>状态</dt><dd>${validationStatusBadge(item.status)}</dd>
+      <dt>评估时间</dt><dd>${formatTime(item.evaluated_at)}</dd>
+      <dt>MLflow</dt><dd>${item.mlflow_run_url ? `<a href="${escapeHtml(item.mlflow_run_url)}" target="_blank" rel="noopener noreferrer">打开 Run</a>` : item.mlflow_run_id || "-"}</dd>
+    </dl>
+    ${item.error_reason ? `<p class="auth-error">${escapeHtml(item.error_reason)}</p>` : ""}
+    ${mlflowNote}
+    <h3>指标（MLflow）</h3>
+    <dl>
+      <dt>Mean IC</dt><dd>${formatMetric(metrics.mean_ic)}</dd>
+      <dt>Mean Rank IC</dt><dd>${formatMetric(metrics.mean_rank_ic)}</dd>
+      <dt>IC IR</dt><dd>${formatMetric(metrics.ic_ir)}</dd>
+      <dt>Rank IC IR</dt><dd>${formatMetric(metrics.rank_ic_ir)}</dd>
+      <dt>期数</dt><dd>${metrics.n_periods ?? "-"}</dd>
+      <dt>IC 胜率</dt><dd>${formatPercent(metrics.ic_positive_ratio)}</dd>
+    </dl>
+    ${
+      showChart
+        ? `<h3>IC 序列（按日）</h3><div id="fv-ic-series-chart" class="ic-series-chart-host"><p class="muted">加载 IC 序列…</p></div>`
+        : ""
+    }
+    ${
+      item.factor_sql
+        ? `<h3>factor_sql</h3><pre><code>${escapeHtml(JSON.stringify(item.factor_sql, null, 2))}</code></pre>`
+        : ""
+    }
+  `;
+  els.detailDialog.showModal();
+
+  if (!showChart) {
+    return;
+  }
+
+  const chartHost = document.getElementById("fv-ic-series-chart");
+  if (!chartHost) {
+    return;
+  }
+  try {
+    const series = await apiGet(`/api/mlflow/runs/${encodeURIComponent(item.mlflow_run_id)}/ic-series`);
+    state.icSeriesChartDispose = mountIcSeriesChart(chartHost, series);
+  } catch (error) {
+    chartHost.innerHTML = `<p class="auth-error">IC 序列加载失败：${escapeHtml(String(error.message || error))}</p>`;
+  }
+}
+
 function applyValidationPreset({ sort, abs = true, limit = 30, order = "desc", status = "success" }) {
   state.validations.sort = sort;
   state.validations.abs = abs;
@@ -1773,6 +2369,7 @@ function switchTab(tab) {
   });
   document.getElementById("panel-ideas").classList.toggle("hidden", tab !== "ideas");
   document.getElementById("panel-validations").classList.toggle("hidden", tab !== "validations");
+  document.getElementById("panel-factor-validations").classList.toggle("hidden", tab !== "factor-validations");
   document.getElementById("panel-profiles").classList.toggle("hidden", tab !== "profiles");
   document.getElementById("panel-jupyter").classList.toggle("hidden", tab !== "jupyter");
   document.getElementById("panel-llm").classList.toggle("hidden", tab !== "llm");
@@ -1780,12 +2377,18 @@ function switchTab(tab) {
   document.getElementById("panel-settings").classList.toggle("hidden", tab !== "settings");
   els.appLayout.classList.toggle(
     "layout-wide",
-    tab === "validations" || tab === "profiles" || tab === "jupyter" || tab === "llm" || tab === "settings",
+    tab === "validations" ||
+      tab === "factor-validations" ||
+      tab === "profiles" || tab === "jupyter" || tab === "llm" || tab === "settings",
   );
   if (tab === "validations") {
     loadIdeaSourceOptions()
       .then(() => loadEnabledProfileOptions())
       .then(() => loadValidationResults())
+      .catch(handleError);
+  } else if (tab === "factor-validations") {
+    loadEnabledProfileOptionsForFactorValidations()
+      .then(() => loadFactorValidations())
       .catch(handleError);
   } else if (tab === "profiles") {
     loadValidationProfilesAdmin().catch(handleError);
@@ -1797,7 +2400,7 @@ function switchTab(tab) {
     loadSystemSettings().catch(handleError);
   }
   if (tab !== "jupyter") {
-    stopJupyterKernelPolling();
+    stopMlTaskKernelPolling();
   }
 }
 
@@ -2008,6 +2611,25 @@ document.getElementById("validations-refresh").addEventListener("click", () => {
   loadValidationResults().catch(handleError);
 });
 
+document.getElementById("factor-validations-apply")?.addEventListener("click", () => {
+  readFactorValidationControlsToState();
+  state.factorValidations.offset = 0;
+  loadFactorValidations().catch(handleError);
+});
+
+document.getElementById("factor-validations-refresh")?.addEventListener("click", () => {
+  readFactorValidationControlsToState();
+  loadFactorValidations().catch(handleError);
+});
+
+document.getElementById("factor-validations-preset-success")?.addEventListener("click", () => {
+  state.factorValidations.status = "success";
+  state.factorValidations.limit = 30;
+  state.factorValidations.offset = 0;
+  syncFactorValidationControlsFromState();
+  loadFactorValidations().catch(handleError);
+});
+
 document.getElementById("settings-refresh").addEventListener("click", () => {
   loadSystemSettings().catch(handleError);
 });
@@ -2061,6 +2683,13 @@ els.settingsRunValidation?.addEventListener("click", () => {
 
 els.settingsRunCleanup?.addEventListener("click", () => {
   runKernelCleanupNow().catch(handleError);
+});
+
+els.settingsRunForceCleanup?.addEventListener("click", () => {
+  if (!window.confirm("将立即关闭所有未清理的 Kernel（含 running 任务），并标记为 failed。确定继续？")) {
+    return;
+  }
+  runKernelCleanupNow({ force: true }).catch(handleError);
 });
 
 document.getElementById("validations-preset-rank-ic").addEventListener("click", () => {
@@ -2120,24 +2749,24 @@ document.getElementById("jupyter-refresh").addEventListener("click", () => {
   loadJupyterAdmin().catch(handleError);
 });
 
-els.jupyterKernelsRefresh?.addEventListener("click", () => {
-  loadJupyterKernelStatus().catch(handleError);
+els.mlTaskKernelsRefresh?.addEventListener("click", () => {
+  Promise.all([loadMlTaskKernelStatus(), loadJupyterKernelStatus()]).catch(handleError);
 });
 
-els.jupyterKernelsAutoRefresh?.addEventListener("sl-change", () => {
+els.mlTaskKernelsAutoRefresh?.addEventListener("sl-change", () => {
   if (state.tab === "jupyter") {
-    startJupyterKernelPolling();
+    startMlTaskKernelPolling();
   }
 });
 
-els.jupyterKernelsBody?.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-action='view-validation-kernel']");
+els.mlTaskKernelsBody?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-action='view-ml-task-kernel']");
   if (!button) return;
   event.preventDefault();
-  const validationId = button.getAttribute("data-validation-id");
-  if (!validationId) return;
-  switchTab("validations");
-  showToast(`请在验证结果页查找验证 #${validationId}`, "success");
+  const taskId = button.getAttribute("data-task-id");
+  if (!taskId) return;
+  switchTab("factor-validations");
+  showToast(`已切换到因子验证页，任务 #${taskId}`, "success");
 });
 
 els.jupyterForm.addEventListener("submit", (event) => {
@@ -2341,6 +2970,15 @@ document.body.addEventListener("click", async (event) => {
     return;
   }
 
+  const factorValidationRow = event.target.closest("tr[data-factor-validation-id]");
+  if (factorValidationRow) {
+    const factorValidationId = Number(factorValidationRow.getAttribute("data-factor-validation-id"));
+    if (Number.isFinite(factorValidationId) && factorValidationId > 0) {
+      showFactorValidationDetail(factorValidationId).catch(handleError);
+    }
+    return;
+  }
+
   const row = event.target.closest("tr[data-id]");
   if (!row) return;
   const id = row.getAttribute("data-id");
@@ -2395,6 +3033,14 @@ els.authForm.addEventListener("submit", async (event) => {
       showAuthGate("密码错误");
     }
   }
+});
+
+els.detailDialog?.addEventListener("close", () => {
+  if (state.icSeriesChartDispose) {
+    state.icSeriesChartDispose();
+    state.icSeriesChartDispose = null;
+  }
+  els.detailDialog.classList.remove("detail-dialog--wide");
 });
 
 verifyAuthAndBoot();

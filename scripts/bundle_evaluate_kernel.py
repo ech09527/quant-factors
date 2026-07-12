@@ -23,7 +23,7 @@ def _strip_header(source: str) -> str:
 def _patch_engine_source(engine_src: str, template_src: str) -> str:
     scripts_import_block = (
         "try:\n"
-        "    from scripts.compute_metrics import METRICS_VERSION, compute_metrics\n"
+        "    from scripts.compute_metrics import METRICS_VERSION, compute_ic_series, compute_metrics\n"
         "    from scripts.validation_profiles import (\n"
         "        DEFAULT_PROFILE_KEY,\n"
         "        build_label_expr,\n"
@@ -31,7 +31,7 @@ def _patch_engine_source(engine_src: str, template_src: str) -> str:
         "        resolve_validation_profile,\n"
         "    )\n"
         "except ImportError:\n"
-        "    from compute_metrics import METRICS_VERSION, compute_metrics\n"
+        "    from compute_metrics import METRICS_VERSION, compute_ic_series, compute_metrics\n"
         "    from validation_profiles import (\n"
         "        DEFAULT_PROFILE_KEY,\n"
         "        build_label_expr,\n"
@@ -64,6 +64,9 @@ def _build_bundled_engine_source(repo: Path) -> str:
     metrics_src = _strip_header(
         (repo / "scripts" / "compute_metrics.py").read_text(encoding="utf-8")
     )
+    mlflow_logger_src = _strip_header(
+        (repo / "scripts" / "mlflow_logger.py").read_text(encoding="utf-8")
+    )
     engine_src = _strip_header(
         (repo / "scripts" / "evaluate_engine.py").read_text(encoding="utf-8")
     )
@@ -77,6 +80,7 @@ def _build_bundled_engine_source(repo: Path) -> str:
         "from __future__ import annotations\n\n"
         f"{profiles_src}\n\n"
         f"{metrics_src}\n\n"
+        f"{mlflow_logger_src}\n\n"
         f"{engine_src}"
     )
 

@@ -4,20 +4,20 @@
 
 ## 流程
 
-1. Cron（每 2 分钟 `*/2 * * * *`）调用 `runValidationBatch`（可在 Dashboard 关闭）；想法生成仍为每 5 分钟
+1. Cron（每 1 分钟 `*/1 * * * *`）调用 `runValidationBatch`（可在 Dashboard 关闭）；想法生成仍为每 5 分钟
 2. 从 D1 拉取 pending 验证任务并 claim
 3. 仅验证 `ideas.factor_sql` 已存在的想法（不再在验证批处理中调用 LLM 翻译）
 4. 通过公网 `lynas-pub` 创建 Jupyter kernel，WebSocket **fire-and-forget** 提交评估代码
 5. Kernel 内 DuckDB 评估完成后 **POST** `/api/workflow/validation-jobs/report` 回写 D1
 6. 超时 `running` 任务由 `reclaimStaleValidationJobs` 标为 failed（约 `VALIDATION_STALE_RUNNING_MINUTES × 6`，默认 30 分钟）
-7. Cron 每 2 分钟运行 `runKernelCleanup`：对已完成验证（success/failed/skipped）删除对应 Jupyter kernel
+7. Cron 每 1 分钟运行 `runKernelCleanup`：对已完成验证（success/failed/skipped）删除对应 Jupyter kernel
 
 ## 系统配置
 
 - Dashboard **系统配置** 页可编辑调度开关与批处理参数
 - `GET/PATCH /api/workflow/system-settings` — 读写 `validation_batch_enabled`、`kernel_cleanup_enabled`、`validation_batch_limit`
 - 旧接口 `GET/PATCH /api/workflow/validation-schedule` 仍可用（仅验证调度开关）
-- 关闭验证调度后 Cron 仍每 2 分钟运行 **kernel 清理**（若未关闭）
+- 关闭验证调度后 Cron 仍每 1 分钟运行 **kernel 清理**（若未关闭）
 - `POST /run-validation-batch` / `POST /run-kernel-cleanup` 手动触发不受开关影响
 
 ## D1：`jupyter_servers` 需配置 `lynas-pub`
