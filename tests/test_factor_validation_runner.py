@@ -12,6 +12,7 @@ from scripts.factor_validation_runner import (
     BUSINESS_TYPE_FACTOR_VALIDATION,
     assemble_factor_validation_run_result,
     build_report_item,
+    merge_report_diagnostics,
     report_items_from_run_result,
 )
 
@@ -51,9 +52,25 @@ def test_report_items_two_phase_success():
     assert len(items) == 2
     assert items[0]["status"] == "running"
     assert items[0]["diagnostics"]["report_phase"] == "eval"
+    assert items[0]["diagnostics"]["metrics"]["mean_ic"] == 0.1
     assert items[1]["status"] == "success"
     assert items[1]["diagnostics"]["report_phase"] == "mlflow"
+    assert items[1]["diagnostics"]["metrics"]["mean_ic"] == 0.1
     assert items[1]["mlflow_run_id"] == "abc"
+
+
+def test_merge_report_diagnostics_includes_evaluation_metrics():
+    diagnostics = merge_report_diagnostics(
+        {"diagnostics": {"data_path": "/tmp/x"}, "timing": {"t_eval_ms": 50}},
+        {
+            "diagnostics": {"skipped_periods_low_n": 1},
+            "metrics": {"mean_rank_ic": 0.02, "mean_ic": 0.01},
+        },
+    )
+    assert diagnostics["data_path"] == "/tmp/x"
+    assert diagnostics["skipped_periods_low_n"] == 1
+    assert diagnostics["metrics"]["mean_rank_ic"] == 0.02
+    assert diagnostics["timing"]["t_eval_ms"] == 50
 
 
 def test_report_items_eval_failed_single_phase():

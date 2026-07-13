@@ -104,6 +104,25 @@ def build_report_item(
     return item
 
 
+def merge_report_diagnostics(
+    result: dict[str, Any],
+    evaluation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """合并 run / evaluation 诊断信息，与 Worker jupyter-execution-completion 语义对齐。"""
+    diagnostics = dict(result.get("diagnostics") or {})
+    if isinstance(evaluation, dict):
+        eval_diag = evaluation.get("diagnostics")
+        if isinstance(eval_diag, dict):
+            diagnostics = {**eval_diag, **diagnostics}
+        metrics = evaluation.get("metrics")
+        if isinstance(metrics, dict) and metrics:
+            diagnostics["metrics"] = dict(metrics)
+    timing = result.get("timing")
+    if isinstance(timing, dict) and timing:
+        diagnostics["timing"] = timing
+    return diagnostics
+
+
 def report_items_from_run_result(
     business_type: str,
     job: dict[str, Any],
@@ -114,14 +133,7 @@ def report_items_from_run_result(
     evaluation = result.get("evaluation")
     if not isinstance(evaluation, dict):
         evaluation = None
-    diagnostics = dict(result.get("diagnostics") or {})
-    if isinstance(evaluation, dict):
-        eval_diag = evaluation.get("diagnostics")
-        if isinstance(eval_diag, dict):
-            diagnostics = {**eval_diag, **diagnostics}
-    timing = result.get("timing")
-    if isinstance(timing, dict) and timing:
-        diagnostics["timing"] = timing
+    diagnostics = merge_report_diagnostics(result, evaluation)
 
     items: list[dict[str, Any]] = []
     eval_status = str((evaluation or {}).get("status") or status)
