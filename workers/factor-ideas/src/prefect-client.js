@@ -56,7 +56,7 @@ export async function getPrefectDeploymentByName(env, deploymentRef) {
   const encodedDeployment = encodeURIComponent(deploymentName);
   return prefectRequest(
     env,
-    `/api/deployments/name/${encodedFlow}/${encodedDeployment}`
+    `/deployments/name/${encodedFlow}/${encodedDeployment}`
   );
 }
 
@@ -71,7 +71,7 @@ export async function createPrefectFlowRun(env, deploymentRef, parameters = {}, 
     ...(options.tags ? { tags: options.tags } : {}),
     ...(options.idempotencyKey ? { idempotency_key: options.idempotencyKey } : {})
   };
-  const result = await prefectRequest(env, `/api/deployments/${deploymentId}/create_flow_run`, {
+  const result = await prefectRequest(env, `/deployments/${deploymentId}/create_flow_run`, {
     method: "POST",
     body
   });
@@ -88,7 +88,7 @@ export async function getPrefectFlowRun(env, flowRunId) {
   if (!id) {
     throw new Error("flow_run_id required");
   }
-  return prefectRequest(env, `/api/flow_runs/${id}`);
+  return prefectRequest(env, `/flow_runs/${id}`);
 }
 
 export async function getPrefectWorkPool(env, workPoolName) {
@@ -96,5 +96,5 @@ export async function getPrefectWorkPool(env, workPoolName) {
   if (!name) {
     throw new Error("work_pool name required");
   }
-  return prefectRequest(env, `/api/work_pools/${encodeURIComponent(name)}`);
+  return prefectRequest(env, `/work_pools/${encodeURIComponent(name)}`);
 }
