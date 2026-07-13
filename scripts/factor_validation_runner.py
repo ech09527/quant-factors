@@ -234,6 +234,138 @@ def _log_mlflow(
         )
 
 
+def ensure_factor_validation_mlflow_runtime(
+    *, mlflow_preinstalled: bool = True
+) -> dict[str, int]:
+    started = time.perf_counter()
+    _ensure_mlflow(mlflow_preinstalled)
+    return {"t_import_mlflow_ms": _elapsed_ms(started)}
+
+
+def resolve_factor_validation_data_path(
+    job: dict[str, Any],
+    *,
+    runtime_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    runtime_config = runtime_config or {}
+    idea = _idea_from_job(job)
+    factor_sql = job.get("factor_sql") or {}
+    target_file = runtime_config.get("target_file") or "futures/um/klines/1h.parquet"
+    started = time.perf_counter()
+    data_path = _resolve_data_path(
+        factor_sql=factor_sql,
+        idea=idea,
+        runtime_config=runtime_config,
+        target_file=target_file,
+    )
+    return {
+        "data_path": data_path,
+        "timing": {"t_resolve_data_path_ms": _elapsed_ms(started)},
+    }
+
+
+def evaluate_factor_validation_sql(
+    job: dict[str, Any],
+    *,
+    data_path: str,
+    sample_start: str = "2023-01-01",
+) -> dict[str, Any]:
+    idea = _idea_from_job(job)
+    factor_sql = job.get("factor_sql") or {}
+    profile_key = _profile_key(job)
+    started = time.perf_counter()
+    evaluation = evaluate_factor_sql(
+        factor_sql,
+        title=str(idea.get("title", "")),
+        title_hash=str(idea.get("title_hash", "")),
+        formula_sketch=str(idea.get("formula_sketch", "")),
+        data_path=data_path,
+        sample_start=sample_start,
+        validation_profile_key=profile_key,
+        label_kind=job.get("label_kind"),
+        horizon_bars=job.get("horizon_bars"),
+    )
+    evaluation["task_id"] = job.get("task_id")
+    evaluation["factor_validation_id"] = job.get("factor_validation_id")
+    return {
+        "evaluation": evaluation,
+        "timing": {"t_eval_ms": _elapsed_ms(started)},
+        "status": str(evaluation.get("status", "failed")),
+    }
+
+
+def log_factor_validation_mlflow(
+    job: dict[str, Any],
+    evaluation: dict[str, Any],
+    *,
+    mlflow_config: dict[str, Any] | None = None,
+    mlflow_slim: bool = True,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    try:
+        mlflow_meta = _log_mlflow(
+            evaluation=evaluation,
+            job=job,
+            mlflow_config=mlflow_config or {},
+            mlflow_slim=mlflow_slim,
+        )
+        return {
+            "mlflow": mlflow_meta,
+            "timing": {"t_mlflow_ms": _elapsed_ms(started)},
+            "status": "success" if mlflow_meta else "failed",
+        }
+    except Exception as exc:
+        return {
+            "mlflow": None,
+            "timing": {"t_mlflow_ms": _elapsed_ms(started)},
+            "status": "failed",
+            "error_reason": f"MLflow 写入失败: {exc}",
+        }
+
+
+def assemble_factor_validation_run_result(
+    job: dict[str, Any],
+    *,
+    evaluation: dict[str, Any] | None,
+    mlflow_meta: dict[str, Any] | None,
+    data_path: str | None,
+    timing: dict[str, int] | None,
+    error_reason: str | None = None,
+    total_ms: int | None = None,
+    mlflow_attempted: bool = True,
+) -> dict[str, Any]:
+    task_id = job.get("task_id")
+    factor_validation_id = job.get("factor_validation_id")
+    evaluation = evaluation if isinstance(evaluation, dict) else None
+    eval_status = str((evaluation or {}).get("status", "failed"))
+    final_status = eval_status
+    merged_error = error_reason or (evaluation or {}).get("error_reason")
+    diagnostics = dict((evaluation or {}).get("diagnostics") or {})
+    merged_timing = dict(timing or {})
+    if total_ms is not None:
+        merged_timing["t_total_ms"] = total_ms
+    if data_path:
+        diagnostics["data_path"] = data_path
+    diagnostics["timing"] = dict(merged_timing)
+
+    if eval_status == "success":
+        if not mlflow_attempted:
+            final_status = "success"
+        else:
+            final_status = "success" if mlflow_meta else "failed"
+
+    return {
+        "task_id": task_id,
+        "factor_validation_id": factor_validation_id,
+        "status": final_status,
+        "evaluation": evaluation,
+        "mlflow": mlflow_meta,
+        "timing": merged_timing,
+        "diagnostics": diagnostics,
+        "error_reason": merged_error,
+    }
+
+
 def run_factor_validation_job(
     job: dict[str, Any],
     *,
@@ -245,86 +377,52 @@ def run_factor_validation_job(
 ) -> dict[str, Any]:
     """DuckDB 评估 + MLflow（factor_validation）。"""
     runtime_config = runtime_config or {}
-    idea = _idea_from_job(job)
-    factor_sql = job.get("factor_sql") or {}
-    profile_key = _profile_key(job)
-    task_id = job.get("task_id")
-    factor_validation_id = job.get("factor_validation_id")
-    idea_id = int(job.get("idea_id") or 0)
-    target_file = runtime_config.get("target_file") or "futures/um/klines/1h.parquet"
     job_started = time.perf_counter()
     timing: dict[str, int] = {}
 
     try:
-        import_started = time.perf_counter()
-        _ensure_mlflow(mlflow_preinstalled)
-        timing["t_import_mlflow_ms"] = _elapsed_ms(import_started)
-
-        resolve_started = time.perf_counter()
-        data_path = _resolve_data_path(
-            factor_sql=factor_sql,
-            idea=idea,
-            runtime_config=runtime_config,
-            target_file=target_file,
+        timing.update(
+            ensure_factor_validation_mlflow_runtime(mlflow_preinstalled=mlflow_preinstalled)
         )
-        timing["t_resolve_data_path_ms"] = _elapsed_ms(resolve_started)
-
-        eval_started = time.perf_counter()
-        evaluation = evaluate_factor_sql(
-            factor_sql,
-            title=str(idea.get("title", "")),
-            title_hash=str(idea.get("title_hash", "")),
-            formula_sketch=str(idea.get("formula_sketch", "")),
-            data_path=data_path,
+        resolve_result = resolve_factor_validation_data_path(
+            job, runtime_config=runtime_config
+        )
+        timing.update(resolve_result["timing"])
+        eval_result = evaluate_factor_validation_sql(
+            job,
+            data_path=resolve_result["data_path"],
             sample_start=sample_start,
-            validation_profile_key=profile_key,
-            label_kind=job.get("label_kind"),
-            horizon_bars=job.get("horizon_bars"),
         )
-        timing["t_eval_ms"] = _elapsed_ms(eval_started)
-        evaluation["task_id"] = task_id
-        evaluation["factor_validation_id"] = factor_validation_id
-
-        eval_status = str(evaluation.get("status", "failed"))
+        timing.update(eval_result["timing"])
+        evaluation = eval_result["evaluation"]
         mlflow_meta = None
-        final_status = eval_status
         error_reason = evaluation.get("error_reason")
-        diagnostics = dict(evaluation.get("diagnostics") or {})
-        diagnostics["timing"] = dict(timing)
-        diagnostics["data_path"] = data_path
+        if eval_result["status"] == "success":
+            mlflow_result = log_factor_validation_mlflow(
+                job,
+                evaluation,
+                mlflow_config=mlflow_config,
+                mlflow_slim=mlflow_slim,
+            )
+            timing.update(mlflow_result["timing"])
+            mlflow_meta = mlflow_result.get("mlflow")
+            error_reason = mlflow_result.get("error_reason") or error_reason
 
-        if eval_status == "success":
-            mlflow_started = time.perf_counter()
-            try:
-                mlflow_meta = _log_mlflow(
-                    evaluation=evaluation,
-                    job=job,
-                    mlflow_config=mlflow_config or {},
-                    mlflow_slim=mlflow_slim,
-                )
-            except Exception as exc:
-                error_reason = f"MLflow 写入失败: {exc}"
-                diagnostics["mlflow_error"] = str(exc)
-            timing["t_mlflow_ms"] = _elapsed_ms(mlflow_started)
-            final_status = "success" if mlflow_meta else "failed"
-
-        timing["t_total_ms"] = _elapsed_ms(job_started)
-        diagnostics["timing"] = dict(timing)
-        return {
-            "task_id": task_id,
-            "factor_validation_id": factor_validation_id,
-            "status": final_status,
-            "evaluation": evaluation,
-            "mlflow": mlflow_meta,
-            "timing": timing,
-            "diagnostics": diagnostics,
-            "error_reason": error_reason,
-        }
+        return assemble_factor_validation_run_result(
+            job,
+            evaluation=evaluation,
+            mlflow_meta=mlflow_meta,
+            data_path=resolve_result["data_path"],
+            timing=timing,
+            error_reason=error_reason,
+            total_ms=_elapsed_ms(job_started),
+            mlflow_attempted=eval_result["status"] == "success",
+        )
     except Exception as exc:
         timing["t_total_ms"] = _elapsed_ms(job_started)
         return {
-            "task_id": task_id,
-            "factor_validation_id": factor_validation_id,
+            "task_id": job.get("task_id"),
+            "factor_validation_id": job.get("factor_validation_id"),
             "status": "failed",
             "diagnostics": {
                 "error": str(exc),

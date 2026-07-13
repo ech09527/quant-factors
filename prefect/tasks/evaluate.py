@@ -1,9 +1,10 @@
-"""执行因子验证并生成 report items。"""
+"""因子验证各执行阶段（每个阶段对应独立 Prefect task）。"""
 
 from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +16,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.factor_validation_runner import (  # noqa: E402
     BUSINESS_TYPE_FACTOR_VALIDATION,
+    assemble_factor_validation_run_result,
+    ensure_factor_validation_mlflow_runtime,
+    evaluate_factor_validation_sql,
+    log_factor_validation_mlflow,
     report_items_from_run_result,
-    run_factor_validation_job,
+    resolve_factor_validation_data_path,
 )
 
 
@@ -41,28 +46,81 @@ def _read_mlflow_config() -> dict[str, Any]:
     }
 
 
-@task(name="evaluate-validation-job", retries=0, log_prints=True)
-def evaluate_validation_job(
-    business_type: str,
-    job: dict[str, Any],
-    *,
-    sample_start: str = "2023-01-01",
-    runtime_config: dict[str, Any] | None = None,
-    skip_mlflow: bool = False,
-) -> dict[str, Any]:
-    """运行单条验证任务，返回 run result。"""
-    mlflow_config = _read_mlflow_config()
+def _runtime_flags(runtime_config: dict[str, Any] | None) -> tuple[bool, bool]:
     runtime_config = runtime_config or {}
     mlflow_slim = bool(runtime_config.get("mlflow_slim", True))
     mlflow_preinstalled = bool(runtime_config.get("mlflow_preinstalled", True))
+    return mlflow_slim, mlflow_preinstalled
 
-    return run_factor_validation_job(
+
+@task(name="ensure-mlflow-runtime", retries=0, log_prints=True)
+def ensure_mlflow_runtime_task(
+    *,
+    mlflow_preinstalled: bool = True,
+) -> dict[str, int]:
+    return ensure_factor_validation_mlflow_runtime(mlflow_preinstalled=mlflow_preinstalled)
+
+
+@task(name="resolve-data-path", retries=0, log_prints=True)
+def resolve_data_path_task(
+    job: dict[str, Any],
+    *,
+    runtime_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return resolve_factor_validation_data_path(job, runtime_config=runtime_config)
+
+
+@task(name="evaluate-factor-sql", retries=0, log_prints=True)
+def evaluate_factor_sql_task(
+    job: dict[str, Any],
+    *,
+    data_path: str,
+    sample_start: str = "2023-01-01",
+) -> dict[str, Any]:
+    return evaluate_factor_validation_sql(
         job,
+        data_path=data_path,
         sample_start=sample_start,
-        runtime_config=runtime_config,
-        mlflow_config=mlflow_config,
+    )
+
+
+@task(name="log-mlflow", retries=0, log_prints=True)
+def log_mlflow_task(
+    job: dict[str, Any],
+    evaluation: dict[str, Any],
+    *,
+    runtime_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    mlflow_slim, _ = _runtime_flags(runtime_config)
+    return log_factor_validation_mlflow(
+        job,
+        evaluation,
+        mlflow_config=_read_mlflow_config(),
         mlflow_slim=mlflow_slim,
-        mlflow_preinstalled=mlflow_preinstalled,
+    )
+
+
+@task(name="assemble-run-result", retries=0)
+def assemble_run_result_task(
+    job: dict[str, Any],
+    *,
+    evaluation: dict[str, Any] | None,
+    mlflow_meta: dict[str, Any] | None,
+    data_path: str | None,
+    timing: dict[str, int],
+    error_reason: str | None = None,
+    total_ms: int,
+    mlflow_attempted: bool,
+) -> dict[str, Any]:
+    return assemble_factor_validation_run_result(
+        job,
+        evaluation=evaluation,
+        mlflow_meta=mlflow_meta,
+        data_path=data_path,
+        timing=timing,
+        error_reason=error_reason,
+        total_ms=total_ms,
+        mlflow_attempted=mlflow_attempted,
     )
 
 

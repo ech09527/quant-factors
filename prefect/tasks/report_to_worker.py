@@ -70,23 +70,3 @@ def report_to_worker(
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
         raise RuntimeError(f"Worker report HTTP {exc.code}: {detail}") from exc
-
-
-@task(name="report-phases-to-worker", retries=1, log_prints=True)
-def report_phases_to_worker(
-    business_type: str,
-    report_items: list[dict[str, Any]],
-    *,
-    callback_base_url: str | None = None,
-) -> list[dict[str, Any]]:
-    """逐阶段上报（eval 与 mlflow 分开 POST，与 Coordinator 语义一致）。"""
-    responses: list[dict[str, Any]] = []
-    for item in report_items:
-        phase = (item.get("diagnostics") or {}).get("report_phase")
-        resp = report_to_worker(
-            business_type,
-            [item],
-            callback_base_url=callback_base_url,
-        )
-        responses.append({"phase": phase, "response": resp})
-    return responses

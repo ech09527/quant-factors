@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.factor_validation_runner import (
     BUSINESS_TYPE_FACTOR_VALIDATION,
+    assemble_factor_validation_run_result,
     build_report_item,
     report_items_from_run_result,
 )
@@ -66,3 +67,22 @@ def test_report_items_eval_failed_single_phase():
     assert len(items) == 1
     assert items[0]["status"] == "failed"
     assert items[0]["diagnostics"]["report_phase"] == "eval"
+
+
+def test_assemble_run_result_allows_skip_mlflow():
+    job = {"task_id": 4, "factor_validation_id": 40}
+    evaluation = {
+        "status": "success",
+        "factor_sql": {"version": "1"},
+        "evaluated_at": "2024-01-01T00:00:00Z",
+    }
+    result = assemble_factor_validation_run_result(
+        job,
+        evaluation=evaluation,
+        mlflow_meta=None,
+        data_path="/data/test.parquet",
+        timing={"t_eval_ms": 120},
+        mlflow_attempted=False,
+    )
+    assert result["status"] == "success"
+    assert result["mlflow"] is None

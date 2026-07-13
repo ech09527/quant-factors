@@ -32,4 +32,14 @@ Deployment 使用 **git clone** pull 模式：每次 flow run 前 worker 自动 
 |------------|------|
 | `factor-validation/production` | DuckDB 评估 + MLflow |
 
+Flow 在 Prefect UI 中按 task 拆分阶段，便于查看各步耗时：
+
+1. `ensure-mlflow-runtime` — 加载 MLflow
+2. `resolve-data-path` — 解析 parquet 路径
+3. `evaluate-factor-sql` — DuckDB 因子评估
+4. `log-mlflow` — 写入 MLflow（eval 成功且未 skip 时）
+5. `assemble-run-result` — 汇总 timing / status
+6. `build-report-items` — 构造 Worker report items
+7. `report-eval-to-worker` / `report-mlflow-to-worker` — 分阶段回调 D1
+
 Worker 侧设置 `EXECUTION_BACKEND=prefect`（见 `workers/factor-ideas/wrangler.toml`），Cron 将通过 Prefect API 触发 flow run。
