@@ -41,6 +41,10 @@ PREFECT_FLOW_RUN_STALE_MINUTES = "45"
 PREFECT_API_URL = "https://prefect.longyin-tech.com/api"
 JUPYTER_EXECUTION_VIA_DO = "0"
 
+[[migrations]]
+tag = "v2"
+deleted_classes = ["JupyterServerCoordinator"]
+
 [triggers]
 # 业务 submit（Prefect）/ 过期 server 清理：每 1 分钟；想法生成：每 5 分钟
 crons = ["*/1 * * * *", "*/5 * * * *"]
