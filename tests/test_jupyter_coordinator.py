@@ -13,12 +13,11 @@ def test_jupyter_execution_modules_exist():
         assert (root / rel).is_file(), rel
 
 
-def test_jupyter_execution_queue_module_exists():
+def test_jupyter_executor_dispatches_directly():
     root = Path(__file__).resolve().parents[1]
-    assert (root / "workers/factor-ideas/src/jupyter-execution-queue.js").is_file()
-    src = (root / "workers/factor-ideas/src/jupyter-execution-queue.js").read_text(encoding="utf-8")
-    assert "processJupyterExecutionQueueMessage" in src
-    assert "reconcileQueuedExecutionsToQueue" in src
+    src = (root / "workers/factor-ideas/src/jupyter-executor.js").read_text(encoding="utf-8")
+    assert "dispatchJupyterExecution" in src
+    assert "jupyter-execution-queue.js" not in src
 
 
 def test_coordinator_exposes_submit_endpoint():
@@ -33,23 +32,24 @@ def test_coordinator_exposes_submit_endpoint():
     assert "watchExecutionViaWebSocket" not in coordinator
 
 
-def test_wrangler_declares_jupyter_execution_queue():
+def test_wrangler_prefect_execution_backend():
     text = (Path(__file__).resolve().parents[1] / "workers/factor-ideas/wrangler.toml").read_text(
         encoding="utf-8"
     )
-    assert "JUPYTER_EXECUTION_QUEUE" in text
-    assert "jupyter-execution" in text
+    assert 'EXECUTION_BACKEND = "prefect"' in text
+    assert "JUPYTER_EXECUTION_QUEUE" not in text
+    assert "[[queues.producers]]" not in text
+    assert "[[queues.consumers]]" not in text
 
 
-def test_wrangler_declares_jupyter_coordinator_do():
+def test_wrangler_jupyter_coordinator_do_deleted():
     text = (Path(__file__).resolve().parents[1] / "workers/factor-ideas/wrangler.toml").read_text(
         encoding="utf-8"
     )
-    assert "JUPYTER_COORDINATOR" in text
+    assert "JUPYTER_COORDINATOR" not in text
+    assert "deleted_classes" in text
     assert "JupyterServerCoordinator" in text
-    assert "JUPYTER_EXECUTION_VIA_DO" in text
-    assert "max_concurrency = 40" in text
-    assert "max_batch_size = 1" in text
+    assert 'JUPYTER_EXECUTION_VIA_DO = "0"' in text
 
 
 def test_timed_out_execution_query_uses_julianday():

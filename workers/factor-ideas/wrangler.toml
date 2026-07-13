@@ -42,6 +42,10 @@ PREFECT_API_URL = "https://prefect.longyin-tech.com/api"
 JUPYTER_EXECUTION_VIA_DO = "0"
 
 [[migrations]]
+tag = "v1"
+new_sqlite_classes = ["JupyterServerCoordinator"]
+
+[[migrations]]
 tag = "v2"
 deleted_classes = ["JupyterServerCoordinator"]
 

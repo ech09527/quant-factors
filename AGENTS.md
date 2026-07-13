@@ -63,7 +63,7 @@ bash scripts/deploy-qf-cloudflare.sh
 - 结果经现有 `/api/workflow/ml-tasks/report` 回写 D1
 - 账本表：`prefect_flow_runs`（见 `migrations/0013_prefect_flow_runs.sql`）
 
-回退 Jupyter 路径：设置 `EXECUTION_BACKEND=jupyter` 且 `JUPYTER_EXECUTION_VIA_DO=1`（需恢复 wrangler Queue + Durable Object 配置）。
+回退 Jupyter 路径：设置 `EXECUTION_BACKEND=jupyter` 且 `JUPYTER_EXECUTION_VIA_DO=1`（需恢复 wrangler Durable Object 配置；不再使用 Cloudflare Queue）。
 
 - **维护范围**：`factor_validation`、`test_factor_validation` 经 [scripts/factor_validation_runner.py](scripts/factor_validation_runner.py) + Prefect flow。
-- **不必理会旧路径**：`legacy_validation`、直连 Jupyter Coordinator/Queue 的 dispatch（`jupyter-execution-dispatch.js` 等）除回退外不再扩展。
+- **不必理会旧路径**：`legacy_validation`、直连 Jupyter Coordinator 的 dispatch（`jupyter-execution-dispatch.js` 等）除回退外不再扩展。

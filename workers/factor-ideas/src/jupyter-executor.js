@@ -1,5 +1,5 @@
 import { createOrRequeueJupyterExecution } from "./jupyter-execution-db.js";
-import { enqueueJupyterExecution } from "./jupyter-execution-queue.js";
+import { dispatchJupyterExecution } from "./jupyter-execution-runtime.js";
 import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
 import { handleJupyterExecutionBusinessCompletion } from "./jupyter-execution-business-handlers.js";
 
@@ -36,9 +36,9 @@ export async function submit(env, { serverKey, businessType, businessId, payload
     };
   }
 
-  let queueResult = null;
+  let dispatchResult = null;
   if (jupyterExecutionViaDoEnabled(env)) {
-    queueResult = await enqueueJupyterExecution(env, {
+    dispatchResult = await dispatchJupyterExecution(env, {
       executionId: execution.id,
       serverKey
     });
@@ -50,7 +50,7 @@ export async function submit(env, { serverKey, businessType, businessId, payload
     skipped: false,
     created: Boolean(created),
     requeued: Boolean(requeued),
-    queue: queueResult
+    dispatch: dispatchResult
   };
 }
 

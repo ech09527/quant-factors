@@ -3,10 +3,6 @@ import { dispatchTestFactorValidationViaCoordinator } from "./test-factor-valida
 import { dispatchFactorValidationViaPrefect } from "./prefect-execution-dispatch.js";
 import { dispatchTestFactorValidationViaPrefect } from "./test-prefect-execution-dispatch.js";
 import { handleJupyterExecutionCallbackApiRequest } from "./jupyter-execution-callback-api.js";
-import {
-  processJupyterExecutionQueueBatch,
-  reconcileQueuedExecutionsToQueue
-} from "./jupyter-execution-queue.js";
 import { registerDefaultHandlers } from "./jupyter-executor.js";
 import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
 import { prefectExecutionEnabled } from "./prefect-execution-config.js";
@@ -93,15 +89,6 @@ export default {
       return;
     }
 
-    let queueReconcileBefore = null;
-    if (!prefectExecutionEnabled(env) && jupyterExecutionViaDoEnabled(env)) {
-      try {
-        queueReconcileBefore = await reconcileQueuedExecutionsToQueue(env);
-      } catch (error) {
-        console.error("jupyter execution queue reconcile (before) failed:", error);
-      }
-    }
-
     const factorValidationRunner = resolveFactorValidationDispatch(env);
     const testFactorValidationRunner = resolveTestFactorValidationDispatch(env);
 
@@ -151,37 +138,6 @@ export default {
     } else {
       console.error("jupyter server cleanup cron failed:", jupyterServerCleanupResult.reason);
     }
-
-    if (!prefectExecutionEnabled(env) && jupyterExecutionViaDoEnabled(env)) {
-      let queueReconcileAfter = null;
-      try {
-        queueReconcileAfter = await reconcileQueuedExecutionsToQueue(env);
-      } catch (error) {
-        console.error("jupyter execution queue reconcile (after) failed:", error);
-      }
-      console.log(
-        JSON.stringify({
-          cron,
-          jupyter_execution_queue_reconcile: {
-            before: queueReconcileBefore,
-            after: queueReconcileAfter
-          }
-        })
-      );
-    }
-  },
-
-  async queue(batch, env) {
-    if (prefectExecutionEnabled(env)) {
-      console.log(JSON.stringify({ jupyter_execution_queue_batch: 0, skipped: "prefect_backend" }));
-      for (const message of batch.messages ?? []) {
-        message.ack();
-      }
-      return;
-    }
-    registerDefaultHandlers();
-    const outcomes = await processJupyterExecutionQueueBatch(batch, env);
-    console.log(JSON.stringify({ jupyter_execution_queue_batch: outcomes.length, outcomes }));
   },
 
   async fetch(request, env, ctx) {
@@ -332,10 +288,7 @@ export default {
       }
       try {
         const reset = await resetTestFactorValidationWorkflow(env.DB);
-        const reconcile = prefectExecutionEnabled(env)
-          ? { skipped: true, reason: "prefect_backend" }
-          : await reconcileQueuedExecutionsToQueue(env);
-        return Response.json({ ok: true, reset, reconcile });
+        return Response.json({ ok: true, reset });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return Response.json({ ok: false, error: message }, { status: 500 });
@@ -362,35 +315,6 @@ export default {
         }
         const result = await runDispatch();
         return Response.json({ ok: true, ...result });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return Response.json({ ok: false, error: message }, { status: 500 });
-      }
-    }
-    if (request.method === "POST" && url.pathname === "/run-jupyter-execution-queue-reconcile") {
-      if (!isAuthorized(request, env)) {
-        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
-      }
-      try {
-        const result = await reconcileQueuedExecutionsToQueue(env);
-        return Response.json({ ok: true, ...result });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return Response.json({ ok: false, error: message }, { status: 500 });
-      }
-    }
-    if (request.method === "POST" && url.pathname === "/run-jupyter-execution-fill") {
-      if (!isAuthorized(request, env)) {
-        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
-      }
-      try {
-        const result = await reconcileQueuedExecutionsToQueue(env);
-        return Response.json({
-          ok: true,
-          deprecated: true,
-          reason: "renamed_to_run_jupyter_execution_queue_reconcile",
-          ...result
-        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return Response.json({ ok: false, error: message }, { status: 500 });
