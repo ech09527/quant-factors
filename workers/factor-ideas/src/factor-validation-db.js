@@ -1,5 +1,7 @@
 import { resolveFactorValidationTerminalStatus } from "./factor-validation-errors.js";
 import { readJupyterExecutionTimeoutMinutes } from "./jupyter-execution-config.js";
+import { readPrefectStaleMinutes } from "./prefect-execution-config.js";
+import { reclaimStalePrefectFlowRuns } from "./prefect-execution-db.js";
 import {
   BUSINESS_TYPE_FACTOR_VALIDATION,
   createMlTask,
@@ -38,6 +40,43 @@ function buildFactorValidationJobFrom(staleRunningMinutes) {
         fv.id IS NULL
         OR mt.status != 'running'
         OR mt.updated_at < datetime('now', '-${staleRunningMinutes} minutes')
+      )`;
+}
+
+function buildFactorValidationJobFromForPrefect(staleMinutes) {
+  return `
+    FROM ideas i
+    CROSS JOIN validation_profiles vp
+    LEFT JOIN factor_validations fv
+      ON fv.idea_id = i.id AND fv.profile_key = vp.key
+    LEFT JOIN ml_tasks mt
+      ON mt.id = fv.task_id
+    WHERE vp.enabled = 1
+      AND i.factor_sql IS NOT NULL
+      AND TRIM(i.factor_sql) != ''
+      AND TRIM(i.factor_sql) != 'null'
+      AND (fv.id IS NULL OR mt.status NOT IN ('success', 'skipped'))
+      AND (
+        fv.id IS NULL
+        OR mt.status NOT IN ('running', 'pending')
+        OR (
+          mt.status = 'running'
+          AND mt.updated_at < datetime('now', '-${staleMinutes} minutes')
+        )
+        OR (
+          mt.status = 'pending'
+          AND (
+            mt.submitted_at IS NULL
+            OR mt.submitted_at < datetime('now', '-${staleMinutes} minutes')
+          )
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1
+          FROM prefect_flow_runs pfr
+         WHERE pfr.business_type = 'factor_validation'
+           AND pfr.business_id = CAST(COALESCE(fv.task_id, 0) AS TEXT)
+           AND pfr.status IN ('scheduled', 'pending', 'running')
       )`;
 }
 
@@ -316,6 +355,180 @@ export function mergeClaimedFactorValidationJobs(pendingItems, claimedJobs) {
     .filter(Boolean);
 }
 
+export async function listPendingFactorValidationJobsForPrefect(db, limit = null, env = null) {
+  const staleMinutes = readPrefectStaleMinutes(env);
+  await reclaimStalePrefectFlowRuns(db, env);
+  const hasLimit = limit != null && Number.isFinite(Number(limit)) && Number(limit) > 0;
+  const sql = `SELECT
+         COALESCE(fv.id, 0) AS factor_validation_id,
+         COALESCE(fv.task_id, 0) AS task_id,
+         i.id AS idea_id,
+         vp.key AS profile_key,
+         COALESCE(mt.status, 'queued') AS status,
+         vp.name AS profile_name,
+         vp.label_kind,
+         vp.horizon_bars,
+         i.title,
+         i.title_hash,
+         i.factor_expr,
+         i.hypothesis,
+         i.formula_sketch,
+         i.expected_signal,
+         i.data_sources,
+         i.factor_sql
+       ${buildFactorValidationJobFromForPrefect(staleMinutes)}
+       ORDER BY
+         CASE COALESCE(mt.status, 'queued')
+           WHEN 'queued' THEN 0
+           WHEN 'pending' THEN 1
+           WHEN 'failed' THEN 2
+           ELSE 3
+         END ASC,
+         i.id ASC,
+         vp.sort_order ASC,
+         vp.key ASC${hasLimit ? " LIMIT ?" : ""}`;
+  const result = hasLimit
+    ? await db.prepare(sql).bind(Number(limit)).all()
+    : await db.prepare(sql).all();
+  return { items: (result.results ?? []).map(rowToFactorValidationJob) };
+}
+
+export async function reserveFactorValidationJobsForPrefect(db, jobs) {
+  let reserved = 0;
+  const reservedJobs = [];
+
+  for (const job of jobs) {
+    const ideaId = Number(job.idea_id);
+    const profileKey = String(job.profile_key ?? "").trim();
+    if (!Number.isFinite(ideaId) || ideaId <= 0 || !profileKey) {
+      continue;
+    }
+
+    const record = await ensureFactorValidationRecords(db, ideaId, profileKey);
+    const { factor_validation_id: factorValidationId, task_id: taskId } = record;
+
+    const existing = await db.prepare(
+      `SELECT status, diagnostics
+         FROM ml_tasks
+         WHERE id = ?
+         LIMIT 1`
+    ).bind(taskId).first();
+    if (!existing) {
+      continue;
+    }
+
+    const status = String(existing.status ?? "");
+    if (["success", "skipped", "running"].includes(status)) {
+      continue;
+    }
+
+    const diagnostics = {
+      ...(stripKernelExecutionDiagnostics(parseJsonObject(existing.diagnostics) ?? {})),
+      dispatch_mode: "prefect",
+      prefect_reserved: true
+    };
+    delete diagnostics.report_phase;
+    delete diagnostics.timing;
+
+    const result = await db.prepare(
+      `UPDATE ml_tasks
+         SET error_reason = NULL,
+             diagnostics = ?,
+             submitted_at = datetime('now'),
+             completed_at = NULL,
+             updated_at = datetime('now')
+         WHERE id = ?
+           AND status IN ('pending', 'failed')
+           AND NOT EXISTS (
+             SELECT 1
+               FROM prefect_flow_runs pfr
+              WHERE pfr.business_type = 'factor_validation'
+                AND pfr.business_id = CAST(ml_tasks.id AS TEXT)
+                AND pfr.status IN ('scheduled', 'pending', 'running')
+           )`
+    ).bind(JSON.stringify(diagnostics), taskId).run();
+    if (Number(result.meta.changes ?? 0) === 0) {
+      continue;
+    }
+
+    reserved += 1;
+    reservedJobs.push({
+      task_id: taskId,
+      factor_validation_id: factorValidationId,
+      idea_id: ideaId,
+      profile_key: profileKey
+    });
+  }
+
+  return { reserved, jobs: reservedJobs };
+}
+
+export async function markFactorValidationRunningAfterPrefect(
+  db,
+  taskId,
+  { flowRunId, deploymentName }
+) {
+  const existing = await db.prepare(
+    `SELECT diagnostics FROM ml_tasks WHERE id = ? LIMIT 1`
+  ).bind(taskId).first();
+  const diagnostics = {
+    ...(parseJsonObject(existing?.diagnostics) ?? {}),
+    dispatch_mode: "prefect",
+    prefect_flow_run_id: String(flowRunId ?? ""),
+    prefect_deployment: String(deploymentName ?? "")
+  };
+  const result = await db.prepare(
+    `UPDATE ml_tasks
+        SET status = 'running',
+            diagnostics = ?,
+            submitted_at = COALESCE(submitted_at, datetime('now')),
+            completed_at = NULL,
+            updated_at = datetime('now')
+      WHERE id = ?
+        AND status IN ('pending', 'failed')`
+  ).bind(JSON.stringify(diagnostics), taskId).run();
+  return { updated: Number(result.meta.changes ?? 0) };
+}
+
+export function buildFactorValidationPrefectJobPayload(job) {
+  return {
+    task_id: job.task_id,
+    factor_validation_id: job.factor_validation_id,
+    idea_id: job.idea_id,
+    idea: {
+      title: job.title,
+      title_hash: job.title_hash,
+      formula_sketch: job.formula_sketch,
+      data_sources: job.data_sources
+    },
+    factor_sql: job.factor_sql,
+    profile_key: job.profile_key,
+    validation_profile_key: job.profile_key,
+    label_kind: job.label_kind,
+    horizon_bars: job.horizon_bars
+  };
+}
+
+export function mergeReservedFactorValidationJobs(pendingItems, reservedJobs) {
+  const map = new Map();
+  for (const item of reservedJobs) {
+    map.set(`${item.idea_id}:${item.profile_key}`, item);
+  }
+  return pendingItems
+    .map((job) => {
+      const reserved = map.get(`${job.idea_id}:${job.profile_key}`);
+      if (!reserved) {
+        return null;
+      }
+      return {
+        ...job,
+        factor_validation_id: reserved.factor_validation_id,
+        task_id: reserved.task_id
+      };
+    })
+    .filter(Boolean);
+}
+
 function coerceEvalPhaseRunningStatus(item) {
   const reportPhase = String(item.diagnostics?.report_phase ?? "").trim();
   if (reportPhase === "eval" && String(item.status ?? "") === "success") {
@@ -395,29 +608,111 @@ export async function enqueueFactorValidations(db, ideaId, profileKeys) {
   return { created };
 }
 
-export async function listFactorValidations(
-  db,
-  { ideaId = null, status = null, profileKeys = null, limit = 30, offset = 0 } = {}
-) {
-  const params = [];
+const FACTOR_VALIDATION_SORT_FIELDS = {
+  mean_ic: "mean_ic",
+  mean_rank_ic: "mean_rank_ic",
+  evaluated_at: "evaluated_at",
+  updated_at: "updated_at"
+};
+
+function factorValidationMetricExpr(field) {
+  return `CAST(json_extract(mt.diagnostics, '$.metrics.${field}') AS REAL)`;
+}
+
+function buildFactorValidationListQuery({
+  ideaId = null,
+  status = null,
+  profileKeys = null,
+  sort = null,
+  order = null,
+  abs = true,
+  limit = 30,
+  offset = 0
+} = {}) {
+  const sortRaw = sort?.trim() || "mean_rank_ic";
+  const sortField =
+    sortRaw in FACTOR_VALIDATION_SORT_FIELDS ? sortRaw : "mean_rank_ic";
+  const orderDir = order === "asc" ? "asc" : "desc";
+  const useAbs = abs !== false;
+  const safeLimit = Math.min(Math.max(Number(limit) || 30, 1), 200);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
+  const statusFilter =
+    status != null && String(status).trim() ? String(status).trim() : null;
+
+  const binds = [];
   const clauses = [];
   if (ideaId != null) {
     clauses.push("fv.idea_id = ?");
-    params.push(Number(ideaId));
+    binds.push(Number(ideaId));
   }
-  if (status != null && String(status).trim()) {
+  if (statusFilter) {
     clauses.push("mt.status = ?");
-    params.push(String(status).trim());
+    binds.push(statusFilter);
   }
   const keys = Array.isArray(profileKeys)
     ? profileKeys.map((key) => String(key).trim()).filter(Boolean)
     : [];
   if (keys.length > 0) {
     clauses.push(`fv.profile_key IN (${keys.map(() => "?").join(", ")})`);
-    params.push(...keys);
+    binds.push(...keys);
   }
+
+  let orderExpr;
+  if (sortField === "updated_at") {
+    orderExpr = "fv.updated_at";
+  } else if (sortField === "evaluated_at") {
+    orderExpr = "COALESCE(fv.evaluated_at, fv.updated_at)";
+  } else if (statusFilter === "success") {
+    clauses.push("json_extract(mt.diagnostics, '$.metrics') IS NOT NULL");
+    clauses.push(`json_extract(mt.diagnostics, '$.metrics.${sortField}') IS NOT NULL`);
+    const metricExpr = factorValidationMetricExpr(sortField);
+    orderExpr = useAbs ? `ABS(${metricExpr})` : metricExpr;
+  } else if (statusFilter && statusFilter !== "success") {
+    orderExpr = "fv.updated_at";
+  } else {
+    const metricExpr = factorValidationMetricExpr(sortField);
+    orderExpr = `CASE WHEN json_extract(mt.diagnostics, '$.metrics') IS NULL THEN 1 ELSE 0 END, ${useAbs ? `ABS(${metricExpr})` : metricExpr}`;
+  }
+
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  params.push(limit, offset);
+  const orderSql = `ORDER BY ${orderExpr} ${orderDir.toUpperCase()}, fv.id DESC`;
+
+  return {
+    where,
+    binds,
+    orderSql,
+    sort: sortField,
+    order: orderDir,
+    abs: useAbs,
+    limit: safeLimit,
+    offset: safeOffset,
+    status: statusFilter
+  };
+}
+
+export async function listFactorValidations(
+  db,
+  {
+    ideaId = null,
+    status = null,
+    profileKeys = null,
+    sort = null,
+    order = null,
+    abs = true,
+    limit = 30,
+    offset = 0
+  } = {}
+) {
+  const query = buildFactorValidationListQuery({
+    ideaId,
+    status,
+    profileKeys,
+    sort,
+    order,
+    abs,
+    limit,
+    offset
+  });
 
   const result = await db.prepare(
     `SELECT
@@ -441,23 +736,27 @@ export async function listFactorValidations(
        JOIN ml_tasks mt ON mt.id = fv.task_id
        JOIN ideas i ON i.id = fv.idea_id
        LEFT JOIN validation_profiles vp ON vp.key = fv.profile_key
-       ${where}
-       ORDER BY fv.updated_at DESC
+       ${query.where}
+       ${query.orderSql}
        LIMIT ? OFFSET ?`
-  ).bind(...params).all();
+  ).bind(...query.binds, query.limit, query.offset).all();
 
   const countRow = await db.prepare(
     `SELECT COUNT(*) AS total
        FROM factor_validations fv
        JOIN ml_tasks mt ON mt.id = fv.task_id
-       ${where}`
-  ).bind(...clauses.map((_, index) => params[index])).first();
+       ${query.where}`
+  ).bind(...query.binds).first();
 
   return {
     items: (result.results ?? []).map(rowToFactorValidationItem),
     total: Number(countRow?.total ?? 0),
-    limit,
-    offset
+    limit: query.limit,
+    offset: query.offset,
+    sort: query.sort,
+    order: query.order,
+    abs: query.abs,
+    status: query.status
   };
 }
 

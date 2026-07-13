@@ -20,7 +20,7 @@ export const SYSTEM_SETTING_DEFS = [
   {
     key: FACTOR_VALIDATION_BATCH_KEY,
     label: "因子验证（MLflow）调度",
-    description: "开启后 Cron 每 1 分钟自动提交 factor_validations + ml_tasks 任务到 Jupyter，结果写入 DagsHub MLflow。",
+    description: "开启后 Cron 每 1 分钟自动提交 factor_validations + ml_tasks 任务到 Prefect，由 work pool 执行评估并写入 DagsHub MLflow。",
     type: "boolean",
     envKey: "FACTOR_VALIDATION_BATCH_ENABLED",
     defaultBoolean: false,
@@ -29,7 +29,7 @@ export const SYSTEM_SETTING_DEFS = [
   {
     key: TEST_FACTOR_VALIDATION_BATCH_KEY,
     label: "测试因子验证调度",
-    description: "开启后 Cron 每 1 分钟从 ideas×validation_profiles 自动拉取待测任务（与生产相同因子想法），kernel 返回 mock 数据用于端到端流程验证。",
+    description: "开启后 Cron 每 1 分钟从 ideas×validation_profiles 自动拉取待测任务（与生产相同因子想法），由 Prefect mock flow 做端到端流程验证。",
     type: "boolean",
     envKey: "TEST_FACTOR_VALIDATION_BATCH_ENABLED",
     defaultBoolean: false,
@@ -150,7 +150,7 @@ export async function getSystemSettings(db, env) {
     schedules: [
       {
         key: "validation_batch",
-        label: "验证调度 / Kernel 清理",
+        label: "验证调度 / Prefect 执行",
         cron: VALIDATION_SCHEDULE_CRON,
         cron_label: "每 1 分钟",
       },

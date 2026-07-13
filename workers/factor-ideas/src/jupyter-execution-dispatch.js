@@ -2,13 +2,14 @@ import { coordinatorReport } from "./jupyter-coordinator-client.js";
 import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
 import { resolveFactorValidationTerminalStatus } from "./factor-validation-errors.js";
 import {
-  ensureFactorValidationRecords,
+  claimFactorValidationJobs,
   listPendingFactorValidationJobs,
+  mergeClaimedFactorValidationJobs,
   reportFactorValidationResults
 } from "./factor-validation-db.js";
 import { getJupyterExecutionByBusiness } from "./jupyter-execution-db.js";
 import { submit as submitJupyterExecution } from "./jupyter-executor.js";
-import { getFactorValidationBatchEnabled } from "./workflow-settings.js";
+import { getFactorValidationBatchEnabled, getValidationBatchLimit } from "./workflow-settings.js";
 import { selectWorkerJupyterServer } from "./jupyter-async.js";
 import { listEnabledJupyterServers } from "./validation-db.js";
 import { hasStoredFactorSql, validateFactorSqlBasic } from "./factor-sql-validate.js";
@@ -88,26 +89,40 @@ export async function dispatchFactorValidationViaCoordinator(env, options = {}) 
   const maxEnqueue =
     options.limit != null && Number.isFinite(Number(options.limit)) && Number(options.limit) > 0
       ? Math.floor(Number(options.limit))
-      : null;
-  const pendingLimit = maxEnqueue == null ? null : Math.max(maxEnqueue * 20, maxEnqueue);
+      : await getValidationBatchLimit(env.DB, env);
+  const pendingLimit = Math.max(maxEnqueue * 20, maxEnqueue);
   const pending = await listPendingFactorValidationJobs(env.DB, pendingLimit, env);
   if (pending.items.length === 0) {
-    return { enqueued: 0, created: 0, requeued: 0, skipped_existing: 0 };
+    return { enqueued: 0, created: 0, requeued: 0, skipped_existing: 0, claimed: 0 };
   }
+
+  const claimResult = await claimFactorValidationJobs(
+    env.DB,
+    pending.items.slice(0, pendingLimit).map((job) => ({
+      idea_id: job.idea_id,
+      profile_key: job.profile_key
+    })),
+    env
+  );
+  const jobs = mergeClaimedFactorValidationJobs(pending.items, claimResult.jobs);
 
   let enqueued = 0;
   let created = 0;
   let requeued = 0;
   let skippedExisting = 0;
   let skippedPreflight = 0;
+  let skippedUnclaimed = pending.items.length - jobs.length;
   const errors = [];
 
-  for (const job of pending.items) {
-    if (maxEnqueue != null && enqueued >= maxEnqueue) {
+  for (const job of jobs) {
+    if (enqueued >= maxEnqueue) {
       break;
     }
     try {
-      const record = await ensureFactorValidationRecords(env.DB, job.idea_id, job.profile_key);
+      const record = {
+        task_id: job.task_id,
+        factor_validation_id: job.factor_validation_id
+      };
       const preflight = await preflightFactorValidationJob(env, job, record);
       if (!preflight.ok) {
         skippedPreflight += 1;
@@ -151,8 +166,10 @@ export async function dispatchFactorValidationViaCoordinator(env, options = {}) 
     enqueued,
     created,
     requeued,
+    claimed: claimResult.claimed,
     skipped_existing: skippedExisting,
     skipped_preflight: skippedPreflight,
+    skipped_unclaimed: skippedUnclaimed,
     pending: pending.items.length,
     limit: maxEnqueue,
     server_key: serverKey,

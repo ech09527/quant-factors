@@ -120,11 +120,12 @@ for _job in _jobs:
     _label_kind = _job.get("label_kind")
     _horizon_bars = _job.get("horizon_bars")
     try:
-        if _data_path_override:
-            _data_path = str(_data_path_override)
-        else:
-            _dataset_slug = _runtime_config.get("dataset_slug") or _factor_sql.get("data_source") or ((_idea.get("data_sources") or [""])[0])
-            _data_path = resolve_kaggle_data_path(str(_dataset_slug), _target_file)
+        _dataset_slug = _runtime_config.get("dataset_slug") or _factor_sql.get("data_source") or ((_idea.get("data_sources") or [""])[0])
+        _data_path = resolve_data_path(
+            str(_dataset_slug),
+            _target_file,
+            data_path_override=str(_data_path_override) if _data_path_override else None,
+        )
         _evaluation = evaluate_factor_sql(
             _factor_sql,
             title=str(_idea.get("title", "")),
@@ -256,11 +257,12 @@ for _job in _jobs:
     _label_kind = _job.get("label_kind")
     _horizon_bars = _job.get("horizon_bars")
     try:
-        if _data_path_override:
-            _data_path = str(_data_path_override)
-        else:
-            _dataset_slug = _runtime_config.get("dataset_slug") or _factor_sql.get("data_source") or ((_idea.get("data_sources") or [""])[0])
-            _data_path = resolve_kaggle_data_path(str(_dataset_slug), _target_file)
+        _dataset_slug = _runtime_config.get("dataset_slug") or _factor_sql.get("data_source") or ((_idea.get("data_sources") or [""])[0])
+        _data_path = resolve_data_path(
+            str(_dataset_slug),
+            _target_file,
+            data_path_override=str(_data_path_override) if _data_path_override else None,
+        )
         _evaluation = evaluate_factor_sql(
             _factor_sql,
             title=str(_idea.get("title", "")),

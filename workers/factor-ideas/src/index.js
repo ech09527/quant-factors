@@ -3,6 +3,17 @@ var __name = (target, value) => __defProp(target, "name", { value, configurable:
 
 import { buildIdeaGenerationPrompt as buildPrompt } from "./idea-prompt.js";
 import { validateFactorSqlBasic, hasStoredFactorSql } from "./factor-sql-validate.js";
+import {
+  cleanupExpiredJupyterServers,
+  createJupyterServer,
+  deleteJupyterServer,
+  getJupyterServerByKey,
+  listEnabledJupyterServers,
+  listJupyterServers,
+  markJupyterServerUsed,
+  parseRuntimeConfigValue,
+  updateJupyterServer,
+} from "./jupyter-server-db.js";
 
 // src/api/http.ts
 function corsOrigin(env, request) {
@@ -1025,281 +1036,6 @@ async function reportValidationWorkflowResults(db, items) {
   return { updated };
 }
 __name(reportValidationWorkflowResults, "reportValidationWorkflowResults");
-function rowToJupyterServer(row) {
-  const maxKernelsRaw = row.max_kernels;
-  const maxKernels =
-    maxKernelsRaw == null || maxKernelsRaw === ""
-      ? null
-      : Number(maxKernelsRaw);
-  return {
-    key: String(row.key),
-    name: String(row.name),
-    base_url: String(row.base_url),
-    evaluate_path: String(row.evaluate_path),
-    proxy_url: row.proxy_url == null ? null : String(row.proxy_url),
-    connect_mode: row.connect_mode === "kernel_channels" ? "kernel_channels" : "batch_api",
-    ws_base_url: row.ws_base_url == null ? null : String(row.ws_base_url),
-    kernel_name: String(row.kernel_name ?? "python3"),
-    auth_header: String(row.auth_header),
-    auth_scheme: String(row.auth_scheme),
-    auth_token: String(row.auth_token),
-    runtime_config: parseRuntimeConfigValue(row.runtime_config),
-    max_kernels:
-      maxKernelsRaw === 0 || maxKernelsRaw === "0"
-        ? null
-        : Number.isFinite(maxKernels) && maxKernels > 0
-          ? Math.floor(maxKernels)
-          : 30,
-    enabled: Number(row.enabled ?? 1) === 1,
-    sort_order: Number(row.sort_order ?? 0),
-    last_used_at: row.last_used_at == null ? null : String(row.last_used_at),
-    created_at: String(row.created_at),
-    updated_at: String(row.updated_at)
-  };
-}
-__name(rowToJupyterServer, "rowToJupyterServer");
-function defaultRuntimeConfig() {
-  return { target_file: "futures/um/klines/1h.parquet" };
-}
-__name(defaultRuntimeConfig, "defaultRuntimeConfig");
-function parseRuntimeConfigValue(raw) {
-  if (raw == null || raw === "") {
-    return defaultRuntimeConfig();
-  }
-  if (typeof raw === "object" && !Array.isArray(raw)) {
-    return raw;
-  }
-  const text = String(raw).trim();
-  if (!text) {
-    return defaultRuntimeConfig();
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error("runtime_config \u5FC5\u987B\u662F\u5408\u6CD5 JSON \u5BF9\u8C61");
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("runtime_config \u5FC5\u987B\u662F JSON \u5BF9\u8C61");
-  }
-  return parsed;
-}
-__name(parseRuntimeConfigValue, "parseRuntimeConfigValue");
-function serializeRuntimeConfig(config) {
-  return JSON.stringify(config ?? defaultRuntimeConfig());
-}
-__name(serializeRuntimeConfig, "serializeRuntimeConfig");
-async function listEnabledJupyterServers(db) {
-  const result = await db.prepare(
-    `SELECT
-         key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-         auth_header, auth_scheme, auth_token, runtime_config, max_kernels,
-         enabled, sort_order, last_used_at, created_at, updated_at
-       FROM jupyter_servers
-       WHERE enabled = 1
-       ORDER BY sort_order ASC, key ASC`
-  ).all();
-  const items = (result.results ?? []).map(rowToJupyterServer);
-  return { items, total: items.length };
-}
-__name(listEnabledJupyterServers, "listEnabledJupyterServers");
-async function markJupyterServerUsed(db, key) {
-  const result = await db.prepare(
-    `UPDATE jupyter_servers
-       SET last_used_at = datetime('now'), updated_at = datetime('now')
-       WHERE key = ?`
-  ).bind(key).run();
-  return { updated: Number(result.meta.changes ?? 0) };
-}
-__name(markJupyterServerUsed, "markJupyterServerUsed");
-var JUPYTER_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
-var CONNECT_MODES = /* @__PURE__ */ new Set(["batch_api", "kernel_channels"]);
-function validateJupyterKey(key) {
-  if (!JUPYTER_KEY_PATTERN.test(key)) {
-    return "key \u987B\u4E3A\u5C0F\u5199\u5B57\u6BCD\u5F00\u5934\uFF0C\u4EC5\u542B\u5C0F\u5199\u5B57\u6BCD\u3001\u6570\u5B57\u3001\u4E0B\u5212\u7EBF\u3001\u8FDE\u5B57\u7B26";
-  }
-  return null;
-}
-__name(validateJupyterKey, "validateJupyterKey");
-function validateJupyterFields(input) {
-  if (input.name !== void 0 && !String(input.name).trim()) {
-    return "name \u4E0D\u80FD\u4E3A\u7A7A";
-  }
-  if (input.base_url !== void 0 && !String(input.base_url).trim()) {
-    return "base_url \u4E0D\u80FD\u4E3A\u7A7A";
-  }
-  if (input.auth_token !== void 0 && !String(input.auth_token).trim()) {
-    return "auth_token \u4E0D\u80FD\u4E3A\u7A7A";
-  }
-  if (input.connect_mode !== void 0 && !CONNECT_MODES.has(input.connect_mode)) {
-    return "connect_mode \u65E0\u6548";
-  }
-  if (input.runtime_config !== void 0) {
-    try {
-      parseRuntimeConfigValue(input.runtime_config);
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error);
-    }
-  }
-  if (input.max_kernels !== void 0 && input.max_kernels !== null && input.max_kernels !== "") {
-    const parsed = Number(input.max_kernels);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return "max_kernels 必须是非负整数（0 表示不限制）";
-    }
-  }
-  return null;
-}
-__name(validateJupyterFields, "validateJupyterFields");
-async function getJupyterServerByKey(db, key) {
-  const row = await db.prepare(
-    `SELECT
-         key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-         auth_header, auth_scheme, auth_token, runtime_config, max_kernels,
-         enabled, sort_order, last_used_at, created_at, updated_at
-       FROM jupyter_servers
-       WHERE key = ?
-       LIMIT 1`
-  ).bind(key).first();
-  return row ? rowToJupyterServer(row) : null;
-}
-__name(getJupyterServerByKey, "getJupyterServerByKey");
-async function listJupyterServers(db, options = {}) {
-  const where = options.includeDisabled ? "" : "WHERE enabled = 1";
-  const result = await db.prepare(
-    `SELECT
-         key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-         auth_header, auth_scheme, auth_token, runtime_config, max_kernels,
-         enabled, sort_order, last_used_at, created_at, updated_at
-       FROM jupyter_servers
-       ${where}
-       ORDER BY sort_order ASC, key ASC`
-  ).all();
-  const items = (result.results ?? []).map(rowToJupyterServer);
-  return { items, total: items.length };
-}
-__name(listJupyterServers, "listJupyterServers");
-async function createJupyterServer(db, input) {
-  const key = input.key.trim();
-  const keyError = validateJupyterKey(key);
-  if (keyError) {
-    throw new Error(keyError);
-  }
-  const fieldError = validateJupyterFields(input);
-  if (fieldError) {
-    throw new Error(fieldError);
-  }
-  const existing = await getJupyterServerByKey(db, key);
-  if (existing) {
-    throw new Error(`Jupyter Server \u5DF2\u5B58\u5728: ${key}`);
-  }
-  const connect_mode = input.connect_mode === "kernel_channels" ? "kernel_channels" : "batch_api";
-  const runtime_config = serializeRuntimeConfig(
-    input.runtime_config !== void 0 ? parseRuntimeConfigValue(input.runtime_config) : defaultRuntimeConfig()
-  );
-  const max_kernels =
-    input.max_kernels === 0 || input.max_kernels === "0"
-      ? null
-      : input.max_kernels == null || input.max_kernels === ""
-        ? 30
-        : Math.floor(Number(input.max_kernels));
-  await db.prepare(
-    `INSERT INTO jupyter_servers
-         (key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-          auth_header, auth_scheme, auth_token, runtime_config, max_kernels, enabled, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    key,
-    input.name.trim(),
-    input.base_url.trim().replace(/\/$/, ""),
-    (input.evaluate_path ?? "/api/quant-factors/evaluate-batch").trim() || "/api/quant-factors/evaluate-batch",
-    input.proxy_url == null || String(input.proxy_url).trim() === "" ? null : String(input.proxy_url).trim(),
-    connect_mode,
-    input.ws_base_url == null || String(input.ws_base_url).trim() === "" ? null : String(input.ws_base_url).trim().replace(/\/$/, ""),
-    String(input.kernel_name ?? "python3").trim() || "python3",
-    String(input.auth_header ?? "Authorization").trim() || "Authorization",
-    String(input.auth_scheme ?? "token").trim() || "token",
-    input.auth_token.trim(),
-    runtime_config,
-    max_kernels,
-    input.enabled === false ? 0 : 1,
-    Math.floor(input.sort_order ?? 0)
-  ).run();
-  const created = await getJupyterServerByKey(db, key);
-  if (!created) {
-    throw new Error("\u521B\u5EFA Jupyter Server \u5931\u8D25");
-  }
-  return created;
-}
-__name(createJupyterServer, "createJupyterServer");
-async function updateJupyterServer(db, key, input) {
-  const existing = await getJupyterServerByKey(db, key);
-  if (!existing) {
-    throw new Error("Jupyter Server \u4E0D\u5B58\u5728");
-  }
-  const fieldError = validateJupyterFields(input);
-  if (fieldError) {
-    throw new Error(fieldError);
-  }
-  const name = input.name !== void 0 ? input.name.trim() : existing.name;
-  const base_url = input.base_url !== void 0 ? input.base_url.trim().replace(/\/$/, "") : existing.base_url;
-  const evaluate_path = input.evaluate_path !== void 0 ? input.evaluate_path.trim() || "/api/quant-factors/evaluate-batch" : existing.evaluate_path;
-  const proxy_url = input.proxy_url !== void 0 ? input.proxy_url == null || String(input.proxy_url).trim() === "" ? null : String(input.proxy_url).trim() : existing.proxy_url;
-  const connect_mode = input.connect_mode !== void 0 ? input.connect_mode === "kernel_channels" ? "kernel_channels" : "batch_api" : existing.connect_mode;
-  const ws_base_url = input.ws_base_url !== void 0 ? input.ws_base_url == null || String(input.ws_base_url).trim() === "" ? null : String(input.ws_base_url).trim().replace(/\/$/, "") : existing.ws_base_url;
-  const kernel_name = input.kernel_name !== void 0 ? String(input.kernel_name).trim() || "python3" : existing.kernel_name;
-  const auth_header = input.auth_header !== void 0 ? String(input.auth_header).trim() || "Authorization" : existing.auth_header;
-  const auth_scheme = input.auth_scheme !== void 0 ? String(input.auth_scheme).trim() || "token" : existing.auth_scheme;
-  const auth_token = input.auth_token !== void 0 ? input.auth_token.trim() : existing.auth_token;
-  const runtime_config = input.runtime_config !== void 0 ? serializeRuntimeConfig(parseRuntimeConfigValue(input.runtime_config)) : serializeRuntimeConfig(existing.runtime_config);
-  const max_kernels =
-    input.max_kernels !== void 0
-      ? input.max_kernels === 0 || input.max_kernels === "0"
-        ? null
-        : input.max_kernels == null || input.max_kernels === ""
-          ? 30
-          : Math.floor(Number(input.max_kernels))
-      : existing.max_kernels ?? 30;
-  const enabled = input.enabled !== void 0 ? input.enabled ? 1 : 0 : existing.enabled ? 1 : 0;
-  const sort_order = input.sort_order !== void 0 ? Math.floor(input.sort_order) : existing.sort_order;
-  await db.prepare(
-    `UPDATE jupyter_servers
-       SET name = ?, base_url = ?, evaluate_path = ?, proxy_url = ?, connect_mode = ?,
-           ws_base_url = ?, kernel_name = ?, auth_header = ?, auth_scheme = ?, auth_token = ?,
-           runtime_config = ?, max_kernels = ?, enabled = ?, sort_order = ?, updated_at = datetime('now')
-       WHERE key = ?`
-  ).bind(
-    name,
-    base_url,
-    evaluate_path,
-    proxy_url,
-    connect_mode,
-    ws_base_url,
-    kernel_name,
-    auth_header,
-    auth_scheme,
-    auth_token,
-    runtime_config,
-    max_kernels,
-    enabled,
-    sort_order,
-    key
-  ).run();
-  const updated = await getJupyterServerByKey(db, key);
-  if (!updated) {
-    throw new Error("\u66F4\u65B0 Jupyter Server \u5931\u8D25");
-  }
-  return updated;
-}
-__name(updateJupyterServer, "updateJupyterServer");
-async function deleteJupyterServer(db, key) {
-  const existing = await getJupyterServerByKey(db, key);
-  if (!existing) {
-    throw new Error("Jupyter Server \u4E0D\u5B58\u5728");
-  }
-  await db.prepare("DELETE FROM jupyter_servers WHERE key = ?").bind(key).run();
-  return { deleted: true, key };
-}
-__name(deleteJupyterServer, "deleteJupyterServer");
 
 // src/api/routes.ts
 function notFound(message) {
@@ -1445,7 +1181,11 @@ async function handleJupyterServerMutation(request, env, pathname, method) {
               ? 30
               : Number(body.max_kernels),
         sort_order: body.sort_order == null ? 0 : Number(body.sort_order),
-        enabled: body.enabled !== false
+        enabled: body.enabled !== false,
+        temporary: body.temporary,
+        expires_at: body.expires_at,
+        expires_in_hours: body.expires_in_hours,
+        expires_in_minutes: body.expires_in_minutes,
       });
       return wrap(env, request, jsonResponse({ item }));
     } catch (error) {
@@ -1486,7 +1226,11 @@ async function handleJupyterServerMutation(request, env, pathname, method) {
               ? null
               : Number(body.max_kernels),
         sort_order: body.sort_order == null ? void 0 : Number(body.sort_order),
-        enabled: body.enabled === void 0 ? void 0 : Boolean(body.enabled)
+        enabled: body.enabled === void 0 ? void 0 : Boolean(body.enabled),
+        temporary: body.temporary,
+        expires_at: body.expires_at,
+        expires_in_hours: body.expires_in_hours,
+        expires_in_minutes: body.expires_in_minutes,
       });
       return wrap(env, request, jsonResponse({ item }));
     } catch (error) {
@@ -1664,13 +1408,14 @@ async function handleApiGet(request, env, pathname, url) {
   }
   if (pathname === "/api/jupyter-servers") {
     const includeDisabled = url.searchParams.get("include_disabled") === "1" || url.searchParams.get("include_disabled")?.toLowerCase() === "true";
-    const data = await listJupyterServers(env.DB, { includeDisabled });
-    return wrap(env, request, jsonResponse(data));
+    const cleanup = await cleanupExpiredJupyterServers(env.DB);
+    const items = await listJupyterServers(env.DB, { includeDisabled, includeExpired: true });
+    return wrap(env, request, jsonResponse({ items, total: items.length, cleanup }));
   }
   const jupyterMatch = pathname.match(/^\/api\/jupyter-servers\/([a-z][a-z0-9_-]*)$/);
   if (jupyterMatch) {
     const key = jupyterMatch[1];
-    const item = await getJupyterServerByKey(env.DB, key);
+    const item = await getJupyterServerByKey(env.DB, key, { includeExpired: true });
     if (!item) {
       return wrap(env, request, notFound("jupyter server not found"));
     }
@@ -1721,8 +1466,9 @@ async function handleApiGet(request, env, pathname, url) {
     return wrap(env, request, jsonResponse(data));
   }
   if (pathname === "/api/workflow/jupyter-servers") {
-    const data = await listEnabledJupyterServers(env.DB);
-    return wrap(env, request, jsonResponse(data));
+    await cleanupExpiredJupyterServers(env.DB);
+    const items = await listEnabledJupyterServers(env.DB);
+    return wrap(env, request, jsonResponse({ items, total: items.length }));
   }
   if (pathname === "/api/stats") {
     const [ideas, operators] = await Promise.all([

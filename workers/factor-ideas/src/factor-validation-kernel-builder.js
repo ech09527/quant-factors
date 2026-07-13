@@ -105,11 +105,12 @@ for _job in _jobs:
         _timing["t_import_mlflow_ms"] = _elapsed_ms(_import_started)
 
         _resolve_started = time.perf_counter()
-        if _data_path_override:
-            _data_path = str(_data_path_override)
-        else:
-            _dataset_slug = _runtime_config.get("dataset_slug") or _factor_sql.get("data_source") or ((_idea.get("data_sources") or [""])[0])
-            _data_path = resolve_kaggle_data_path(str(_dataset_slug), _target_file)
+        _dataset_slug = _runtime_config.get("dataset_slug") or _factor_sql.get("data_source") or ((_idea.get("data_sources") or [""])[0])
+        _data_path = resolve_data_path(
+            str(_dataset_slug),
+            _target_file,
+            data_path_override=str(_data_path_override) if _data_path_override else None,
+        )
         _timing["t_resolve_data_path_ms"] = _elapsed_ms(_resolve_started)
 
         _eval_started = time.perf_counter()

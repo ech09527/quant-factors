@@ -1,4 +1,23 @@
 import { mountIcSeriesChart } from "./ic-series-chart.js";
+import { mountMetricSummaryCharts } from "./metric-summary-charts.js";
+import { mountIcDensityChart } from "./ic-density-chart.js";
+
+const DENSITY_CHART_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M1.5 13.5 C4.5 6.5 6.5 12 8 9 C9.5 6 11.5 10.5 14.5 13.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+const IC_SERIES_CHART_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M1.5 12.5 L5 7.5 L8.5 9.5 L11.5 4.5 L14.5 6.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const MLFLOW_LINK_ICON = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M9 2.5H4.5A1.5 1.5 0 0 0 3 4v8a1.5 1.5 0 0 0 1.5 1.5H11.5A1.5 1.5 0 0 0 13 12V6.5M9 2.5H13V6.5M9 2.5 13 6.5M7 8.5H10M7 11H9.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+const DENSITY_CHART_CONFIG = {
+  mean_rank_ic: {
+    title: "Mean Rank IC 密度图",
+    subtitle: "按日 Mean Rank IC 分布",
+    color: "#f0a05a",
+  },
+  rank_ic: {
+    title: "Rank IC 密度图",
+    subtitle: "全样本 Rank IC 分布",
+    color: "#5b9cff",
+  },
+};
 
 const PAGE_SIZE = 20;
 const AUTH_STORAGE_KEY = "qf_auth_token";
@@ -71,24 +90,20 @@ const state = {
   ideas: { offset: 0, source: "" },
   ideaSources: [],
   operators: { offset: 0, status: "" },
-  validations: {
-    sort: "updated_at",
+  factorValidations: {
+    sort: "mean_rank_ic",
     order: "desc",
     abs: true,
     limit: 30,
     offset: 0,
-    status: "",
-    profile_keys: [],
-    source: "",
-  },
-  factorValidations: {
-    limit: 30,
-    offset: 0,
-    status: "",
+    status: "success",
     profile_keys: [],
   },
   factorValidationById: {},
   icSeriesChartDispose: null,
+  icSeriesCache: new Map(),
+  icDensityChartDispose: null,
+  metricSummaryChartsDispose: null,
   validationProfiles: [],
   profileFormMode: "create",
   editingProfileKey: null,
@@ -120,22 +135,16 @@ const els = {
   operatorsBody: document.getElementById("operators-body"),
   ideasPager: document.getElementById("ideas-pager"),
   operatorsPager: document.getElementById("operators-pager"),
-  validationsBody: document.getElementById("validations-body"),
-  validationsPager: document.getElementById("validations-pager"),
   factorValidationsBody: document.getElementById("factor-validations-body"),
   factorValidationsPager: document.getElementById("factor-validations-pager"),
   factorValidationsHint: document.getElementById("factor-validations-hint"),
+  factorValidationsSort: document.getElementById("factor-validations-sort"),
+  factorValidationsOrder: document.getElementById("factor-validations-order"),
+  factorValidationsAbs: document.getElementById("factor-validations-abs"),
   factorValidationsLimit: document.getElementById("factor-validations-limit"),
   factorValidationsStatus: document.getElementById("factor-validations-status"),
   factorValidationsProfile: document.getElementById("factor-validations-profile"),
-  validationsHint: document.getElementById("validations-hint"),
-  validationsSort: document.getElementById("validations-sort"),
-  validationsOrder: document.getElementById("validations-order"),
-  validationsAbs: document.getElementById("validations-abs"),
-  validationsLimit: document.getElementById("validations-limit"),
-  validationsStatus: document.getElementById("validations-status"),
-  validationsProfile: document.getElementById("validations-profile"),
-  validationsSource: document.getElementById("validations-source"),
+  factorValidationsCharts: document.getElementById("factor-validations-charts"),
   settingsWorkflowBody: document.getElementById("settings-workflow-body"),
   settingsSchedulesBody: document.getElementById("settings-schedules-body"),
   settingsManualResult: document.getElementById("settings-manual-result"),
@@ -179,6 +188,8 @@ const els = {
   jupyterSortOrderInput: document.getElementById("jupyter-sort-order"),
   jupyterMaxKernelsInput: document.getElementById("jupyter-max-kernels"),
   jupyterEnabledInput: document.getElementById("jupyter-enabled"),
+  jupyterTemporaryInput: document.getElementById("jupyter-temporary"),
+  jupyterExpiresInInput: document.getElementById("jupyter-expires-in"),
   jupyterFormError: document.getElementById("jupyter-form-error"),
   llmBody: document.getElementById("llm-body"),
   llmRoutesBody: document.getElementById("llm-routes-body"),
@@ -224,6 +235,10 @@ const els = {
   ideaImportCancel: document.getElementById("idea-import-cancel"),
   operatorsStatus: document.getElementById("operators-status"),
   detailDialog: document.getElementById("detail-dialog"),
+  densityDialog: document.getElementById("density-dialog"),
+  densityDialogTitle: document.getElementById("density-dialog-title"),
+  densityDialogMeta: document.getElementById("density-dialog-meta"),
+  densityChartHost: document.getElementById("density-chart-host"),
   detailContent: document.getElementById("detail-content"),
   factorSqlDialog: document.getElementById("factor-sql-dialog"),
   factorSqlDialogTitle: document.getElementById("factor-sql-dialog-title"),
@@ -373,6 +388,15 @@ function getJupyterExecutionOverviewItem(serverKey) {
 
 function renderCoordinatorCell(serverKey) {
   const overview = getJupyterExecutionOverviewItem(serverKey);
+  if (state.jupyterExecutionOverview?.execution_backend === "prefect") {
+    const prefect = state.jupyterExecutionOverview.prefect || {};
+    const pool = prefect.work_pool || {};
+    const runs = prefect.flow_runs || {};
+    const max = pool.concurrency_limit ?? "?";
+    const running = runs.status_counts?.running ?? 0;
+    const queued = (runs.status_counts?.scheduled ?? 0) + (runs.status_counts?.pending ?? 0);
+    return `<span class="jupyter-coordinator-cell"><span class="jupyter-capacity">${running} / ${max}</span><span class="muted jupyter-kernel-count-detail">Prefect 队列 ${queued}</span></span>`;
+  }
   if (!overview) {
     return '<span class="muted jupyter-kernel-pending">待查询</span>';
   }
@@ -535,17 +559,94 @@ function renderJupyterExecutionPanels(data) {
     .join("");
 }
 
+function renderPrefectExecutionPanels(data) {
+  if (!els.jupyterExecutionBody) {
+    return;
+  }
+  const prefect = data?.prefect || data;
+  if (!prefect?.enabled) {
+    els.jupyterExecutionBody.innerHTML =
+      `<p class="muted">Prefect 执行未启用（EXECUTION_BACKEND≠prefect）。</p>`;
+    return;
+  }
+
+  const pool = prefect.work_pool || {};
+  const runs = prefect.flow_runs || {};
+  const counts = runs.status_counts || {};
+  const active = runs.recent_active || [];
+  const activeRows = active
+    .map(
+      (row) => `
+      <tr>
+        <td><code title="${escapeHtml(row.id)}">${escapeHtml(String(row.id).slice(0, 8))}…</code></td>
+        <td>${escapeHtml(renderBusinessTypeLabel(row.business_type))}</td>
+        <td>${escapeHtml(row.business_id)}</td>
+        <td><span class="badge active">${escapeHtml(row.status)}</span></td>
+        <td title="${escapeHtml(row.updated_at || "")}">${formatRelativeTime(row.updated_at)}</td>
+      </tr>
+    `,
+    )
+    .join("");
+
+  els.jupyterExecutionBody.innerHTML = `
+    <div class="jupyter-execution-server-card">
+      <div class="jupyter-execution-server-head">
+        <strong>Prefect · ${escapeHtml(pool.name || "quant-factors-eval")}</strong>
+        <span class="muted">并发 ${pool.concurrency_limit ?? "?"} · 活跃 ${runs.active_total ?? 0}</span>
+      </div>
+      <div class="jupyter-execution-metrics">
+        <span>scheduled ${counts.scheduled ?? 0}</span>
+        <span>pending ${counts.pending ?? 0}</span>
+        <span>running ${counts.running ?? 0}</span>
+        <span>completed ${counts.completed ?? 0}</span>
+        <span>failed ${counts.failed ?? 0}</span>
+      </div>
+      ${
+        pool.error
+          ? `<p class="muted">Work pool 查询失败：${escapeHtml(pool.error)}</p>`
+          : ""
+      }
+      ${
+        activeRows
+          ? `<div class="table-wrap">
+        <table class="validation-table jupyter-execution-table">
+          <thead>
+            <tr>
+              <th>Flow Run</th>
+              <th>业务</th>
+              <th>Task ID</th>
+              <th>状态</th>
+              <th>更新</th>
+            </tr>
+          </thead>
+          <tbody>${activeRows}</tbody>
+        </table>
+      </div>`
+          : `<p class="muted">当前无活跃 Prefect flow run。</p>`
+      }
+    </div>
+  `;
+}
+
 async function loadJupyterExecutionOverview() {
   const data = await apiGet("/api/jupyter-servers/execution-overview?include_disabled=1");
   state.jupyterExecutionOverview = data;
-  renderJupyterExecutionPanels(data);
+  if (data.execution_backend === "prefect") {
+    renderPrefectExecutionPanels(data);
+  } else {
+    renderJupyterExecutionPanels(data);
+  }
   if (els.jupyterExecutionHint) {
-    const issueCount = (data.items || []).reduce(
-      (sum, item) => sum + (item.reconcile?.issues?.length || 0),
-      0,
-    );
+    const backendLabel = data.execution_backend === "prefect" ? "Prefect" : "Jupyter";
+    const issueCount =
+      data.execution_backend === "prefect"
+        ? 0
+        : (data.items || []).reduce(
+            (sum, item) => sum + (item.reconcile?.issues?.length || 0),
+            0,
+          );
     els.jupyterExecutionHint.textContent = data.fetched_at
-      ? `最近更新：${formatTime(data.fetched_at)}（${formatRelativeTime(data.fetched_at)}）${issueCount ? ` · ${issueCount} 项对账异常` : ""}`
+      ? `最近更新：${formatTime(data.fetched_at)}（${formatRelativeTime(data.fetched_at)}）· ${backendLabel}${issueCount ? ` · ${issueCount} 项对账异常` : ""}`
       : "";
   }
   if (state.jupyterServers.length) {
@@ -934,6 +1035,70 @@ function formatMetric(value) {
   return String(value);
 }
 
+function formatTableTime(value) {
+  if (!value) return { text: "-", title: "" };
+  const full = formatTime(value);
+  return { text: full.length >= 16 ? full.slice(5, 16) : full, title: full };
+}
+
+function formatMetricCell(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return `<span class="muted">-</span>`;
+  const signClass = num >= 0 ? "fv-metric-positive" : "fv-metric-negative";
+  return `<span class="fv-metric-value ${signClass}">${num.toFixed(4)}</span>`;
+}
+
+function factorValidationFactorCell(row, errHtml = "") {
+  const title = escapeHtml(row.idea_title || `#${row.idea_id}`);
+  const profile = escapeHtml(row.profile_name || row.profile_key);
+  const statusBadge = row.status !== "success" ? validationStatusBadge(row.status) : "";
+  return `
+    <div class="fv-factor-cell">
+      <button type="button" class="fv-idea-link idea-link" data-id="${row.idea_id}" data-kind="idea" title="${title}">${title}</button>
+      <div class="fv-row-meta muted">
+        <span>#${row.id}</span>
+        <span class="fv-meta-sep">·</span>
+        <span class="fv-meta-profile" title="${profile}">${profile}</span>
+        ${statusBadge ? `<span class="fv-meta-sep">·</span>${statusBadge}` : ""}
+      </div>
+      ${errHtml}
+    </div>
+  `;
+}
+
+function factorValidationDensityIcon(kind, rowId) {
+  const config = DENSITY_CHART_CONFIG[kind];
+  if (!config) return "";
+  return `
+    <button
+      type="button"
+      class="fv-chart-icon-btn fv-chart-icon-btn--${kind}"
+      data-action="view-density-chart"
+      data-density-kind="${kind}"
+      data-factor-validation-id="${rowId}"
+      title="${config.title}"
+      aria-label="${config.title}"
+    >${DENSITY_CHART_ICON}</button>
+  `;
+}
+
+function factorValidationChartCell(row) {
+  if (row.status !== "success" || !row.mlflow_run_id) {
+    return `<span class="muted">-</span>`;
+  }
+  const mlflowLink = row.mlflow_run_url
+    ? `<a class="fv-chart-icon-btn fv-chart-icon-btn--mlflow" href="${escapeHtml(row.mlflow_run_url)}" target="_blank" rel="noopener noreferrer" title="打开 MLflow Run" aria-label="打开 MLflow Run" data-action="open-mlflow">${MLFLOW_LINK_ICON}</a>`
+    : "";
+  return `
+    <div class="fv-chart-actions">
+      <button type="button" class="fv-chart-icon-btn fv-chart-icon-btn--series" data-action="view-ic-chart" data-factor-validation-id="${row.id}" title="IC 序列" aria-label="IC 序列">${IC_SERIES_CHART_ICON}</button>
+      ${factorValidationDensityIcon("mean_rank_ic", row.id)}
+      ${factorValidationDensityIcon("rank_ic", row.id)}
+      ${mlflowLink}
+    </div>
+  `;
+}
+
 function formatPercent(value) {
   if (value == null || value === "") return "-";
   if (typeof value === "number") return `${(value * 100).toFixed(1)}%`;
@@ -960,14 +1125,6 @@ async function loadIdeaSourceOptions() {
   const data = await apiGet("/api/ideas/sources");
   state.ideaSources = data.items || [];
   renderIdeaSourceOptions(els.ideasSource, state.ideas.source);
-  renderIdeaSourceOptions(els.validationsSource, state.validations.source);
-}
-
-function readMultiSelectValues(selectEl) {
-  const raw = selectEl.value;
-  if (Array.isArray(raw)) return raw.filter(Boolean);
-  if (raw) return [raw];
-  return [];
 }
 
 function formatProfileKeysLabel(keys) {
@@ -980,31 +1137,43 @@ function formatProfileKeysLabel(keys) {
     .join("、");
 }
 
-function syncValidationControlsFromState() {
-  els.validationsSort.value = state.validations.sort;
-  els.validationsOrder.value = state.validations.order;
-  els.validationsAbs.checked = state.validations.abs;
-  els.validationsLimit.value = String(state.validations.limit);
-  els.validationsStatus.value = state.validations.status;
-  els.validationsProfile.value = state.validations.profile_keys;
-  els.validationsSource.value = state.validations.source;
+function syncFactorValidationControlsFromState() {
+  if (els.factorValidationsSort) {
+    els.factorValidationsSort.value = state.factorValidations.sort;
+  }
+  if (els.factorValidationsOrder) {
+    els.factorValidationsOrder.value = state.factorValidations.order;
+  }
+  if (els.factorValidationsAbs) {
+    els.factorValidationsAbs.checked = state.factorValidations.abs;
+  }
+  if (els.factorValidationsLimit) {
+    els.factorValidationsLimit.value = String(state.factorValidations.limit);
+  }
+  if (els.factorValidationsStatus) {
+    els.factorValidationsStatus.value = state.factorValidations.status;
+  }
+  if (els.factorValidationsProfile) {
+    els.factorValidationsProfile.value = state.factorValidations.profile_keys;
+  }
 }
 
-function readValidationControlsIntoState() {
-  state.validations.sort = els.validationsSort.value;
-  state.validations.order = els.validationsOrder.value;
-  state.validations.abs = els.validationsAbs.checked;
-  state.validations.limit = Math.min(
+function readFactorValidationControlsToState() {
+  state.factorValidations.sort = String(els.factorValidationsSort?.value ?? "mean_rank_ic").trim();
+  state.factorValidations.order = els.factorValidationsOrder?.value === "asc" ? "asc" : "desc";
+  state.factorValidations.abs = Boolean(els.factorValidationsAbs?.checked);
+  state.factorValidations.limit = Math.min(
     200,
-    Math.max(1, Number(els.validationsLimit.value) || 30),
+    Math.max(1, Number(els.factorValidationsLimit?.value ?? 30) || 30),
   );
-  state.validations.status = els.validationsStatus.value;
-  state.validations.profile_keys = readMultiSelectValues(els.validationsProfile);
-  state.validations.source = els.validationsSource.value;
+  state.factorValidations.status = String(els.factorValidationsStatus?.value ?? "success").trim();
+  state.factorValidations.profile_keys = Array.isArray(els.factorValidationsProfile?.value)
+    ? els.factorValidationsProfile.value.map(String).filter(Boolean)
+    : [];
 }
 
-function buildValidationQueryParams() {
-  const { sort, order, abs, limit, offset, status, profile_keys, source } = state.validations;
+function buildFactorValidationQueryParams() {
+  const { sort, order, abs, limit, offset, status, profile_keys } = state.factorValidations;
   const params = new URLSearchParams({
     sort,
     order,
@@ -1012,43 +1181,40 @@ function buildValidationQueryParams() {
     limit: String(limit),
     offset: String(offset),
   });
-  if (status) params.set("status", status);
-  for (const profileKey of profile_keys) {
-    params.append("profile_key", profileKey);
+  if (status) {
+    params.set("status", status);
   }
-  if (source) params.set("source", source);
-  return params;
+  if (profile_keys.length) {
+    params.set("profile_keys", profile_keys.join(","));
+  }
+  return params.toString();
 }
 
-function updateValidationSortHeaders() {
-  document.querySelectorAll("#panel-validations th[data-sort]").forEach((header) => {
+function updateFactorValidationSortHeaders() {
+  document.querySelectorAll("#panel-factor-validations th[data-sort]").forEach((header) => {
     const field = header.getAttribute("data-sort");
-    const active = field === state.validations.sort;
+    const active = field === state.factorValidations.sort;
     header.classList.toggle("sort-active", active);
-    header.classList.toggle("sort-desc", active && state.validations.order === "desc");
-    header.classList.toggle("sort-asc", active && state.validations.order === "asc");
+    header.classList.toggle("sort-desc", active && state.factorValidations.order === "desc");
+    header.classList.toggle("sort-asc", active && state.factorValidations.order === "asc");
   });
 }
 
-function validationQueryHint(data) {
+function factorValidationQueryHint(data) {
   const metricLabel = {
     mean_ic: "Mean IC",
     mean_rank_ic: "Mean Rank IC",
-    ic_ir: "IC IR",
-    rank_ic_ir: "Rank IC IR",
-    n_periods: "期数",
     evaluated_at: "评估时间",
+    updated_at: "更新时间",
   }[data.sort] || data.sort;
-  const absLabel = data.abs && data.sort !== "evaluated_at" && data.sort !== "n_periods" ? "绝对值 " : "";
+  const absLabel =
+    data.abs && data.sort !== "evaluated_at" && data.sort !== "updated_at" ? "绝对值 " : "";
   const statusLabel = data.status ? `，状态=${data.status}` : "，全部状态";
   const profileKeys = data.profile_keys?.length
     ? data.profile_keys
-    : data.profile_key
-      ? [data.profile_key]
-      : [];
+    : state.factorValidations.profile_keys;
   const profileLabel = profileKeys.length ? `，配置=${formatProfileKeysLabel(profileKeys)}` : "";
-  const sourceLabel = data.source ? `，来源=${formatIdeaSourceLabel(data.source)}` : "";
-  return `${absLabel}${metricLabel} ${data.order === "desc" ? "降序" : "升序"} Top ${data.limit}${statusLabel}${profileLabel}${sourceLabel}，共 ${data.total} 条`;
+  return `${absLabel}${metricLabel} ${data.order === "desc" ? "降序" : "升序"} Top ${data.limit}${statusLabel}${profileLabel} · Jupyter 流水线，共 ${data.total} 条`;
 }
 
 async function loadValidationProfiles(includeDisabled = false) {
@@ -1172,26 +1338,19 @@ async function runKernelCleanupNow({ force = false } = {}) {
 async function loadEnabledProfileOptionsForFactorValidations() {
   await loadValidationProfiles(false);
   const current = state.factorValidations.profile_keys;
-  els.factorValidationsProfile.innerHTML = state.validationProfiles
-    .map(
-      (profile) =>
-        `<sl-option value="${escapeHtml(profile.key)}">${escapeHtml(profile.name || profile.key)}</sl-option>`,
-    )
-    .join("");
-  els.factorValidationsProfile.value = current;
+  if (els.factorValidationsProfile) {
+    els.factorValidationsProfile.innerHTML = state.validationProfiles
+      .map(
+        (profile) =>
+          `<sl-option value="${escapeHtml(profile.key)}">${escapeHtml(profile.name || profile.key)}</sl-option>`,
+      )
+      .join("");
+    els.factorValidationsProfile.value = current;
+  }
 }
 
 async function loadEnabledProfileOptions() {
-  const data = await loadValidationProfiles(false);
-  const current = state.validations.profile_keys;
-  els.validationsProfile.innerHTML = state.validationProfiles
-    .map(
-      (profile) =>
-        `<sl-option value="${escapeHtml(profile.key)}">${escapeHtml(profile.name || profile.key)}</sl-option>`,
-    )
-    .join("");
-  els.validationsProfile.value = current;
-  return data;
+  return loadEnabledProfileOptionsForFactorValidations();
 }
 
 function labelKindLabel(kind) {
@@ -1342,6 +1501,51 @@ function truncateUrl(url, max = 48) {
   return `${text.slice(0, max - 1)}…`;
 }
 
+function renderJupyterTypeCell(server) {
+  if (server.temporary) {
+    return '<span class="badge pending">临时</span>';
+  }
+  return '<span class="muted">永久</span>';
+}
+
+function renderJupyterExpiresCell(server) {
+  if (!server.expires_at) {
+    return '<span class="muted">-</span>';
+  }
+  if (server.expired) {
+    return `<span class="badge danger" title="${escapeHtml(server.expires_at)}">已过期</span>`;
+  }
+  return `<span title="${escapeHtml(server.expires_at)}">${formatRelativeTime(server.expires_at)}</span>`;
+}
+
+function updateJupyterTemporaryFields() {
+  const temporary = Boolean(els.jupyterTemporaryInput?.checked);
+  if (els.jupyterExpiresInInput) {
+    els.jupyterExpiresInInput.disabled = !temporary;
+  }
+}
+
+function suggestTemporaryJupyterKey() {
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  return `tmp-${stamp}`;
+}
+
+function resolveJupyterExpiresInHours(server) {
+  if (!server?.expires_at) {
+    return "24";
+  }
+  const remainingMs = Date.parse(server.expires_at) - Date.now();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+    return "24";
+  }
+  const hours = remainingMs / (60 * 60 * 1000);
+  const options = [1, 6, 24, 72, 168];
+  const nearest = options.reduce((best, value) =>
+    Math.abs(value - hours) < Math.abs(best - hours) ? value : best,
+  options[0]);
+  return String(nearest);
+}
+
 async function loadJupyterServers(includeDisabled = true) {
   const query = includeDisabled ? "?include_disabled=1" : "";
   const data = await apiGet(`/api/jupyter-servers${query}`);
@@ -1351,7 +1555,7 @@ async function loadJupyterServers(includeDisabled = true) {
 
 function renderJupyterTable(items) {
   if (!items.length) {
-    els.jupyterBody.innerHTML = `<tr><td colspan="11" class="muted">暂无 Jupyter Server 配置。</td></tr>`;
+    els.jupyterBody.innerHTML = `<tr><td colspan="13" class="muted">暂无 Jupyter Server 配置。</td></tr>`;
     return;
   }
   els.jupyterBody.innerHTML = items
@@ -1360,6 +1564,8 @@ function renderJupyterTable(items) {
       <tr data-jupyter-key="${server.key}">
         <td><code>${server.key}</code></td>
         <td>${server.name}</td>
+        <td>${renderJupyterTypeCell(server)}</td>
+        <td>${renderJupyterExpiresCell(server)}</td>
         <td title="${server.base_url}"><code>${truncateUrl(server.base_url)}</code></td>
         <td>${server.max_kernels == null ? "不限" : server.max_kernels}</td>
         <td>${renderCoordinatorCell(server.key)}</td>
@@ -1402,14 +1608,19 @@ function suggestWsBaseUrl(baseUrl) {
   return `wss://${value.slice("https://".length)}`.replace(/\/$/, "");
 }
 
-function openJupyterDialog(mode, server = null) {
+function openJupyterDialog(mode, server = null, { temporary = false } = {}) {
   state.jupyterFormMode = mode;
   state.editingJupyterKey = server?.key ?? null;
   showJupyterFormError("");
-  els.jupyterFormTitle.textContent = mode === "create" ? "新建 Jupyter Server" : "编辑 Jupyter Server";
+  const isTempCreate = mode === "create" && temporary;
+  els.jupyterFormTitle.textContent = isTempCreate
+    ? "添加临时 Jupyter Server"
+    : mode === "create"
+      ? "新建 Jupyter Server"
+      : "编辑 Jupyter Server";
   els.jupyterKeyInput.disabled = mode === "edit";
-  els.jupyterKeyInput.value = server?.key ?? "";
-  els.jupyterNameInput.value = server?.name ?? "";
+  els.jupyterKeyInput.value = server?.key ?? (isTempCreate ? suggestTemporaryJupyterKey() : "");
+  els.jupyterNameInput.value = server?.name ?? (isTempCreate ? "临时服务器" : "");
   els.jupyterBaseUrlInput.value = server?.base_url ?? "";
   els.jupyterWsBaseUrlInput.value = server?.ws_base_url ?? "";
   els.jupyterAuthTokenInput.value = server?.auth_token ?? "";
@@ -1422,6 +1633,14 @@ function openJupyterDialog(mode, server = null) {
     server?.max_kernels == null ? "" : String(server.max_kernels ?? 30);
   els.jupyterSortOrderInput.value = String(server?.sort_order ?? 0);
   els.jupyterEnabledInput.checked = server?.enabled !== false;
+  if (els.jupyterTemporaryInput) {
+    els.jupyterTemporaryInput.checked = isTempCreate || Boolean(server?.temporary);
+    els.jupyterTemporaryInput.disabled = mode === "edit" && Boolean(server?.temporary);
+  }
+  if (els.jupyterExpiresInInput) {
+    els.jupyterExpiresInInput.value = resolveJupyterExpiresInHours(server);
+    els.jupyterExpiresInInput.disabled = !(isTempCreate || Boolean(server?.temporary));
+  }
   els.jupyterDialog.showModal();
 }
 
@@ -1462,6 +1681,16 @@ async function saveJupyterFromForm(event) {
     sort_order: Number(els.jupyterSortOrderInput.value) || 0,
     enabled: els.jupyterEnabledInput.checked,
   };
+  const temporary = Boolean(els.jupyterTemporaryInput?.checked);
+  if (temporary) {
+    payload.temporary = true;
+    payload.expires_in_hours = Number(els.jupyterExpiresInInput?.value) || 24;
+  } else if (state.jupyterFormMode === "edit" && state.editingJupyterKey) {
+    const existing = state.jupyterServers.find((item) => item.key === state.editingJupyterKey);
+    if (existing?.temporary) {
+      payload.temporary = false;
+    }
+  }
   try {
     if (state.jupyterFormMode === "create") {
       payload.key = els.jupyterKeyInput.value.trim();
@@ -1867,85 +2096,6 @@ async function deleteLlmModel(providerKey, modelName) {
   showToast("模型已删除", "success");
 }
 
-async function loadValidationResults() {
-  syncValidationControlsFromState();
-  const params = buildValidationQueryParams();
-  const data = await apiGet(`/api/validations?${params}`);
-  els.validationsHint.textContent = validationQueryHint(data);
-  updateValidationSortHeaders();
-  cacheValidationRows(data.items);
-
-  els.validationsBody.innerHTML = data.items
-    .map((row) => {
-      const metrics = row.metrics || {};
-      const err = row.error_reason ? `<div class="muted validation-error" title="${escapeHtml(row.error_reason)}">${escapeHtml(row.error_reason.slice(0, 80))}${row.error_reason.length > 80 ? "…" : ""}</div>` : "";
-      return `
-        <tr data-id="${row.idea_id}" data-kind="idea" data-validation-id="${row.id}">
-          <td>${row.id}</td>
-          <td>
-            <sl-button size="small" variant="text" class="idea-link" data-id="${row.idea_id}" data-kind="idea">${escapeHtml(row.idea_title || `#${row.idea_id}`)}</sl-button>
-            ${err}
-          </td>
-          <td>${row.profile_name || row.profile_key}</td>
-          <td>${formatMetric(metrics.mean_ic)}</td>
-          <td>${formatMetric(metrics.mean_rank_ic)}</td>
-          <td>${formatMetric(metrics.ic_ir)}</td>
-          <td>${formatMetric(metrics.rank_ic_ir)}</td>
-          <td>${metrics.n_periods ?? "-"}</td>
-          <td>${formatPercent(metrics.ic_positive_ratio)}</td>
-          <td>${formatTime(row.evaluated_at)}</td>
-          <td>${validationStatusBadge(row.status)}</td>
-        </tr>
-      `;
-    })
-    .join("");
-
-  if (!data.items.length) {
-    els.validationsBody.innerHTML = `<tr><td colspan="11" class="muted">暂无符合条件的验证结果。</td></tr>`;
-  }
-
-  renderPager(els.validationsPager, data, (nextOffset) => {
-    state.validations.offset = nextOffset;
-    loadValidationResults().catch(handleError);
-  });
-}
-
-function buildFactorValidationQueryParams() {
-  const params = new URLSearchParams();
-  params.set("limit", String(state.factorValidations.limit));
-  params.set("offset", String(state.factorValidations.offset));
-  if (state.factorValidations.status) {
-    params.set("status", state.factorValidations.status);
-  }
-  if (state.factorValidations.profile_keys.length) {
-    params.set("profile_keys", state.factorValidations.profile_keys.join(","));
-  }
-  return params.toString();
-}
-
-function syncFactorValidationControlsFromState() {
-  if (els.factorValidationsLimit) {
-    els.factorValidationsLimit.value = String(state.factorValidations.limit);
-  }
-  if (els.factorValidationsStatus) {
-    els.factorValidationsStatus.value = state.factorValidations.status;
-  }
-  if (els.factorValidationsProfile) {
-    els.factorValidationsProfile.value = state.factorValidations.profile_keys;
-  }
-}
-
-function readFactorValidationControlsToState() {
-  state.factorValidations.limit = Math.min(
-    200,
-    Math.max(1, Number(els.factorValidationsLimit?.value ?? 30) || 30),
-  );
-  state.factorValidations.status = String(els.factorValidationsStatus?.value ?? "").trim();
-  state.factorValidations.profile_keys = Array.isArray(els.factorValidationsProfile?.value)
-    ? els.factorValidationsProfile.value.map(String).filter(Boolean)
-    : [];
-}
-
 function parseMlflowRunMetrics(payload) {
   const metricsList = payload?.run?.data?.metrics;
   if (!Array.isArray(metricsList)) {
@@ -2007,28 +2157,18 @@ async function fetchMlflowMetricsMap(items) {
   return new Map(entries);
 }
 
-function factorValidationMlflowCell(row) {
-  if (row.mlflow_run_url) {
-    return `<a href="${escapeHtml(row.mlflow_run_url)}" target="_blank" rel="noopener noreferrer">打开</a>`;
-  }
-  if (row.mlflow_run_id) {
-    return `<code title="${escapeHtml(row.mlflow_run_id)}">${escapeHtml(row.mlflow_run_id.slice(0, 8))}…</code>`;
-  }
-  return `<span class="muted">-</span>`;
-}
-
 async function loadFactorValidations() {
   syncFactorValidationControlsFromState();
   const params = buildFactorValidationQueryParams();
   const data = await apiGet(`/api/factor-validations?${params}`);
   const metricsMap = await fetchMlflowMetricsMap(data.items || []);
+  updateFactorValidationSortHeaders();
 
   for (const row of data.items || []) {
     state.factorValidationById[row.id] = row;
   }
 
   if (els.factorValidationsHint) {
-    const successCount = (data.items || []).filter((row) => row.status === "success").length;
     const mlflowFallbackCount = (data.items || []).filter((row) => {
       if (!row.mlflow_run_id) {
         return false;
@@ -2040,51 +2180,156 @@ async function loadFactorValidations() {
       mlflowFallbackCount > 0
         ? ` · ${mlflowFallbackCount} 条旧记录回退 MLflow`
         : "";
-    els.factorValidationsHint.textContent = `共 ${data.total ?? 0} 条 · 本页 ${(data.items || []).length} 条 · 成功 ${successCount} 条（指标优先读 D1）${metricsNote}`;
+    els.factorValidationsHint.textContent = `${factorValidationQueryHint(data)}（指标优先读 D1）${metricsNote}`;
   }
 
-  els.factorValidationsBody.innerHTML = (data.items || [])
-    .map((row) => {
-      const cachedMetrics = factorValidationMetricsFromRow(row);
-      const metrics =
-        Number.isFinite(Number(cachedMetrics.mean_ic)) ||
-        Number.isFinite(Number(cachedMetrics.mean_rank_ic))
-          ? cachedMetrics
-          : row.mlflow_run_id
-            ? metricsMap.get(row.mlflow_run_id) || {}
-            : {};
+  const rowsWithMetrics = (data.items || []).map((row) => {
+    const cachedMetrics = factorValidationMetricsFromRow(row);
+    const metrics =
+      Number.isFinite(Number(cachedMetrics.mean_ic)) ||
+      Number.isFinite(Number(cachedMetrics.mean_rank_ic))
+        ? cachedMetrics
+        : row.mlflow_run_id
+          ? metricsMap.get(row.mlflow_run_id) || {}
+          : {};
+    return { row, metrics };
+  });
+
+  if (state.metricSummaryChartsDispose) {
+    state.metricSummaryChartsDispose();
+    state.metricSummaryChartsDispose = null;
+  }
+  if (els.factorValidationsCharts) {
+    const chartValues = {
+      mean_ic: rowsWithMetrics.map(({ metrics }) => Number(metrics.mean_ic)),
+      mean_rank_ic: rowsWithMetrics.map(({ metrics }) => Number(metrics.mean_rank_ic)),
+    };
+    const hasChartValues =
+      chartValues.mean_ic.some(Number.isFinite) || chartValues.mean_rank_ic.some(Number.isFinite);
+    els.factorValidationsCharts.classList.toggle("hidden", !hasChartValues);
+    if (hasChartValues) {
+      state.metricSummaryChartsDispose = mountMetricSummaryCharts(els.factorValidationsCharts, chartValues);
+    } else {
+      els.factorValidationsCharts.innerHTML = "";
+    }
+  }
+
+  els.factorValidationsBody.innerHTML = rowsWithMetrics
+    .map(({ row, metrics }) => {
       const err = row.error_reason
         ? `<div class="muted validation-error" title="${escapeHtml(row.error_reason)}">${escapeHtml(row.error_reason.slice(0, 80))}${row.error_reason.length > 80 ? "…" : ""}</div>`
         : "";
+      const evaluated = formatTableTime(row.evaluated_at || row.updated_at);
       return `
-        <tr data-factor-validation-id="${row.id}" data-task-id="${row.task_id}">
-          <td>${row.id}</td>
-          <td><code title="task #${row.task_id}">#${row.task_id}</code></td>
-          <td>
-            <sl-button size="small" variant="text" class="idea-link" data-id="${row.idea_id}" data-kind="idea">${escapeHtml(row.idea_title || `#${row.idea_id}`)}</sl-button>
-            ${err}
-          </td>
-          <td>${escapeHtml(row.profile_name || row.profile_key)}</td>
-          <td>${formatMetric(metrics.mean_ic)}</td>
-          <td>${formatMetric(metrics.mean_rank_ic)}</td>
-          <td>${formatMetric(metrics.ic_ir)}</td>
-          <td>${metrics.n_periods ?? "-"}</td>
-          <td>${formatTime(row.evaluated_at || row.updated_at)}</td>
-          <td>${validationStatusBadge(row.status)}</td>
-          <td>${factorValidationMlflowCell(row)}</td>
+        <tr data-factor-validation-id="${row.id}" data-task-id="${row.task_id}" class="clickable-row">
+          <td class="fv-col-factor">${factorValidationFactorCell(row, err)}</td>
+          <td class="fv-col-metric">${formatMetricCell(metrics.mean_ic)}</td>
+          <td class="fv-col-metric">${formatMetricCell(metrics.mean_rank_ic)}</td>
+          <td class="fv-col-metric">${formatMetricCell(metrics.ic_ir)}</td>
+          <td class="fv-col-actions">${factorValidationChartCell(row)}</td>
+          <td class="fv-col-time" title="${escapeHtml(evaluated.title)}">${evaluated.text}</td>
         </tr>
       `;
     })
     .join("");
 
   if (!(data.items || []).length) {
-    els.factorValidationsBody.innerHTML = `<tr><td colspan="11" class="muted">暂无因子验证记录。</td></tr>`;
+    els.factorValidationsBody.innerHTML = `<tr><td colspan="6" class="muted">暂无因子验证记录。</td></tr>`;
+    if (els.factorValidationsCharts) {
+      els.factorValidationsCharts.classList.add("hidden");
+      els.factorValidationsCharts.innerHTML = "";
+    }
   }
 
   renderPager(els.factorValidationsPager, data, (nextOffset) => {
     state.factorValidations.offset = nextOffset;
     loadFactorValidations().catch(handleError);
   });
+}
+
+async function fetchIcSeriesCached(mlflowRunId) {
+  const runId = String(mlflowRunId || "").trim();
+  if (!runId) {
+    throw new Error("缺少 MLflow run id");
+  }
+  if (state.icSeriesCache.has(runId)) {
+    return state.icSeriesCache.get(runId);
+  }
+  const series = await apiGet(`/api/mlflow/runs/${encodeURIComponent(runId)}/ic-series`);
+  state.icSeriesCache.set(runId, series);
+  return series;
+}
+
+function densitySamplesFromSeries(series, kind) {
+  const density = series?.density;
+  if (kind === "mean_rank_ic") {
+    if (Array.isArray(density?.mean_rank_ic) && density.mean_rank_ic.length) {
+      return density.mean_rank_ic;
+    }
+    return (series?.points || [])
+      .map((point) => Number(point?.mean_rank_ic))
+      .filter(Number.isFinite);
+  }
+  if (kind === "rank_ic") {
+    if (Array.isArray(density?.rank_ic) && density.rank_ic.length) {
+      return density.rank_ic;
+    }
+    return [];
+  }
+  return [];
+}
+
+async function showFactorValidationDensityChart(factorValidationId, kind) {
+  const config = DENSITY_CHART_CONFIG[kind];
+  if (!config) {
+    showToast("未知密度图类型");
+    return;
+  }
+
+  if (state.icDensityChartDispose) {
+    state.icDensityChartDispose();
+    state.icDensityChartDispose = null;
+  }
+
+  const cached = state.factorValidationById[factorValidationId];
+  let item = cached;
+  if (!item) {
+    const data = await apiGet(`/api/factor-validations/${factorValidationId}`);
+    item = data.item;
+    state.factorValidationById[factorValidationId] = item;
+  }
+  if (!item) {
+    showToast("未找到因子验证记录");
+    return;
+  }
+  if (item.status !== "success" || !item.mlflow_run_id) {
+    showToast("仅 success 且含 MLflow 的记录可查看密度图");
+    return;
+  }
+
+  els.densityDialogTitle.textContent = config.title;
+  els.densityDialogMeta.textContent = `因子验证 #${item.id} · ${item.idea_title || `#${item.idea_id}`} · ${config.subtitle}`;
+  els.densityChartHost.innerHTML = `<p class="muted">加载密度数据…</p>`;
+  els.densityDialog.showModal();
+
+  try {
+    const series = await fetchIcSeriesCached(item.mlflow_run_id);
+    const samples = densitySamplesFromSeries(series, kind);
+    const metrics = factorValidationMetricsFromRow(item);
+    const referenceValue =
+      kind === "mean_rank_ic"
+        ? metrics.mean_rank_ic
+        : kind === "rank_ic"
+          ? metrics.mean_rank_ic
+          : null;
+    state.icDensityChartDispose = mountIcDensityChart(els.densityChartHost, samples, {
+      title: config.title,
+      color: config.color,
+      referenceValue,
+    });
+  } catch (error) {
+    els.densityChartHost.innerHTML = `<p class="auth-error">密度图加载失败：${escapeHtml(String(error.message || error))}</p>`;
+  }
 }
 
 async function showFactorValidationDetail(factorValidationId) {
@@ -2166,53 +2411,66 @@ async function showFactorValidationDetail(factorValidationId) {
     return;
   }
   try {
-    const series = await apiGet(`/api/mlflow/runs/${encodeURIComponent(item.mlflow_run_id)}/ic-series`);
+    const series = await fetchIcSeriesCached(item.mlflow_run_id);
     state.icSeriesChartDispose = mountIcSeriesChart(chartHost, series);
   } catch (error) {
     chartHost.innerHTML = `<p class="auth-error">IC 序列加载失败：${escapeHtml(String(error.message || error))}</p>`;
   }
 }
 
-function applyValidationPreset({ sort, abs = true, limit = 30, order = "desc", status = "success" }) {
-  state.validations.sort = sort;
-  state.validations.abs = abs;
-  state.validations.limit = limit;
-  state.validations.order = order;
-  state.validations.status = status;
-  state.validations.offset = 0;
-  syncValidationControlsFromState();
-  loadValidationResults().catch(handleError);
+function applyFactorValidationPreset({ sort, abs = true, limit = 30, order = "desc", status = "success" }) {
+  state.factorValidations.sort = sort;
+  state.factorValidations.abs = abs;
+  state.factorValidations.limit = limit;
+  state.factorValidations.order = order;
+  state.factorValidations.status = status;
+  state.factorValidations.offset = 0;
+  syncFactorValidationControlsFromState();
+  loadFactorValidations().catch(handleError);
 }
 
-function renderValidationsTable(validations) {
-  cacheValidationRows(validations.items);
-  if (!validations.items.length) {
-    return `<p class="muted">尚未创建验证任务。</p>`;
+function renderIdeaFactorValidationsTable(data) {
+  const items = data.items || [];
+  for (const row of items) {
+    state.factorValidationById[row.id] = row;
+  }
+  if (!items.length) {
+    return `<p class="muted">尚未创建因子验证任务。</p>`;
   }
   return `
-    <table class="validation-table">
+    <table class="validation-table factor-validations-table factor-validations-table--compact">
       <thead>
         <tr>
-          <th>验证配置</th>
-          <th>状态</th>
-          <th>Mean IC</th>
-          <th>IC IR</th>
-          <th>期数</th>
-          <th>评估时间</th>
+          <th class="fv-col-factor">验证配置</th>
+          <th class="fv-col-metric">IC</th>
+          <th class="fv-col-metric">Rank IC</th>
+          <th class="fv-col-metric">IR</th>
+          <th class="fv-col-actions">操作</th>
+          <th class="fv-col-time">评估</th>
         </tr>
       </thead>
       <tbody>
-        ${validations.items
+        ${items
           .map((row) => {
-            const metrics = row.metrics || {};
+            const metrics = factorValidationMetricsFromRow(row);
+            const evaluated = formatTableTime(row.evaluated_at || row.updated_at);
+            const profile = escapeHtml(row.profile_name || row.profile_key);
             return `
-              <tr>
-                <td>${row.profile_name || row.profile_key}</td>
-                <td>${validationStatusBadge(row.status)}</td>
-                <td>${formatMetric(metrics.mean_ic)}</td>
-                <td>${formatMetric(metrics.ic_ir)}</td>
-                <td>${metrics.n_periods ?? "-"}</td>
-                <td>${formatTime(row.evaluated_at)}</td>
+              <tr data-factor-validation-id="${row.id}" data-task-id="${row.task_id}" class="clickable-row">
+                <td class="fv-col-factor">
+                  <div class="fv-factor-cell">
+                    <span class="fv-profile-label" title="${profile}">${profile}</span>
+                    <div class="fv-row-meta muted">
+                      <span>#${row.id}</span>
+                      ${row.status !== "success" ? `<span class="fv-meta-sep">·</span>${validationStatusBadge(row.status)}` : ""}
+                    </div>
+                  </div>
+                </td>
+                <td class="fv-col-metric">${formatMetricCell(metrics.mean_ic)}</td>
+                <td class="fv-col-metric">${formatMetricCell(metrics.mean_rank_ic)}</td>
+                <td class="fv-col-metric">${formatMetricCell(metrics.ic_ir)}</td>
+                <td class="fv-col-actions">${factorValidationChartCell(row)}</td>
+                <td class="fv-col-time" title="${escapeHtml(evaluated.title)}">${evaluated.text}</td>
               </tr>
             `;
           })
@@ -2223,8 +2481,12 @@ function renderValidationsTable(validations) {
 }
 
 async function renderIdeaDetail(idea) {
-  const validations = await apiGet(`/api/ideas/${idea.id}/validations`);
-  cacheValidationRows(validations.items);
+  if (state.icSeriesChartDispose) {
+    state.icSeriesChartDispose();
+    state.icSeriesChartDispose = null;
+  }
+  els.detailDialog.classList.remove("detail-dialog--wide");
+  const validations = await apiGet(`/api/ideas/${idea.id}/factor-validations`);
   els.detailContent.innerHTML = `
     <h2>${idea.title}</h2>
     <dl>
@@ -2251,7 +2513,7 @@ async function renderIdeaDetail(idea) {
         <h3>因子验证</h3>
         <sl-button id="enqueue-validations" variant="primary" size="small">创建全部验证任务</sl-button>
       </div>
-      <div id="validations-panel">${renderValidationsTable(validations)}</div>
+      <div id="validations-panel">${renderIdeaFactorValidationsTable(validations)}</div>
     </div>
   `;
   const enqueueButton = document.getElementById("enqueue-validations");
@@ -2261,12 +2523,11 @@ async function renderIdeaDetail(idea) {
     const originalText = enqueueButton.textContent;
     enqueueButton.textContent = "创建中…";
     try {
-      const result = await apiPost(`/api/ideas/${idea.id}/validations`, {});
-      showToast(`新增 ${result.created} 条，跳过 ${result.skipped} 条`, "success");
-      document.getElementById("validations-panel").innerHTML = renderValidationsTable({
-        items: result.items,
-      });
-      cacheValidationRows(result.items);
+      const result = await apiPost(`/api/ideas/${idea.id}/factor-validations`, {});
+      const createdCount = Array.isArray(result.created) ? result.created.length : 0;
+      showToast(`已创建 ${createdCount} 条因子验证任务`, "success");
+      const updated = await apiGet(`/api/ideas/${idea.id}/factor-validations`);
+      document.getElementById("validations-panel").innerHTML = renderIdeaFactorValidationsTable(updated);
     } catch (error) {
       handleError(error);
     } finally {
@@ -2368,7 +2629,6 @@ function switchTab(tab) {
     button.setAttribute("aria-selected", active ? "true" : "false");
   });
   document.getElementById("panel-ideas").classList.toggle("hidden", tab !== "ideas");
-  document.getElementById("panel-validations").classList.toggle("hidden", tab !== "validations");
   document.getElementById("panel-factor-validations").classList.toggle("hidden", tab !== "factor-validations");
   document.getElementById("panel-profiles").classList.toggle("hidden", tab !== "profiles");
   document.getElementById("panel-jupyter").classList.toggle("hidden", tab !== "jupyter");
@@ -2377,16 +2637,10 @@ function switchTab(tab) {
   document.getElementById("panel-settings").classList.toggle("hidden", tab !== "settings");
   els.appLayout.classList.toggle(
     "layout-wide",
-    tab === "validations" ||
-      tab === "factor-validations" ||
+    tab === "factor-validations" ||
       tab === "profiles" || tab === "jupyter" || tab === "llm" || tab === "settings",
   );
-  if (tab === "validations") {
-    loadIdeaSourceOptions()
-      .then(() => loadEnabledProfileOptions())
-      .then(() => loadValidationResults())
-      .catch(handleError);
-  } else if (tab === "factor-validations") {
+  if (tab === "factor-validations") {
     loadEnabledProfileOptionsForFactorValidations()
       .then(() => loadFactorValidations())
       .catch(handleError);
@@ -2600,17 +2854,6 @@ document.getElementById("operators-refresh").addEventListener("click", () => {
   Promise.all([loadStats(), loadOperators()]).catch(handleError);
 });
 
-document.getElementById("validations-apply").addEventListener("click", () => {
-  readValidationControlsIntoState();
-  state.validations.offset = 0;
-  loadValidationResults().catch(handleError);
-});
-
-document.getElementById("validations-refresh").addEventListener("click", () => {
-  readValidationControlsIntoState();
-  loadValidationResults().catch(handleError);
-});
-
 document.getElementById("factor-validations-apply")?.addEventListener("click", () => {
   readFactorValidationControlsToState();
   state.factorValidations.offset = 0;
@@ -2622,12 +2865,12 @@ document.getElementById("factor-validations-refresh")?.addEventListener("click",
   loadFactorValidations().catch(handleError);
 });
 
-document.getElementById("factor-validations-preset-success")?.addEventListener("click", () => {
-  state.factorValidations.status = "success";
-  state.factorValidations.limit = 30;
-  state.factorValidations.offset = 0;
-  syncFactorValidationControlsFromState();
-  loadFactorValidations().catch(handleError);
+document.getElementById("factor-validations-preset-rank-ic")?.addEventListener("click", () => {
+  applyFactorValidationPreset({ sort: "mean_rank_ic" });
+});
+
+document.getElementById("factor-validations-preset-mean-ic")?.addEventListener("click", () => {
+  applyFactorValidationPreset({ sort: "mean_ic" });
 });
 
 document.getElementById("settings-refresh").addEventListener("click", () => {
@@ -2692,14 +2935,6 @@ els.settingsRunForceCleanup?.addEventListener("click", () => {
   runKernelCleanupNow({ force: true }).catch(handleError);
 });
 
-document.getElementById("validations-preset-rank-ic").addEventListener("click", () => {
-  applyValidationPreset({ sort: "mean_rank_ic" });
-});
-
-document.getElementById("validations-preset-mean-ic").addEventListener("click", () => {
-  applyValidationPreset({ sort: "mean_ic" });
-});
-
 document.getElementById("profiles-create").addEventListener("click", () => {
   openProfileDialog("create");
 });
@@ -2745,6 +2980,10 @@ document.getElementById("jupyter-create").addEventListener("click", () => {
   openJupyterDialog("create");
 });
 
+document.getElementById("jupyter-create-temp").addEventListener("click", () => {
+  openJupyterDialog("create", null, { temporary: true });
+});
+
 document.getElementById("jupyter-refresh").addEventListener("click", () => {
   loadJupyterAdmin().catch(handleError);
 });
@@ -2772,6 +3011,8 @@ els.mlTaskKernelsBody?.addEventListener("click", (event) => {
 els.jupyterForm.addEventListener("submit", (event) => {
   saveJupyterFromForm(event).catch((error) => showJupyterFormError(String(error.message || error)));
 });
+
+els.jupyterTemporaryInput?.addEventListener("sl-change", updateJupyterTemporaryFields);
 
 document.getElementById("jupyter-form-cancel").addEventListener("click", () => {
   els.jupyterDialog.close();
@@ -2928,19 +3169,19 @@ els.llmBody.addEventListener("click", async (event) => {
   }
 });
 
-document.querySelector("#panel-validations thead").addEventListener("click", (event) => {
+document.querySelector("#panel-factor-validations thead")?.addEventListener("click", (event) => {
   const header = event.target.closest("th[data-sort]");
   if (!header) return;
   const sort = header.getAttribute("data-sort");
-  if (state.validations.sort === sort) {
-    state.validations.order = state.validations.order === "desc" ? "asc" : "desc";
+  if (state.factorValidations.sort === sort) {
+    state.factorValidations.order = state.factorValidations.order === "desc" ? "asc" : "desc";
   } else {
-    state.validations.sort = sort;
-    state.validations.order = sort === "evaluated_at" ? "desc" : "desc";
+    state.factorValidations.sort = sort;
+    state.factorValidations.order = "desc";
   }
-  state.validations.offset = 0;
-  syncValidationControlsFromState();
-  loadValidationResults().catch(handleError);
+  state.factorValidations.offset = 0;
+  syncFactorValidationControlsFromState();
+  loadFactorValidations().catch(handleError);
 });
 
 els.operatorsStatus.addEventListener("change", () => {
@@ -2954,6 +3195,34 @@ document.body.addEventListener("click", async (event) => {
   if (sqlButton) {
     event.stopPropagation();
     openFactorSqlDialogById(Number(sqlButton.getAttribute("data-validation-id")));
+    return;
+  }
+
+  const icChartButton = event.target.closest("[data-action='view-ic-chart']");
+  if (icChartButton) {
+    event.stopPropagation();
+    event.preventDefault();
+    const factorValidationId = Number(icChartButton.getAttribute("data-factor-validation-id"));
+    if (Number.isFinite(factorValidationId) && factorValidationId > 0) {
+      showFactorValidationDetail(factorValidationId).catch(handleError);
+    }
+    return;
+  }
+
+  const densityChartButton = event.target.closest("[data-action='view-density-chart']");
+  if (densityChartButton) {
+    event.stopPropagation();
+    event.preventDefault();
+    const factorValidationId = Number(densityChartButton.getAttribute("data-factor-validation-id"));
+    const kind = densityChartButton.getAttribute("data-density-kind");
+    if (Number.isFinite(factorValidationId) && factorValidationId > 0 && kind) {
+      showFactorValidationDensityChart(factorValidationId, kind).catch(handleError);
+    }
+    return;
+  }
+
+  if (event.target.closest("[data-action='open-mlflow']")) {
+    event.stopPropagation();
     return;
   }
 
@@ -3041,6 +3310,16 @@ els.detailDialog?.addEventListener("close", () => {
     state.icSeriesChartDispose = null;
   }
   els.detailDialog.classList.remove("detail-dialog--wide");
+});
+
+els.densityDialog?.addEventListener("close", () => {
+  if (state.icDensityChartDispose) {
+    state.icDensityChartDispose();
+    state.icDensityChartDispose = null;
+  }
+  if (els.densityChartHost) {
+    els.densityChartHost.innerHTML = "";
+  }
 });
 
 verifyAuthAndBoot();

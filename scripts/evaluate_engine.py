@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,9 @@ except ImportError:
     )
 
 ENGINE_VERSION = "0.1.0"
+DEFAULT_TARGET_FILE = "futures/um/klines/1h.parquet"
+QUANT_DATA_ENV = "QUANT_DATA_PATH"
+QUANT_DATA_SUBDIR = "quant-data"
 TEMPLATE_VERSION = "0.1.0"
 
 ALLOWED_COLUMNS = frozenset(
@@ -376,6 +380,14 @@ def evaluate_factor_sql(
     }
 
 
+def resolve_quant_data_path(target_file: str = DEFAULT_TARGET_FILE) -> str | None:
+    """从 QUANT_DATA_PATH 环境变量解析 parquet 路径（{base}/quant-data/{target_file}）。"""
+    base = os.environ.get(QUANT_DATA_ENV, "").strip()
+    if not base:
+        return None
+    return str(Path(base).joinpath(QUANT_DATA_SUBDIR, target_file))
+
+
 def resolve_kaggle_data_path(dataset_slug: str, target_file: str) -> str:
     slug_dir = dataset_slug.replace("/", "-")
     slug_path = dataset_slug.strip("/")
@@ -397,3 +409,18 @@ def resolve_kaggle_data_path(dataset_slug: str, target_file: str) -> str:
                 return str(path)
 
     return candidates[0]
+
+
+def resolve_data_path(
+    dataset_slug: str,
+    target_file: str = DEFAULT_TARGET_FILE,
+    *,
+    data_path_override: str | None = None,
+) -> str:
+    """解析评估数据文件路径：runtime override > QUANT_DATA_PATH > Kaggle。"""
+    if data_path_override:
+        return str(data_path_override)
+    quant_path = resolve_quant_data_path(target_file)
+    if quant_path is not None:
+        return quant_path
+    return resolve_kaggle_data_path(dataset_slug, target_file)

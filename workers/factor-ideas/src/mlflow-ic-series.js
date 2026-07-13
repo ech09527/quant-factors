@@ -93,6 +93,18 @@ export function aggregateIcSeriesDaily(icSeries) {
       n_periods: bucket.n_periods
     }));
 
+  const rankIcSamples = [];
+  for (const point of points) {
+    const rankIc = Number(point?.rank_ic);
+    if (Number.isFinite(rankIc)) {
+      rankIcSamples.push(rankIc);
+    }
+  }
+
+  const meanRankIcDaily = daily
+    .map((point) => point.mean_rank_ic)
+    .filter((value) => Number.isFinite(value));
+
   return {
     period_axis: icSeries?.period_axis ?? "open_time",
     bucket: "1d",
@@ -102,7 +114,11 @@ export function aggregateIcSeriesDaily(icSeries) {
       daily.length > 0
         ? { start: daily[0].day, end: daily[daily.length - 1].day }
         : null,
-    points: daily
+    points: daily,
+    density: {
+      mean_rank_ic: meanRankIcDaily,
+      rank_ic: rankIcSamples,
+    },
   };
 }
 

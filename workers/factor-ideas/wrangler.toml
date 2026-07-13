@@ -32,32 +32,15 @@ KERNEL_RECONCILE_ENABLED = "1"
 SAMPLE_START = "2023-01-01"
 FACTOR_API_BASE_URL = "https://quant-factors-dashboard.pages.dev"
 MLFLOW_EXPERIMENT_TEST_FACTOR_VALIDATION = "test-factor-validation"
-JUPYTER_EXECUTION_VIA_DO = "1"
-JUPYTER_EXECUTION_TIMEOUT_MINUTES = "45"
-JUPYTER_EXECUTION_HEARTBEAT_INTERVAL_SECONDS = "5"
-KERNEL_STALE_IDLE_RUNNING_MINUTES = "5"
-JUPYTER_WS_LISTEN_TIMEOUT_TEST_MINUTES = "30"
 TEST_FACTOR_VALIDATION_SKIP_MLFLOW = "1"
-
-[[queues.producers]]
-binding = "JUPYTER_EXECUTION_QUEUE"
-queue = "jupyter-execution"
-
-[[queues.consumers]]
-queue = "jupyter-execution"
-max_batch_size = 1
-max_batch_timeout = 1
-max_retries = 20
-max_concurrency = 3
-
-[[durable_objects.bindings]]
-name = "JUPYTER_COORDINATOR"
-class_name = "JupyterServerCoordinator"
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["JupyterServerCoordinator"]
+EXECUTION_BACKEND = "prefect"
+PREFECT_WORK_POOL = "quant-factors-eval"
+PREFECT_DEPLOYMENT_FACTOR_VALIDATION = "factor-validation/production"
+PREFECT_DEPLOYMENT_TEST_FACTOR_VALIDATION = "test-factor-validation/production"
+PREFECT_FLOW_RUN_STALE_MINUTES = "45"
+PREFECT_API_URL = "https://prefect.longyin-tech.com/api"
+JUPYTER_EXECUTION_VIA_DO = "0"
 
 [triggers]
-# 业务 submit + kernel 清理/对账：每 1 分钟；想法生成：每 5 分钟；执行灌池由 CF Queue consumer 驱动
+# 业务 submit（Prefect）/ 过期 server 清理：每 1 分钟；想法生成：每 5 分钟
 crons = ["*/1 * * * *", "*/5 * * * *"]

@@ -1,5 +1,7 @@
 import { resolveFactorValidationTerminalStatus } from "./factor-validation-errors.js";
 import { readJupyterExecutionTimeoutMinutes } from "./jupyter-execution-config.js";
+import { readPrefectStaleMinutes } from "./prefect-execution-config.js";
+import { reclaimStalePrefectFlowRuns } from "./prefect-execution-db.js";
 import {
   BUSINESS_TYPE_TEST_FACTOR_VALIDATION,
   createMlTask,
@@ -37,6 +39,43 @@ function buildTestFactorValidationJobFrom(staleRunningMinutes) {
         tfv.id IS NULL
         OR mt.status != 'running'
         OR mt.updated_at < datetime('now', '-${staleRunningMinutes} minutes')
+      )`;
+}
+
+function buildTestFactorValidationJobFromForPrefect(staleMinutes) {
+  return `
+    FROM ideas i
+    CROSS JOIN validation_profiles vp
+    LEFT JOIN test_factor_validations tfv
+      ON tfv.idea_id = i.id AND tfv.profile_key = vp.key
+    LEFT JOIN ml_tasks mt
+      ON mt.id = tfv.task_id AND mt.business_type = 'test_factor_validation'
+    WHERE vp.enabled = 1
+      AND i.factor_sql IS NOT NULL
+      AND TRIM(i.factor_sql) != ''
+      AND TRIM(i.factor_sql) != 'null'
+      AND (tfv.id IS NULL OR mt.status NOT IN ('success', 'skipped'))
+      AND (
+        tfv.id IS NULL
+        OR mt.status NOT IN ('running', 'pending')
+        OR (
+          mt.status = 'running'
+          AND mt.updated_at < datetime('now', '-${staleMinutes} minutes')
+        )
+        OR (
+          mt.status = 'pending'
+          AND (
+            mt.submitted_at IS NULL
+            OR mt.submitted_at < datetime('now', '-${staleMinutes} minutes')
+          )
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1
+          FROM prefect_flow_runs pfr
+         WHERE pfr.business_type = 'test_factor_validation'
+           AND pfr.business_id = CAST(COALESCE(tfv.task_id, 0) AS TEXT)
+           AND pfr.status IN ('scheduled', 'pending', 'running')
       )`;
 }
 
@@ -305,6 +344,184 @@ export function mergeClaimedTestFactorValidationJobs(pendingItems, claimedJobs) 
         ...job,
         test_factor_validation_id: claimed.test_factor_validation_id,
         task_id: claimed.task_id
+      };
+    })
+    .filter(Boolean);
+}
+
+export async function listPendingTestFactorValidationJobsForPrefect(db, limit = null, env = null) {
+  const staleMinutes = readPrefectStaleMinutes(env);
+  await reclaimStalePrefectFlowRuns(db, env);
+  const hasLimit = limit != null && Number.isFinite(Number(limit)) && Number(limit) > 0;
+  const sql = `SELECT
+         COALESCE(tfv.id, 0) AS test_factor_validation_id,
+         COALESCE(tfv.task_id, 0) AS task_id,
+         i.id AS idea_id,
+         vp.key AS profile_key,
+         COALESCE(mt.status, 'queued') AS status,
+         vp.name AS profile_name,
+         vp.label_kind,
+         vp.horizon_bars,
+         i.title,
+         i.title_hash,
+         i.factor_expr,
+         i.hypothesis,
+         i.formula_sketch,
+         i.expected_signal,
+         i.data_sources,
+         i.factor_sql
+       ${buildTestFactorValidationJobFromForPrefect(staleMinutes)}
+       ORDER BY
+         CASE
+           WHEN tfv.id IS NOT NULL AND mt.status = 'pending' THEN 0
+           WHEN tfv.id IS NOT NULL AND mt.status = 'failed' THEN 1
+           WHEN tfv.id IS NULL THEN 2
+           ELSE 3
+         END ASC,
+         i.id ASC,
+         vp.sort_order ASC,
+         vp.key ASC${hasLimit ? " LIMIT ?" : ""}`;
+  const result = hasLimit
+    ? await db.prepare(sql).bind(Number(limit)).all()
+    : await db.prepare(sql).all();
+  return { items: (result.results ?? []).map(rowToTestFactorValidationJob) };
+}
+
+export async function reserveTestFactorValidationJobsForPrefect(db, jobs) {
+  let reserved = 0;
+  const reservedJobs = [];
+
+  for (const job of jobs) {
+    const ideaId = Number(job.idea_id);
+    const profileKey = String(job.profile_key ?? "").trim();
+    if (!Number.isFinite(ideaId) || ideaId <= 0 || !profileKey) {
+      continue;
+    }
+
+    const record = await ensureTestFactorValidationRecords(db, ideaId, profileKey);
+    const { test_factor_validation_id: testFactorValidationId, task_id: taskId } = record;
+
+    const existing = await db.prepare(
+      `SELECT status, diagnostics
+         FROM ml_tasks
+         WHERE id = ?
+         LIMIT 1`
+    ).bind(taskId).first();
+    if (!existing) {
+      continue;
+    }
+
+    const status = String(existing.status ?? "");
+    if (["success", "skipped", "running"].includes(status)) {
+      continue;
+    }
+
+    const diagnostics = {
+      ...(stripKernelExecutionDiagnostics(parseJsonObject(existing.diagnostics) ?? {})),
+      dispatch_mode: "prefect",
+      prefect_reserved: true,
+      mock_eval: true
+    };
+    delete diagnostics.report_phase;
+    delete diagnostics.timing;
+
+    const result = await db.prepare(
+      `UPDATE ml_tasks
+         SET error_reason = NULL,
+             diagnostics = ?,
+             submitted_at = datetime('now'),
+             completed_at = NULL,
+             updated_at = datetime('now')
+         WHERE id = ?
+           AND business_type = 'test_factor_validation'
+           AND status IN ('pending', 'failed')
+           AND NOT EXISTS (
+             SELECT 1
+               FROM prefect_flow_runs pfr
+              WHERE pfr.business_type = 'test_factor_validation'
+                AND pfr.business_id = CAST(ml_tasks.id AS TEXT)
+                AND pfr.status IN ('scheduled', 'pending', 'running')
+           )`
+    ).bind(JSON.stringify(diagnostics), taskId).run();
+    if (Number(result.meta.changes ?? 0) === 0) {
+      continue;
+    }
+
+    reserved += 1;
+    reservedJobs.push({
+      task_id: taskId,
+      test_factor_validation_id: testFactorValidationId,
+      idea_id: ideaId,
+      profile_key: profileKey
+    });
+  }
+
+  return { reserved, jobs: reservedJobs };
+}
+
+export async function markTestFactorValidationRunningAfterPrefect(
+  db,
+  taskId,
+  { flowRunId, deploymentName }
+) {
+  const existing = await db.prepare(
+    `SELECT diagnostics FROM ml_tasks WHERE id = ? LIMIT 1`
+  ).bind(taskId).first();
+  const diagnostics = {
+    ...(parseJsonObject(existing?.diagnostics) ?? {}),
+    dispatch_mode: "prefect",
+    prefect_flow_run_id: String(flowRunId ?? ""),
+    prefect_deployment: String(deploymentName ?? ""),
+    mock_eval: true
+  };
+  const result = await db.prepare(
+    `UPDATE ml_tasks
+        SET status = 'running',
+            diagnostics = ?,
+            submitted_at = COALESCE(submitted_at, datetime('now')),
+            completed_at = NULL,
+            updated_at = datetime('now')
+      WHERE id = ?
+        AND business_type = 'test_factor_validation'
+        AND status IN ('pending', 'failed')`
+  ).bind(JSON.stringify(diagnostics), taskId).run();
+  return { updated: Number(result.meta.changes ?? 0) };
+}
+
+export function buildTestFactorValidationPrefectJobPayload(job) {
+  return {
+    task_id: job.task_id,
+    test_factor_validation_id: job.test_factor_validation_id,
+    idea_id: job.idea_id,
+    idea: {
+      title: job.title,
+      title_hash: job.title_hash,
+      formula_sketch: job.formula_sketch,
+      data_sources: job.data_sources
+    },
+    factor_sql: job.factor_sql,
+    profile_key: job.profile_key,
+    validation_profile_key: job.profile_key,
+    label_kind: job.label_kind,
+    horizon_bars: job.horizon_bars
+  };
+}
+
+export function mergeReservedTestFactorValidationJobs(pendingItems, reservedJobs) {
+  const map = new Map();
+  for (const item of reservedJobs) {
+    map.set(`${item.idea_id}:${item.profile_key}`, item);
+  }
+  return pendingItems
+    .map((job) => {
+      const reserved = map.get(`${job.idea_id}:${job.profile_key}`);
+      if (!reserved) {
+        return null;
+      }
+      return {
+        ...job,
+        test_factor_validation_id: reserved.test_factor_validation_id,
+        task_id: reserved.task_id
       };
     })
     .filter(Boolean);

@@ -138,35 +138,18 @@ function parseRuntimeConfigValue(raw) {
   return parsed;
 }
 
-function rowToJupyterServer(row) {
-  const maxKernelsRaw = row.max_kernels;
-  const maxKernels =
-    maxKernelsRaw == null || maxKernelsRaw === ""
-      ? null
-      : Number(maxKernelsRaw);
-  return {
-    key: String(row.key),
-    name: String(row.name),
-    base_url: String(row.base_url),
-    evaluate_path: String(row.evaluate_path),
-    proxy_url: row.proxy_url == null ? null : String(row.proxy_url),
-    connect_mode: row.connect_mode === "kernel_channels" ? "kernel_channels" : "batch_api",
-    ws_base_url: row.ws_base_url == null ? null : String(row.ws_base_url),
-    kernel_name: String(row.kernel_name ?? "python3"),
-    auth_header: String(row.auth_header),
-    auth_scheme: String(row.auth_scheme),
-    auth_token: String(row.auth_token),
-    runtime_config: parseRuntimeConfigValue(row.runtime_config),
-    max_kernels:
-      maxKernelsRaw === 0 || maxKernelsRaw === "0"
-        ? null
-        : Number.isFinite(maxKernels) && maxKernels > 0
-          ? Math.floor(maxKernels)
-          : 30,
-    enabled: Number(row.enabled ?? 1) === 1,
-    sort_order: Number(row.sort_order ?? 0)
-  };
-}
+export {
+  cleanupExpiredJupyterServers,
+  createJupyterServer,
+  deleteJupyterServer,
+  getJupyterServerByKey,
+  listEnabledJupyterServers,
+  listJupyterServers,
+  markJupyterServerUsed,
+  parseRuntimeConfigValue,
+  resolveExpiresAt,
+  updateJupyterServer,
+} from "./jupyter-server-db.js";
 
 export async function reclaimStaleValidationJobs(db, maxAgeMinutes = 60) {
   const result = await db.prepare(
@@ -358,41 +341,6 @@ export async function updateValidationDiagnostics(db, validationId, patch) {
        WHERE id = ? AND status = 'running'`
   ).bind(JSON.stringify(diagnostics), validationId).run();
   return { updated: Number(result.meta.changes ?? 0) };
-}
-
-export async function listEnabledJupyterServers(db) {
-  const result = await db.prepare(
-    `SELECT
-         key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-         auth_header, auth_scheme, auth_token, runtime_config, max_kernels,
-         enabled, sort_order
-       FROM jupyter_servers
-       WHERE enabled = 1
-       ORDER BY sort_order ASC, key ASC`
-  ).all();
-  return (result.results ?? []).map(rowToJupyterServer);
-}
-
-export async function markJupyterServerUsed(db, key) {
-  const result = await db.prepare(
-    `UPDATE jupyter_servers
-       SET last_used_at = datetime('now'), updated_at = datetime('now')
-       WHERE key = ?`
-  ).bind(key).run();
-  return { updated: Number(result.meta.changes ?? 0) };
-}
-
-export async function getJupyterServerByKey(db, key) {
-  const result = await db.prepare(
-    `SELECT
-         key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-         auth_header, auth_scheme, auth_token, runtime_config, max_kernels,
-         enabled, sort_order
-       FROM jupyter_servers
-       WHERE key = ?
-       LIMIT 1`
-  ).bind(key).first();
-  return result ? rowToJupyterServer(result) : null;
 }
 
 export async function releaseValidationWorkflowClaims(db, validationIds, errorReason) {
@@ -611,20 +559,6 @@ export async function patchValidationDiagnostics(db, validationId, patch = {}) {
        WHERE id = ?`
   ).bind(JSON.stringify(diagnostics), validationId).run();
   return { updated: Number(result.meta.changes ?? 0) };
-}
-
-export async function listJupyterServers(db, { includeDisabled = false } = {}) {
-  const where = includeDisabled ? "" : "WHERE enabled = 1";
-  const result = await db.prepare(
-    `SELECT
-         key, name, base_url, evaluate_path, proxy_url, connect_mode, ws_base_url, kernel_name,
-         auth_header, auth_scheme, auth_token, runtime_config, max_kernels,
-         enabled, sort_order, last_used_at
-       FROM jupyter_servers
-       ${where}
-       ORDER BY sort_order ASC, key ASC`
-  ).all();
-  return (result.results ?? []).map(rowToJupyterServer);
 }
 
 export async function listJupyterKernelValidationBindings(db) {

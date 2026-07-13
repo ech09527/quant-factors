@@ -39,8 +39,7 @@
 
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="ideas" role="tab" aria-selected="true">因子想法</button>
-        <button class="tab" data-tab="validations" role="tab" aria-selected="false">验证结果</button>
-        <button class="tab" data-tab="factor-validations" role="tab" aria-selected="false">因子验证</button>
+        <button class="tab" data-tab="factor-validations" role="tab" aria-selected="false">验证结果</button>
         <button class="tab" data-tab="profiles" role="tab" aria-selected="false">验证配置</button>
         <button class="tab" data-tab="jupyter" role="tab" aria-selected="false">Jupyter 服务器</button>
         <button class="tab" data-tab="llm" role="tab" aria-selected="false">LLM API</button>
@@ -84,35 +83,35 @@
         <div class="pager" id="ideas-pager"></div>
       </section>
 
-      <section class="panel hidden" id="panel-validations">
+      <section class="panel hidden" id="panel-factor-validations">
+        <p class="muted profile-hint factor-validations-source-hint">
+          点击行查看详情；操作列图标分别为 IC 序列、Mean Rank IC 密度、Rank IC 密度、MLflow。
+        </p>
         <div class="toolbar validations-toolbar">
           <div class="filter-grid">
             <label class="filter-cell">
               <span class="filter-label">排序指标</span>
-              <sl-select id="validations-sort" size="small" value="updated_at" hoist>
-                <sl-option value="updated_at">更新时间</sl-option>
+              <sl-select id="factor-validations-sort" size="small" value="mean_rank_ic" hoist>
                 <sl-option value="mean_rank_ic">Mean Rank IC</sl-option>
                 <sl-option value="mean_ic">Mean IC</sl-option>
-                <sl-option value="rank_ic_ir">Rank IC IR</sl-option>
-                <sl-option value="ic_ir">IC IR</sl-option>
-                <sl-option value="n_periods">期数</sl-option>
                 <sl-option value="evaluated_at">评估时间</sl-option>
+                <sl-option value="updated_at">更新时间</sl-option>
               </sl-select>
             </label>
             <label class="filter-cell filter-cell--narrow">
               <span class="filter-label">方向</span>
-              <sl-select id="validations-order" size="small" value="desc" hoist>
+              <sl-select id="factor-validations-order" size="small" value="desc" hoist>
                 <sl-option value="desc">降序</sl-option>
                 <sl-option value="asc">升序</sl-option>
               </sl-select>
             </label>
             <label class="filter-cell filter-cell--narrow">
               <span class="filter-label">Top N</span>
-              <sl-input id="validations-limit" type="number" min="1" max="200" value="30" size="small"></sl-input>
+              <sl-input id="factor-validations-limit" type="number" min="1" max="200" value="30" size="small"></sl-input>
             </label>
             <label class="filter-cell">
               <span class="filter-label">状态</span>
-              <sl-select id="validations-status" size="small" value="" hoist>
+              <sl-select id="factor-validations-status" size="small" value="success" hoist>
                 <sl-option value="">全部</sl-option>
                 <sl-option value="success">success</sl-option>
                 <sl-option value="failed">failed</sl-option>
@@ -123,97 +122,33 @@
             </label>
             <label class="filter-cell filter-cell--wide">
               <span class="filter-label">验证配置</span>
-              <sl-select id="validations-profile" size="small" multiple clearable placeholder="全部" hoist>
-              </sl-select>
-            </label>
-            <label class="filter-cell">
-              <span class="filter-label">想法来源</span>
-              <sl-select id="validations-source" size="small" value="" hoist>
-                <sl-option value="">全部</sl-option>
+              <sl-select id="factor-validations-profile" size="small" multiple clearable placeholder="全部" hoist>
               </sl-select>
             </label>
             <label class="filter-cell filter-cell--checkbox">
               <span class="filter-label">选项</span>
-              <sl-checkbox id="validations-abs" checked>按绝对值</sl-checkbox>
+              <sl-checkbox id="factor-validations-abs" checked>按绝对值</sl-checkbox>
             </label>
           </div>
           <div class="toolbar-actions validations-actions">
-            <sl-button id="validations-preset-rank-ic" size="small">Rank IC · Top 30</sl-button>
-            <sl-button id="validations-preset-mean-ic" size="small">Mean IC · Top 30</sl-button>
-            <sl-button id="validations-apply" variant="primary" size="small">查询</sl-button>
-            <sl-button id="validations-refresh" size="small">刷新</sl-button>
-          </div>
-        </div>
-        <p class="muted validations-hint" id="validations-hint"></p>
-        <div class="table-wrap">
-          <table class="validation-table sortable-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>因子</th>
-                <th>验证配置</th>
-                <th data-sort="mean_ic">Mean IC</th>
-                <th data-sort="mean_rank_ic">Mean Rank IC</th>
-                <th data-sort="ic_ir">IC IR</th>
-                <th data-sort="rank_ic_ir">Rank IC IR</th>
-                <th data-sort="n_periods">期数</th>
-                <th>IC 胜率</th>
-                <th data-sort="evaluated_at">评估时间</th>
-                <th>状态</th>
-              </tr>
-            </thead>
-            <tbody id="validations-body"></tbody>
-          </table>
-        </div>
-        <div class="pager" id="validations-pager"></div>
-      </section>
-
-      <section class="panel hidden" id="panel-factor-validations">
-        <div class="toolbar validations-toolbar">
-          <div class="filter-grid">
-            <label class="filter-cell filter-cell--narrow">
-              <span class="filter-label">Top N</span>
-              <sl-input id="factor-validations-limit" type="number" min="1" max="200" value="30" size="small"></sl-input>
-            </label>
-            <label class="filter-cell">
-              <span class="filter-label">状态</span>
-              <sl-select id="factor-validations-status" size="small" value="" hoist>
-                <sl-option value="">全部</sl-option>
-                <sl-option value="success">success</sl-option>
-                <sl-option value="failed">failed</sl-option>
-                <sl-option value="skipped">skipped</sl-option>
-                <sl-option value="pending">pending</sl-option>
-                <sl-option value="running">running</sl-option>
-              </sl-select>
-            </label>
-            <label class="filter-cell">
-              <span class="filter-label">验证配置</span>
-              <sl-select id="factor-validations-profile" size="small" multiple clearable placeholder="全部" hoist>
-              </sl-select>
-            </label>
-          </div>
-          <div class="toolbar-actions validations-actions">
-            <sl-button id="factor-validations-preset-success" size="small">成功 · Top 30</sl-button>
+            <sl-button id="factor-validations-preset-rank-ic" size="small">Rank IC · Top 30</sl-button>
+            <sl-button id="factor-validations-preset-mean-ic" size="small">Mean IC · Top 30</sl-button>
             <sl-button id="factor-validations-apply" variant="primary" size="small">查询</sl-button>
             <sl-button id="factor-validations-refresh" size="small">刷新</sl-button>
           </div>
         </div>
         <p class="muted validations-hint" id="factor-validations-hint"></p>
-        <div class="table-wrap">
-          <table class="validation-table">
+        <div class="metric-summary-charts hidden" id="factor-validations-charts" aria-label="Mean IC 与 Mean Rank IC 分布图"></div>
+        <div class="table-wrap factor-validations-table-wrap">
+          <table class="validation-table sortable-table factor-validations-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>任务</th>
-                <th>因子</th>
-                <th>验证配置</th>
-                <th>Mean IC</th>
-                <th>Mean Rank IC</th>
-                <th>IC IR</th>
-                <th>期数</th>
-                <th>评估时间</th>
-                <th>状态</th>
-                <th>MLflow</th>
+                <th class="fv-col-factor">因子</th>
+                <th class="fv-col-metric" data-sort="mean_ic">IC</th>
+                <th class="fv-col-metric" data-sort="mean_rank_ic">Rank IC</th>
+                <th class="fv-col-metric">IR</th>
+                <th class="fv-col-actions">操作</th>
+                <th class="fv-col-time" data-sort="evaluated_at">评估</th>
               </tr>
             </thead>
             <tbody id="factor-validations-body"></tbody>
@@ -259,6 +194,7 @@
           </div>
           <div class="toolbar-right toolbar-actions">
             <sl-button id="jupyter-create" variant="primary" size="small">新建服务器</sl-button>
+            <sl-button id="jupyter-create-temp" variant="neutral" size="small">添加临时服务器</sl-button>
             <sl-button id="jupyter-refresh" size="small">刷新</sl-button>
           </div>
         </div>
@@ -268,6 +204,8 @@
               <tr>
                 <th>Key</th>
                 <th>名称</th>
+                <th>类型</th>
+                <th>过期时间</th>
                 <th>Base URL</th>
                 <th>Max Kernels</th>
                 <th>Coordinator</th>
@@ -418,6 +356,17 @@
       </form>
     </dialog>
 
+    <dialog id="density-dialog">
+      <article class="density-dialog-content">
+        <h2 id="density-dialog-title">密度图</h2>
+        <p class="muted" id="density-dialog-meta"></p>
+        <div id="density-chart-host" class="ic-density-chart-host"></div>
+      </article>
+      <form method="dialog" class="dialog-footer close-btn">
+        <sl-button type="submit" variant="default">关闭</sl-button>
+      </form>
+    </dialog>
+
     <dialog id="factor-sql-dialog">
       <article class="factor-sql-dialog-content">
         <h2 id="factor-sql-dialog-title">翻译 SQL</h2>
@@ -525,6 +474,14 @@
           <span slot="help-text">Kaggle 内核执行时读取，如 target_file、data_path、dataset_slug</span>
         </sl-textarea>
         <sl-input id="jupyter-sort-order" name="sort_order" type="number" label="排序" value="0"></sl-input>
+        <sl-checkbox id="jupyter-temporary" name="temporary">临时服务器（到期自动删除）</sl-checkbox>
+        <sl-select id="jupyter-expires-in" name="expires_in_hours" label="过期时间" value="24" disabled>
+          <sl-option value="1">1 小时</sl-option>
+          <sl-option value="6">6 小时</sl-option>
+          <sl-option value="24">24 小时</sl-option>
+          <sl-option value="72">72 小时</sl-option>
+          <sl-option value="168">7 天</sl-option>
+        </sl-select>
         <sl-checkbox id="jupyter-enabled" name="enabled" checked>启用</sl-checkbox>
         <p id="jupyter-form-error" class="auth-error hidden"></p>
         <div class="profile-form-actions">

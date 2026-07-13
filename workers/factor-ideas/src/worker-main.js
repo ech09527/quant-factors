@@ -1,5 +1,7 @@
 import { dispatchFactorValidationViaCoordinator } from "./jupyter-execution-dispatch.js";
 import { dispatchTestFactorValidationViaCoordinator } from "./test-factor-validation-dispatch.js";
+import { dispatchFactorValidationViaPrefect } from "./prefect-execution-dispatch.js";
+import { dispatchTestFactorValidationViaPrefect } from "./test-prefect-execution-dispatch.js";
 import { handleJupyterExecutionCallbackApiRequest } from "./jupyter-execution-callback-api.js";
 import {
   processJupyterExecutionQueueBatch,
@@ -7,8 +9,10 @@ import {
 } from "./jupyter-execution-queue.js";
 import { registerDefaultHandlers } from "./jupyter-executor.js";
 import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
+import { prefectExecutionEnabled } from "./prefect-execution-config.js";
 import { coordinatorGetStatus } from "./jupyter-coordinator-client.js";
 import { getJupyterExecutionOverview } from "./jupyter-execution-overview.js";
+import { getPrefectExecutionOverview } from "./prefect-execution-overview.js";
 import { getJupyterKernelStatus } from "./jupyter-kernel-status.js";
 import { getMlTaskKernelStatus } from "./ml-task-kernel-status.js";
 import worker from "./index.js";
@@ -18,6 +22,7 @@ import { runFactorValidationBatch } from "./factor-validation-batch.js";
 import { runTestFactorValidationBatch } from "./test-factor-validation-batch.js";
 import { resetTestFactorValidationWorkflow } from "./test-factor-validation-db.js";
 import { runKernelCleanup } from "./kernel-cleanup.js";
+import { cleanupExpiredJupyterServers } from "./jupyter-server-db.js";
 import { handleLlmApiRequest } from "./llm-api-routes.js";
 import {
   getSystemSettings,
@@ -27,7 +32,25 @@ import {
   VALIDATION_SCHEDULE_CRON
 } from "./workflow-settings.js";
 
-export { JupyterServerCoordinator } from "./jupyter-coordinator-do.js";
+function resolveFactorValidationDispatch(env, options = {}) {
+  if (prefectExecutionEnabled(env)) {
+    return dispatchFactorValidationViaPrefect(env, options);
+  }
+  if (jupyterExecutionViaDoEnabled(env)) {
+    return dispatchFactorValidationViaCoordinator(env, options);
+  }
+  return runFactorValidationBatch(env, options);
+}
+
+function resolveTestFactorValidationDispatch(env, options = {}) {
+  if (prefectExecutionEnabled(env)) {
+    return dispatchTestFactorValidationViaPrefect(env, options);
+  }
+  if (jupyterExecutionViaDoEnabled(env)) {
+    return dispatchTestFactorValidationViaCoordinator(env, options);
+  }
+  return runTestFactorValidationBatch(env, options);
+}
 
 function isAuthorized(request, env) {
   const expected = env.AUTH_PASSWORD?.trim();
@@ -71,7 +94,7 @@ export default {
     }
 
     let queueReconcileBefore = null;
-    if (jupyterExecutionViaDoEnabled(env)) {
+    if (!prefectExecutionEnabled(env) && jupyterExecutionViaDoEnabled(env)) {
       try {
         queueReconcileBefore = await reconcileQueuedExecutionsToQueue(env);
       } catch (error) {
@@ -79,18 +102,35 @@ export default {
       }
     }
 
-    const factorValidationRunner = jupyterExecutionViaDoEnabled(env)
-      ? dispatchFactorValidationViaCoordinator(env)
-      : runFactorValidationBatch(env);
-    const testFactorValidationRunner = jupyterExecutionViaDoEnabled(env)
-      ? dispatchTestFactorValidationViaCoordinator(env)
-      : runTestFactorValidationBatch(env);
+    const factorValidationRunner = resolveFactorValidationDispatch(env);
+    const testFactorValidationRunner = resolveTestFactorValidationDispatch(env);
 
-    const [factorValidationResult, testFactorValidationResult, cleanupResult] = await Promise.allSettled([
-      factorValidationRunner,
-      testFactorValidationRunner,
-      runKernelCleanup(env)
-    ]);
+    const maintenanceTasks = [factorValidationRunner, testFactorValidationRunner];
+    if (!prefectExecutionEnabled(env)) {
+      maintenanceTasks.push(runKernelCleanup(env));
+    }
+    maintenanceTasks.push(cleanupExpiredJupyterServers(env.DB));
+
+    const maintenanceResults = await Promise.allSettled(maintenanceTasks);
+    const [
+      factorValidationResult,
+      testFactorValidationResult,
+      cleanupResult,
+      jupyterServerCleanupResult
+    ] =
+      prefectExecutionEnabled(env)
+        ? [
+            maintenanceResults[0],
+            maintenanceResults[1],
+            { status: "fulfilled", value: { skipped: true, reason: "prefect_backend" } },
+            maintenanceResults[2]
+          ]
+        : [
+            maintenanceResults[0],
+            maintenanceResults[1],
+            maintenanceResults[2],
+            maintenanceResults[3]
+          ];
     if (factorValidationResult.status === "fulfilled") {
       console.log(JSON.stringify({ cron, factor_validation: factorValidationResult.value }));
     } else {
@@ -106,8 +146,13 @@ export default {
     } else {
       console.error("kernel cleanup cron failed:", cleanupResult.reason);
     }
+    if (jupyterServerCleanupResult.status === "fulfilled") {
+      console.log(JSON.stringify({ cron, jupyter_server_cleanup: jupyterServerCleanupResult.value }));
+    } else {
+      console.error("jupyter server cleanup cron failed:", jupyterServerCleanupResult.reason);
+    }
 
-    if (jupyterExecutionViaDoEnabled(env)) {
+    if (!prefectExecutionEnabled(env) && jupyterExecutionViaDoEnabled(env)) {
       let queueReconcileAfter = null;
       try {
         queueReconcileAfter = await reconcileQueuedExecutionsToQueue(env);
@@ -127,6 +172,13 @@ export default {
   },
 
   async queue(batch, env) {
+    if (prefectExecutionEnabled(env)) {
+      console.log(JSON.stringify({ jupyter_execution_queue_batch: 0, skipped: "prefect_backend" }));
+      for (const message of batch.messages ?? []) {
+        message.ack();
+      }
+      return;
+    }
     registerDefaultHandlers();
     const outcomes = await processJupyterExecutionQueueBatch(batch, env);
     console.log(JSON.stringify({ jupyter_execution_queue_batch: outcomes.length, outcomes }));
@@ -280,7 +332,9 @@ export default {
       }
       try {
         const reset = await resetTestFactorValidationWorkflow(env.DB);
-        const reconcile = await reconcileQueuedExecutionsToQueue(env);
+        const reconcile = prefectExecutionEnabled(env)
+          ? { skipped: true, reason: "prefect_backend" }
+          : await reconcileQueuedExecutionsToQueue(env);
         return Response.json({ ok: true, reset, reconcile });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -293,9 +347,9 @@ export default {
       }
       try {
         const runDispatch = async () => {
-          const result = jupyterExecutionViaDoEnabled(env)
-            ? await dispatchTestFactorValidationViaCoordinator(env, { ignoreScheduleEnabled: true })
-            : await runTestFactorValidationBatch(env, { ignoreScheduleEnabled: true });
+          const result = await resolveTestFactorValidationDispatch(env, {
+            ignoreScheduleEnabled: true
+          });
           console.log(JSON.stringify({ run_test_factor_validation_batch: result }));
           return result;
         };
@@ -355,9 +409,7 @@ export default {
             : null;
         const runDispatch = async () => {
           const dispatchOptions = { ignoreScheduleEnabled: true, ...(limit != null ? { limit } : {}) };
-          const result = jupyterExecutionViaDoEnabled(env)
-            ? await dispatchFactorValidationViaCoordinator(env, dispatchOptions)
-            : await runFactorValidationBatch(env, { ignoreScheduleEnabled: true, ...(limit != null ? { limit } : {}) });
+          const result = await resolveFactorValidationDispatch(env, dispatchOptions);
           console.log(JSON.stringify({ run_factor_validation_batch: result }));
           return result;
         };
@@ -396,12 +448,33 @@ export default {
         return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
       }
       try {
+        if (prefectExecutionEnabled(env)) {
+          const prefect = await getPrefectExecutionOverview(env);
+          return Response.json({
+            ok: true,
+            execution_backend: "prefect",
+            fetched_at: new Date().toISOString(),
+            prefect
+          });
+        }
         const includeDisabled =
           url.searchParams.get("include_disabled") === "1" ||
           url.searchParams.get("include_disabled")?.toLowerCase() === "true";
         const serverKey = url.searchParams.get("key")?.trim() || "";
         const data = await getJupyterExecutionOverview(env, { includeDisabled, serverKey });
-        return Response.json({ ok: true, ...data });
+        return Response.json({ ok: true, execution_backend: "jupyter", ...data });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return Response.json({ ok: false, error: message }, { status: 500 });
+      }
+    }
+    if (url.pathname === "/api/prefect/execution-overview" && request.method === "GET") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      }
+      try {
+        const data = await getPrefectExecutionOverview(env);
+        return Response.json({ ok: true, execution_backend: "prefect", ...data });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return Response.json({ ok: false, error: message }, { status: 500 });

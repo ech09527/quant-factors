@@ -1,11 +1,12 @@
 import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
 import {
-  ensureTestFactorValidationRecords,
-  listPendingTestFactorValidationJobs
+  claimTestFactorValidationJobs,
+  listPendingTestFactorValidationJobs,
+  mergeClaimedTestFactorValidationJobs
 } from "./test-factor-validation-db.js";
 import { getJupyterExecutionByBusiness } from "./jupyter-execution-db.js";
 import { submit as submitJupyterExecution } from "./jupyter-executor.js";
-import { getTestFactorValidationBatchEnabled } from "./workflow-settings.js";
+import { getTestFactorValidationBatchEnabled, getValidationBatchLimit } from "./workflow-settings.js";
 import { selectWorkerJupyterServer } from "./jupyter-async.js";
 import { listEnabledJupyterServers } from "./validation-db.js";
 
@@ -45,19 +46,42 @@ export async function dispatchTestFactorValidationViaCoordinator(env, options = 
   const { server } = selectWorkerJupyterServer(servers, preferredServerKey);
   const serverKey = server.key;
 
-  const pending = await listPendingTestFactorValidationJobs(env.DB, null, env);
+  const maxEnqueue =
+    options.limit != null && Number.isFinite(Number(options.limit)) && Number(options.limit) > 0
+      ? Math.floor(Number(options.limit))
+      : await getValidationBatchLimit(env.DB, env);
+  const pendingLimit = Math.max(maxEnqueue * 20, maxEnqueue);
+  const pending = await listPendingTestFactorValidationJobs(env.DB, pendingLimit, env);
   if (pending.items.length === 0) {
-    return { enqueued: 0, created: 0, requeued: 0, skipped_existing: 0 };
+    return { enqueued: 0, created: 0, requeued: 0, skipped_existing: 0, claimed: 0 };
   }
+
+  const claimResult = await claimTestFactorValidationJobs(
+    env.DB,
+    pending.items.slice(0, pendingLimit).map((job) => ({
+      idea_id: job.idea_id,
+      profile_key: job.profile_key
+    })),
+    env
+  );
+  const jobs = mergeClaimedTestFactorValidationJobs(pending.items, claimResult.jobs);
+
   let enqueued = 0;
   let created = 0;
   let requeued = 0;
   let skippedExisting = 0;
+  let skippedUnclaimed = pending.items.length - jobs.length;
   const errors = [];
 
-  for (const job of pending.items) {
+  for (const job of jobs) {
+    if (enqueued >= maxEnqueue) {
+      break;
+    }
     try {
-      const record = await ensureTestFactorValidationRecords(env.DB, job.idea_id, job.profile_key);
+      const record = {
+        task_id: job.task_id,
+        test_factor_validation_id: job.test_factor_validation_id
+      };
       const businessId = String(record.task_id);
       const existing = await getJupyterExecutionByBusiness(
         env.DB,
@@ -99,8 +123,11 @@ export async function dispatchTestFactorValidationViaCoordinator(env, options = 
     enqueued,
     created,
     requeued,
+    claimed: claimResult.claimed,
     skipped_existing: skippedExisting,
+    skipped_unclaimed: skippedUnclaimed,
     pending: pending.items.length,
+    limit: maxEnqueue,
     server_key: serverKey,
     errors
   };

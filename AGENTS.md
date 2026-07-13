@@ -55,9 +55,15 @@ cd pages/factor-dashboard && bash deploy.sh
 bash scripts/deploy-qf-cloudflare.sh
 ```
 
-## Jupyter 执行（仅维护新路径）
+## Jupyter / Prefect 执行
 
-Jupyter kernel 执行以 **`jupyter_executions` + Queue + 短 WS dispatch + HTTP callback/heartbeat** 为唯一目标架构。
+因子验证与测试验证默认经 **Prefect**（`EXECUTION_BACKEND=prefect`）：
 
-- **维护范围**：`test_factor_validation`、`factor_validation` 经 `buildJupyterExecutionCode` → `wrapJupyterExecutionCodeWithHttpCallback` 的路径（含 5s 心跳与完成回调）。
-- **不必理会旧路径**：`legacy_validation`、`runTestFactorValidationBatch` / `runFactorValidationBatch` / `validation-batch` 等直连 Jupyter、长 WS、旧 HTTP report 的代码；后续应**全部删除**，新功能不要扩展或兼容这些路径。
+- Worker Cron claim → `create_flow_run` → [prefect/flows](prefect/flows/) 在 work pool 上跑 DuckDB + MLflow
+- 结果经现有 `/api/workflow/ml-tasks/report` 回写 D1
+- 账本表：`prefect_flow_runs`（见 `migrations/0013_prefect_flow_runs.sql`）
+
+回退 Jupyter 路径：设置 `EXECUTION_BACKEND=jupyter` 且 `JUPYTER_EXECUTION_VIA_DO=1`（需恢复 wrangler Queue + Durable Object 配置）。
+
+- **维护范围**：`factor_validation`、`test_factor_validation` 经 [scripts/factor_validation_runner.py](scripts/factor_validation_runner.py) + Prefect flow。
+- **不必理会旧路径**：`legacy_validation`、直连 Jupyter Coordinator/Queue 的 dispatch（`jupyter-execution-dispatch.js` 等）除回退外不再扩展。

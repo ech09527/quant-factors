@@ -7,6 +7,8 @@ import {
   reportFactorValidationResults
 } from "./factor-validation-db.js";
 import { notifyCoordinatorExecutionReported } from "./jupyter-execution-dispatch.js";
+import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
+import { syncPrefectFlowRunsAfterReports } from "./prefect-execution-sync.js";
 
 function parsePositiveInt(value, fallback, max) {
   const parsed = Number(value);
@@ -119,12 +121,13 @@ export async function handleFactorValidationApiRequest(request, env, url) {
             ML_TASK_STATUSES.has(item.status)
         );
       const result = await reportFactorValidationResults(env.DB, parsed);
+      await syncPrefectFlowRunsAfterReports(env, "factor_validation", result.reports ?? []);
       for (const report of result.reports ?? []) {
         if (report.updated <= 0) {
           continue;
         }
         const item = report.normalized;
-        if (!shouldNotifyCoordinatorForReport(item)) {
+        if (!jupyterExecutionViaDoEnabled(env) || !shouldNotifyCoordinatorForReport(item)) {
           continue;
         }
         const terminalStatus =
@@ -175,6 +178,11 @@ export async function handleFactorValidationApiRequest(request, env, url) {
       .split(",")
       .map((key) => key.trim())
       .filter(Boolean);
+    const sort = url.searchParams.get("sort")?.trim() || void 0;
+    const orderParam = url.searchParams.get("order")?.trim().toLowerCase();
+    const order = orderParam === "asc" || orderParam === "desc" ? orderParam : void 0;
+    const absParam = url.searchParams.get("abs");
+    const abs = absParam == null ? void 0 : absParam === "1" || absParam.toLowerCase() === "true";
     const limit = parsePositiveInt(url.searchParams.get("limit"), 30, 200);
     const offsetRaw = Number(url.searchParams.get("offset") ?? 0);
     const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? Math.floor(offsetRaw) : 0;
@@ -182,6 +190,9 @@ export async function handleFactorValidationApiRequest(request, env, url) {
       ideaId: Number.isFinite(ideaId) && ideaId > 0 ? ideaId : null,
       status,
       profileKeys: profileKeys.length > 0 ? profileKeys : null,
+      sort,
+      order,
+      abs,
       limit,
       offset
     });

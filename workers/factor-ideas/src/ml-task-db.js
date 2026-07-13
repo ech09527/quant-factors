@@ -525,7 +525,8 @@ export async function markMlTaskRunningIfPending(db, taskId, diagnosticsPatch = 
        WHERE id = ?
        LIMIT 1`
   ).bind(taskId).first();
-  if (!existing || String(existing.status ?? "") !== "pending") {
+  const status = String(existing?.status ?? "");
+  if (!existing || ["success", "skipped", "running"].includes(status)) {
     return { updated: 0 };
   }
 
@@ -544,7 +545,7 @@ export async function markMlTaskRunningIfPending(db, taskId, diagnosticsPatch = 
            diagnostics = ?,
            updated_at = datetime('now')
        WHERE id = ?
-         AND status = 'pending'`
+         AND status IN ('pending', 'failed')`
   ).bind(diagnosticsJson, taskId).run();
   return { updated: Number(result.meta.changes ?? 0) };
 }

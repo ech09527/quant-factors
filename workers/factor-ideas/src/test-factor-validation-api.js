@@ -7,6 +7,8 @@ import {
   reportTestFactorValidationResults
 } from "./test-factor-validation-db.js";
 import { notifyCoordinatorExecutionReported } from "./jupyter-execution-dispatch.js";
+import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
+import { syncPrefectFlowRunsAfterReports } from "./prefect-execution-sync.js";
 
 function parsePositiveInt(value, fallback, max) {
   const parsed = Number(value);
@@ -60,12 +62,13 @@ export async function handleTestFactorValidationApiRequest(request, env, url) {
             ML_TASK_STATUSES.has(item.status)
         );
       const result = await reportTestFactorValidationResults(env.DB, parsed);
+      await syncPrefectFlowRunsAfterReports(env, "test_factor_validation", result.reports ?? []);
       for (const report of result.reports ?? []) {
         if (report.updated <= 0) {
           continue;
         }
         const item = report.normalized;
-        if (!shouldNotifyCoordinatorForReport(item)) {
+        if (!jupyterExecutionViaDoEnabled(env) || !shouldNotifyCoordinatorForReport(item)) {
           continue;
         }
         const terminalStatus =
