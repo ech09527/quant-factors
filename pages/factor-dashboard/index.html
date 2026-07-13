@@ -41,7 +41,6 @@
         <button class="tab active" data-tab="ideas" role="tab" aria-selected="true">因子想法</button>
         <button class="tab" data-tab="factor-validations" role="tab" aria-selected="false">验证结果</button>
         <button class="tab" data-tab="profiles" role="tab" aria-selected="false">验证配置</button>
-        <button class="tab" data-tab="jupyter" role="tab" aria-selected="false">Jupyter 服务器</button>
         <button class="tab" data-tab="llm" role="tab" aria-selected="false">LLM API</button>
         <button class="tab" data-tab="operators" role="tab" aria-selected="false">自定义算子</button>
         <button class="tab" data-tab="settings" role="tab" aria-selected="false">系统配置</button>
@@ -183,60 +182,6 @@
             </thead>
             <tbody id="profiles-body"></tbody>
           </table>
-        </div>
-      </section>
-
-      <section class="panel hidden" id="panel-jupyter">
-        <div class="toolbar">
-          <div class="toolbar-left">
-            <p class="muted profile-hint">管理验证批处理使用的 Jupyter / Kaggle Server。Workflow 按 sort_order 选择已启用实例。</p>
-            <p class="muted jupyter-servers-kernel-hint" id="jupyter-servers-kernel-hint"></p>
-          </div>
-          <div class="toolbar-right toolbar-actions">
-            <sl-button id="jupyter-create" variant="primary" size="small">新建服务器</sl-button>
-            <sl-button id="jupyter-create-temp" variant="neutral" size="small">添加临时服务器</sl-button>
-            <sl-button id="jupyter-refresh" size="small">刷新</sl-button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="validation-table">
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>名称</th>
-                <th>类型</th>
-                <th>过期时间</th>
-                <th>Base URL</th>
-                <th>Max Kernels</th>
-                <th>Coordinator</th>
-                <th>Kernel 数量</th>
-                <th>采集时间</th>
-                <th>排序</th>
-                <th>状态</th>
-                <th>最近使用</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="jupyter-body"></tbody>
-          </table>
-        </div>
-        <div class="jupyter-execution-panel">
-          <div class="jupyter-kernels-toolbar">
-            <h3 class="section-subtitle">执行队列与对账</h3>
-            <p class="muted jupyter-execution-hint" id="jupyter-execution-hint"></p>
-          </div>
-          <div id="jupyter-execution-body" class="jupyter-execution-body"></div>
-        </div>
-        <div class="jupyter-kernels-panel ml-task-kernels-panel">
-          <div class="jupyter-kernels-toolbar">
-            <h3 class="section-subtitle">Kernel 实况</h3>
-            <div class="toolbar-right toolbar-actions">
-              <sl-checkbox id="ml-task-kernels-auto-refresh" checked>每 30 秒自动刷新</sl-checkbox>
-              <sl-button id="ml-task-kernels-refresh" size="small">刷新 Kernel 实况</sl-button>
-            </div>
-          </div>
-          <p class="muted jupyter-kernels-hint" id="ml-task-kernels-hint"></p>
-          <div id="ml-task-kernels-body" class="jupyter-kernels-body"></div>
         </div>
       </section>
 
@@ -411,82 +356,6 @@
         <div class="profile-form-actions">
           <sl-button type="submit" variant="primary">保存</sl-button>
           <sl-button type="button" id="profile-form-cancel" size="small">取消</sl-button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog id="jupyter-dialog">
-      <form id="jupyter-form" class="profile-form jupyter-form">
-        <h2 id="jupyter-form-title">新建 Jupyter Server</h2>
-        <sl-input id="jupyter-key" name="key" label="Key" pattern="[a-z][a-z0-9_-]*" required>
-          <span slot="help-text">如 kaggle-kkb-prod</span>
-        </sl-input>
-        <sl-input id="jupyter-name" name="name" label="名称" required></sl-input>
-        <sl-input
-          id="jupyter-base-url"
-          name="base_url"
-          type="url"
-          label="Base URL"
-          placeholder="https://.../proxy"
-          required
-        ></sl-input>
-        <sl-input
-          id="jupyter-ws-base-url"
-          name="ws_base_url"
-          type="url"
-          label="WS Base URL"
-          placeholder="wss://.../proxy（留空则从 Base URL 自动推导）"
-        ></sl-input>
-        <sl-input
-          id="jupyter-auth-token"
-          name="auth_token"
-          label="Auth Token"
-          placeholder="Kaggle 填 embedded-path-auth"
-          required
-        ></sl-input>
-        <div class="inline-fields">
-          <sl-input id="jupyter-auth-header" name="auth_header" label="Auth Header" value="Authorization"></sl-input>
-          <sl-input id="jupyter-auth-scheme" name="auth_scheme" label="Auth Scheme" value="token"></sl-input>
-        </div>
-        <sl-input
-          id="jupyter-proxy-url"
-          name="proxy_url"
-          label="HTTP 代理（可选）"
-          placeholder="http://user:pass@host:port"
-        ></sl-input>
-        <sl-input id="jupyter-kernel-name" name="kernel_name" label="Kernel 名称" value="python3"></sl-input>
-        <sl-input
-          id="jupyter-max-kernels"
-          name="max_kernels"
-          type="number"
-          min="0"
-          label="最大 Kernel 数"
-          value="30"
-          help-text="默认 30；填 0 表示不限制"
-        ></sl-input>
-        <sl-textarea
-          id="jupyter-runtime-config"
-          name="runtime_config"
-          label="运行时配置（JSON）"
-          rows="6"
-          spellcheck="false"
-        >
-          <span slot="help-text">Kaggle 内核执行时读取，如 target_file、data_path、dataset_slug</span>
-        </sl-textarea>
-        <sl-input id="jupyter-sort-order" name="sort_order" type="number" label="排序" value="0"></sl-input>
-        <sl-checkbox id="jupyter-temporary" name="temporary">临时服务器（到期自动删除）</sl-checkbox>
-        <sl-select id="jupyter-expires-in" name="expires_in_hours" label="过期时间" value="24" disabled>
-          <sl-option value="1">1 小时</sl-option>
-          <sl-option value="6">6 小时</sl-option>
-          <sl-option value="24">24 小时</sl-option>
-          <sl-option value="72">72 小时</sl-option>
-          <sl-option value="168">7 天</sl-option>
-        </sl-select>
-        <sl-checkbox id="jupyter-enabled" name="enabled" checked>启用</sl-checkbox>
-        <p id="jupyter-form-error" class="auth-error hidden"></p>
-        <div class="profile-form-actions">
-          <sl-button type="submit" variant="primary">保存</sl-button>
-          <sl-button type="button" id="jupyter-form-cancel" size="small">取消</sl-button>
         </div>
       </form>
     </dialog>
