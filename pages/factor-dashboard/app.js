@@ -1410,7 +1410,7 @@ async function testMlflowFormConnection() {
         ? result.existing_experiments.join("、")
         : "（无）";
     setMlflowFormTestResult(
-      `连接成功（${result.latency_ms ?? "-"}ms）· experiment=${result.experiment} · 可见实验：${experiments} · 测试 Run：${result.test_run_id}`,
+      `连接成功（${result.latency_ms ?? "-"}ms）· 已完成读写探针（临时 experiment 已清理）· 可见实验：${experiments} · 测试 Run：${result.test_run_id}`,
       { ok: true },
     );
     showToast("MLflow 连接测试成功", "success");
@@ -1438,13 +1438,18 @@ async function submitMlflowForm(event) {
     return;
   }
   try {
+    let saved;
     if (state.mlflowFormMode === "create") {
       payload.key = els.mlflowKeyInput.value.trim();
-      await apiPost("/api/mlflow-tracking-configs", payload);
+      saved = await apiPost("/api/mlflow-tracking-configs", payload);
       showToast("MLflow 配置已创建", "success");
     } else {
-      await apiPatch(`/api/mlflow-tracking-configs/${state.editingMlflowKey}`, payload);
+      saved = await apiPatch(`/api/mlflow-tracking-configs/${state.editingMlflowKey}`, payload);
       showToast("MLflow 配置已更新", "success");
+    }
+    const experiment = saved?.item?.experiment;
+    if (experiment?.created) {
+      showToast(`已创建 experiment：${experiment.name}`, "success");
     }
     els.mlflowDialog.close();
     await loadMlflowAdmin();

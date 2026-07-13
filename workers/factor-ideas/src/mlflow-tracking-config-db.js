@@ -135,7 +135,7 @@ async function disableOtherMlflowConfigs(db, exceptKey = null) {
     .run();
 }
 
-export async function createMlflowTrackingConfig(db, input) {
+export async function createMlflowTrackingConfig(db, input, env = null) {
   const key = String(input.key ?? "").trim();
   const keyError = validateKey(key);
   if (keyError) {
@@ -151,6 +151,10 @@ export async function createMlflowTrackingConfig(db, input) {
     await disableOtherMlflowConfigs(db);
   }
 
+  const trackingUri = normalizeTrackingUri(input.tracking_uri);
+  const username = String(input.username).trim();
+  const password = String(input.password).trim();
+
   await db
     .prepare(
       `INSERT INTO mlflow_tracking_configs
@@ -160,18 +164,27 @@ export async function createMlflowTrackingConfig(db, input) {
     .bind(
       key,
       String(input.name).trim(),
-      normalizeTrackingUri(input.tracking_uri),
-      String(input.username).trim(),
-      String(input.password).trim(),
+      trackingUri,
+      username,
+      password,
       enabled,
       Number(input.sort_order ?? 0) || 0
     )
     .run();
 
-  return getMlflowTrackingConfigByKey(db, key, { includeSecret: false });
+  const item = await getMlflowTrackingConfigByKey(db, key, { includeSecret: false });
+  if (!env) {
+    return item;
+  }
+  const experiment = await provisionValidationExperiment(env, {
+    tracking_uri: trackingUri,
+    username,
+    password
+  });
+  return { ...item, experiment };
 }
 
-export async function updateMlflowTrackingConfig(db, key, input) {
+export async function updateMlflowTrackingConfig(db, key, input, env = null) {
   const existing = await getMlflowTrackingConfigByKey(db, key, { includeSecret: true });
   if (!existing) {
     return null;
@@ -191,6 +204,11 @@ export async function updateMlflowTrackingConfig(db, key, input) {
     input.password !== undefined && String(input.password).trim()
       ? String(input.password).trim()
       : existing.password;
+  const trackingUri = normalizeTrackingUri(
+    input.tracking_uri !== undefined ? input.tracking_uri : existing.tracking_uri
+  );
+  const username =
+    input.username !== undefined ? String(input.username).trim() : existing.username;
 
   await db
     .prepare(
@@ -206,10 +224,8 @@ export async function updateMlflowTrackingConfig(db, key, input) {
     )
     .bind(
       input.name !== undefined ? String(input.name).trim() : existing.name,
-      normalizeTrackingUri(
-        input.tracking_uri !== undefined ? input.tracking_uri : existing.tracking_uri
-      ),
-      input.username !== undefined ? String(input.username).trim() : existing.username,
+      trackingUri,
+      username,
       password,
       enabled,
       input.sort_order !== undefined ? Number(input.sort_order) || 0 : existing.sort_order,
@@ -217,7 +233,16 @@ export async function updateMlflowTrackingConfig(db, key, input) {
     )
     .run();
 
-  return getMlflowTrackingConfigByKey(db, key, { includeSecret: false });
+  const item = await getMlflowTrackingConfigByKey(db, key, { includeSecret: false });
+  if (!env) {
+    return item;
+  }
+  const experiment = await provisionValidationExperiment(env, {
+    tracking_uri: trackingUri,
+    username,
+    password
+  });
+  return { ...item, experiment };
 }
 
 export async function deleteMlflowTrackingConfig(db, key) {
@@ -375,6 +400,12 @@ export async function backfillSuccessfulMlTasksMlflowTracking(db, env) {
   };
 }
 
+const CONNECTIVITY_TEST_EXPERIMENT_PREFIX = "qf-write-probe-";
+
+export function readValidationExperimentName(env) {
+  return env.MLFLOW_EXPERIMENT_FACTOR_VALIDATION?.trim() || "factor-validation";
+}
+
 async function mlflowApiFetch(trackingUri, auth, path, { method = "GET", body = null } = {}) {
   const base = normalizeTrackingUri(trackingUri);
   const response = await fetch(`${base}${path}`, {
@@ -405,6 +436,102 @@ async function mlflowApiFetch(trackingUri, auth, path, { method = "GET", body = 
   return payload;
 }
 
+async function mlflowGetExperimentByName(trackingUri, auth, experimentName) {
+  const base = normalizeTrackingUri(trackingUri);
+  const response = await fetch(
+    `${base}/api/2.0/mlflow/experiments/get-by-name?experiment_name=${encodeURIComponent(experimentName)}`,
+    {
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const detail =
+      payload?.message ||
+      payload?.error_message ||
+      text.slice(0, 300) ||
+      `HTTP ${response.status}`;
+    throw new Error(`MLflow API ${response.status}: ${detail}`);
+  }
+  return payload?.experiment ?? null;
+}
+
+async function mlflowCreateExperiment(trackingUri, auth, experimentName) {
+  const payload = await mlflowApiFetch(trackingUri, auth, "/api/2.0/mlflow/experiments/create", {
+    method: "POST",
+    body: { name: experimentName }
+  });
+  const experimentId = String(payload?.experiment_id ?? "").trim();
+  if (!experimentId) {
+    throw new Error(`创建 experiment 失败: ${experimentName}`);
+  }
+  return experimentId;
+}
+
+export async function ensureMlflowExperiment(trackingUri, auth, experimentName) {
+  const name = String(experimentName ?? "").trim();
+  if (!name) {
+    throw new Error("experiment 名称不能为空");
+  }
+  const existing = await mlflowGetExperimentByName(trackingUri, auth, name);
+  const existingId = String(existing?.experiment_id ?? "").trim();
+  if (existingId) {
+    return { name, experiment_id: existingId, created: false };
+  }
+  const experimentId = await mlflowCreateExperiment(trackingUri, auth, name);
+  return { name, experiment_id: experimentId, created: true };
+}
+
+async function mlflowWriteProbeRun(trackingUri, auth, experimentId) {
+  const now = Date.now();
+  const createPayload = await mlflowApiFetch(trackingUri, auth, "/api/2.0/mlflow/runs/create", {
+    method: "POST",
+    body: {
+      experiment_id: experimentId,
+      start_time: now,
+      run_name: `qf-connectivity-test-${now}`
+    }
+  });
+  const runId = String(createPayload?.run?.info?.run_id ?? "").trim();
+  if (!runId) {
+    throw new Error("创建测试 Run 失败");
+  }
+  await mlflowApiFetch(trackingUri, auth, "/api/2.0/mlflow/runs/update", {
+    method: "POST",
+    body: {
+      run_id: runId,
+      status: "FINISHED",
+      end_time: Date.now()
+    }
+  });
+  return runId;
+}
+
+async function provisionValidationExperiment(env, credentials) {
+  const trackingUri = normalizeTrackingUri(credentials.tracking_uri);
+  const username = String(credentials.username ?? "").trim();
+  const password = String(credentials.password ?? "").trim();
+  if (!trackingUri || !username || !password) {
+    throw new Error("缺少 MLflow 凭证，无法创建 experiment");
+  }
+  const auth = btoa(`${username}:${password}`);
+  return ensureMlflowExperiment(trackingUri, auth, readValidationExperimentName(env));
+}
+
 export async function testMlflowTrackingConnection(db, env, input) {
   let trackingUri = normalizeTrackingUri(input.tracking_uri);
   let username = String(input.username ?? "").trim();
@@ -431,8 +558,6 @@ export async function testMlflowTrackingConnection(db, env, input) {
     throw new Error("username 与 password 不能为空");
   }
 
-  const experimentName =
-    env.MLFLOW_EXPERIMENT_FACTOR_VALIDATION?.trim() || "factor-validation";
   const auth = btoa(`${username}:${password}`);
   const startedAt = Date.now();
 
@@ -449,46 +574,28 @@ export async function testMlflowTrackingConnection(db, env, input) {
     .map((item) => String(item?.name ?? "").trim())
     .filter(Boolean);
 
-  const experimentPayload = await mlflowApiFetch(
-    trackingUri,
-    auth,
-    `/api/2.0/mlflow/experiments/get-by-name?experiment_name=${encodeURIComponent(experimentName)}`
-  );
-  const experimentId = String(experimentPayload?.experiment?.experiment_id ?? "").trim();
-  if (!experimentId) {
-    throw new Error(`未找到 experiment: ${experimentName}`);
-  }
-
-  const now = Date.now();
-  const createPayload = await mlflowApiFetch(trackingUri, auth, "/api/2.0/mlflow/runs/create", {
-    method: "POST",
-    body: {
-      experiment_id: experimentId,
-      start_time: now,
-      run_name: `qf-connectivity-test-${now}`
+  const probeName = `${CONNECTIVITY_TEST_EXPERIMENT_PREFIX}${Date.now()}`;
+  const probeExperimentId = await mlflowCreateExperiment(trackingUri, auth, probeName);
+  let testRunId = "";
+  try {
+    testRunId = await mlflowWriteProbeRun(trackingUri, auth, probeExperimentId);
+  } finally {
+    try {
+      await mlflowApiFetch(trackingUri, auth, "/api/2.0/mlflow/experiments/delete", {
+        method: "POST",
+        body: { experiment_id: probeExperimentId }
+      });
+    } catch {
+      // 清理失败不影响连通性判定
     }
-  });
-  const runId = String(createPayload?.run?.info?.run_id ?? "").trim();
-  if (!runId) {
-    throw new Error("创建测试 Run 失败");
   }
-
-  await mlflowApiFetch(trackingUri, auth, "/api/2.0/mlflow/runs/update", {
-    method: "POST",
-    body: {
-      run_id: runId,
-      status: "FINISHED",
-      end_time: Date.now()
-    }
-  });
 
   return {
     ok: true,
     tracking_uri: trackingUri,
-    experiment: experimentName,
-    experiment_id: experimentId,
+    test_experiment: probeName,
     existing_experiments: existingExperiments,
-    test_run_id: runId,
+    test_run_id: testRunId,
     latency_ms: Date.now() - startedAt
   };
 }

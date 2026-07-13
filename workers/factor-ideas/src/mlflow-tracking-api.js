@@ -173,7 +173,7 @@ export async function handleMlflowTrackingApiRequest(request, env) {
       return wrap(env, request, badRequest("invalid JSON body"));
     }
     try {
-      const item = await createMlflowTrackingConfig(env.DB, body);
+      const item = await createMlflowTrackingConfig(env.DB, body, env);
       return wrap(env, request, jsonResponse({ ok: true, item }, 201));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -197,7 +197,7 @@ export async function handleMlflowTrackingApiRequest(request, env) {
         return wrap(env, request, badRequest("invalid JSON body"));
       }
       try {
-        const item = await updateMlflowTrackingConfig(env.DB, key, body);
+        const item = await updateMlflowTrackingConfig(env.DB, key, body, env);
         if (!item) {
           return wrap(env, request, notFound("mlflow tracking config not found"));
         }
