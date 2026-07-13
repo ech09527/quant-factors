@@ -14,7 +14,7 @@ export MLFLOW_TRACKING_PASSWORD="..."
 
 cd prefect
 uv sync
-uv run python deploy.py --work-pool quant-factors-eval --concurrency 10
+uv run python deploy.py --work-pool quant-factors-eval
 
 # 启动 worker（与 parquet 数据同机；需已配置 GitHub deploy key 可读本仓库）
 export QUANT_DATA_PATH="/path/to/data-root"   # 实际文件: $QUANT_DATA_PATH/quant-data/futures/um/klines/1h.parquet

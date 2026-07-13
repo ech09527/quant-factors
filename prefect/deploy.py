@@ -74,7 +74,7 @@ def apply_git_pull_settings(
     return config
 
 
-def ensure_work_pool(name: str, concurrency: int) -> None:
+def ensure_work_pool(name: str) -> None:
     api_url = os.getenv("PREFECT_API_URL", "").strip()
     if not api_url:
         print("WARN: PREFECT_API_URL 未设置，跳过 work pool 创建")
@@ -91,18 +91,6 @@ def ensure_work_pool(name: str, concurrency: int) -> None:
                 "--type",
                 "process",
                 "--overwrite",
-            ]
-        )
-        run(
-            [
-                sys.executable,
-                "-m",
-                "prefect",
-                "work-pool",
-                "update",
-                name,
-                "--concurrency-limit",
-                str(concurrency),
             ]
         )
     except subprocess.CalledProcessError as exc:
@@ -128,11 +116,6 @@ def deploy_flows(work_pool: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Deploy quant-factors Prefect flows")
     parser.add_argument("--work-pool", default=os.getenv("PREFECT_WORK_POOL", DEFAULT_WORK_POOL))
-    parser.add_argument(
-        "--concurrency",
-        type=int,
-        default=int(os.getenv("PREFECT_WORK_POOL_CONCURRENCY", "10")),
-    )
     parser.add_argument("--skip-pool", action="store_true")
     parser.add_argument(
         "--git-repository",
@@ -151,7 +134,7 @@ def main() -> int:
     os.environ["PREFECT_DEPLOY_GIT_BRANCH"] = args.git_branch
 
     if not args.skip_pool:
-        ensure_work_pool(args.work_pool, args.concurrency)
+        ensure_work_pool(args.work_pool)
     deploy_flows(args.work_pool)
     print(
         f"Deployed factor-validation/production on pool {args.work_pool} (git pull: {args.git_repository}@{args.git_branch})"
