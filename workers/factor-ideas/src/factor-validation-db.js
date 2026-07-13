@@ -358,6 +358,7 @@ export function mergeClaimedFactorValidationJobs(pendingItems, claimedJobs) {
 export async function listPendingFactorValidationJobsForPrefect(db, limit = null, env = null) {
   const staleMinutes = readPrefectStaleMinutes(env);
   await reclaimStalePrefectFlowRuns(db, env);
+  await reclaimStaleMlTasks(db, staleMinutes);
   const hasLimit = limit != null && Number.isFinite(Number(limit)) && Number(limit) > 0;
   const sql = `SELECT
          COALESCE(fv.id, 0) AS factor_validation_id,
