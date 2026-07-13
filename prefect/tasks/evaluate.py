@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import time
 from pathlib import Path
@@ -23,27 +22,14 @@ from scripts.factor_validation_runner import (  # noqa: E402
     report_items_from_run_result,
     resolve_factor_validation_data_path,
 )
+from scripts.mlflow_logger import resolve_mlflow_config  # noqa: E402
 
 
-def _read_mlflow_config() -> dict[str, Any]:
-    return {
-        "tracking_uri": (
-            os.getenv("MLFLOW_TRACKING_URI", "").strip()
-            or os.getenv("MLFLOW_TRACKING_URL", "").strip()
-        ),
-        "username": (
-            os.getenv("MLFLOW_TRACKING_USERNAME", "").strip()
-            or os.getenv("DAGSHUB_USER", "").strip()
-        ),
-        "password": (
-            os.getenv("MLFLOW_TRACKING_PASSWORD", "").strip()
-            or os.getenv("DAGSHUB_TOKEN", "").strip()
-        ),
-        "experiment": (
-            os.getenv("MLFLOW_EXPERIMENT_NAME", "").strip()
-            or os.getenv("MLFLOW_EXPERIMENT_FACTOR_VALIDATION", "factor-validation")
-        ),
-    }
+def _resolve_mlflow_config(mlflow_config: dict[str, Any] | None) -> dict[str, str]:
+    overrides: dict[str, Any] = {}
+    if isinstance(mlflow_config, dict) and str(mlflow_config.get("tracking_uri") or "").strip():
+        overrides = mlflow_config
+    return resolve_mlflow_config(overrides or None)
 
 
 def _runtime_flags(runtime_config: dict[str, Any] | None) -> tuple[bool, bool]:
@@ -90,12 +76,13 @@ def log_mlflow_task(
     evaluation: dict[str, Any],
     *,
     runtime_config: dict[str, Any] | None = None,
+    mlflow_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     mlflow_slim, _ = _runtime_flags(runtime_config)
     return log_factor_validation_mlflow(
         job,
         evaluation,
-        mlflow_config=_read_mlflow_config(),
+        mlflow_config=_resolve_mlflow_config(mlflow_config),
         mlflow_slim=mlflow_slim,
     )
 

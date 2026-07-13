@@ -53,5 +53,13 @@ assert(
   dispatch.includes("revertMlTaskPrefectDispatchToPending"),
   "dispatch should revert running task when flow creation fails"
 );
+assert(
+  dispatch.includes("mlflow_config: mlflowFlow.mlflow_config"),
+  "dispatch should pass Worker MLflow config into Prefect flow parameters"
+);
+assert(
+  dispatch.includes("skip_mlflow: mlflowFlow.skip_mlflow"),
+  "dispatch should derive skip_mlflow from Worker MLflow config"
+);
 
 console.log("prefect_dispatch_semantics_test.mjs OK");

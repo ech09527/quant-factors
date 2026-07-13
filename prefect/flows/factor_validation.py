@@ -40,6 +40,7 @@ def run_factor_validation(
     sample_start: str = "2023-01-01",
     runtime_config: dict[str, Any] | None = None,
     callback_base_url: str | None = None,
+    mlflow_config: dict[str, Any] | None = None,
     skip_mlflow: bool = False,
 ) -> dict[str, Any]:
     """按阶段执行 factor_validation，各阶段在 Prefect UI 中独立可见。"""
@@ -65,7 +66,12 @@ def run_factor_validation(
     mlflow_attempted = False
     if not skip_mlflow and eval_result["status"] == "success":
         mlflow_attempted = True
-        mlflow_result = log_mlflow_task(job, evaluation, runtime_config=runtime_config)
+        mlflow_result = log_mlflow_task(
+            job,
+            evaluation,
+            runtime_config=runtime_config,
+            mlflow_config=mlflow_config,
+        )
         mlflow_meta = mlflow_result.get("mlflow")
         mlflow_error = mlflow_result.get("error_reason")
         mlflow_timing = mlflow_result.get("timing") or {}

@@ -84,3 +84,20 @@ def test_slim_ic_series_for_artifact_drops_n_field():
     assert slim is not None
     assert slim["points"][0] == {"t": "1", "ic": 0.1, "rank_ic": 0.2}
     assert "n" not in slim["points"][0]
+
+
+def test_prefect_flow_and_dispatch_pass_mlflow_config():
+    root = Path(__file__).resolve().parent.parent
+    flow_src = (root / "prefect/flows/factor_validation.py").read_text(encoding="utf-8")
+    task_src = (root / "prefect/tasks/evaluate.py").read_text(encoding="utf-8")
+    dispatch_src = (
+        root / "workers/factor-ideas/src/prefect-execution-dispatch.js"
+    ).read_text(encoding="utf-8")
+
+    assert "mlflow_config: dict[str, Any] | None = None" in flow_src
+    assert "mlflow_config=mlflow_config" in flow_src
+    assert "mlflow_config: dict[str, Any] | None = None" in task_src
+    assert "_resolve_mlflow_config(mlflow_config)" in task_src
+    assert "mlflow_config: mlflowFlow.mlflow_config" in dispatch_src
+    assert "function buildMlflowFlowParameters" in dispatch_src
+

@@ -78,6 +78,26 @@ async function preflightFactorValidationJob(env, job, record) {
   return { ok: true };
 }
 
+function buildMlflowFlowParameters(mlflowConfig) {
+  const trackingUri = String(mlflowConfig?.tracking_uri ?? "").trim();
+  const username = String(mlflowConfig?.username ?? "").trim();
+  const password = String(mlflowConfig?.password ?? "").trim();
+  const experiment =
+    String(mlflowConfig?.experiment ?? "").trim() || "factor-validation";
+  const configured = Boolean(trackingUri && username && password);
+  return {
+    skip_mlflow: !configured,
+    mlflow_config: configured
+      ? {
+          tracking_uri: trackingUri,
+          username,
+          password,
+          experiment
+        }
+      : null
+  };
+}
+
 export async function dispatchFactorValidationViaPrefect(env, options = {}) {
   if (!prefectExecutionEnabled(env)) {
     return { skipped: true, reason: "prefect_execution_disabled" };
@@ -117,6 +137,7 @@ export async function dispatchFactorValidationViaPrefect(env, options = {}) {
   const callbackBaseUrl = readReportConfig(env, runtimeConfig).api_base_url;
   const sampleStart = env.SAMPLE_START?.trim() || "2023-01-01";
   const mlflowConfig = readMlflowConfig(env);
+  const mlflowFlow = buildMlflowFlowParameters(mlflowConfig);
 
   let submitted = 0;
   let skippedExisting = 0;
@@ -160,7 +181,8 @@ export async function dispatchFactorValidationViaPrefect(env, options = {}) {
         sample_start: sampleStart,
         runtime_config: runtimeConfig,
         callback_base_url: callbackBaseUrl,
-        skip_mlflow: false
+        mlflow_config: mlflowFlow.mlflow_config,
+        skip_mlflow: mlflowFlow.skip_mlflow
       };
 
       const marked = await markFactorValidationRunningAfterPrefect(env.DB, record.task_id, {
@@ -217,7 +239,7 @@ export async function dispatchFactorValidationViaPrefect(env, options = {}) {
     pending: pending.items.length,
     limit: maxSubmit,
     deployment: deploymentRef,
-    mlflow_config_present: Boolean(mlflowConfig?.tracking_uri),
+    mlflow_config_present: Boolean(mlflowFlow.mlflow_config?.tracking_uri),
     reconcile,
     errors
   };
