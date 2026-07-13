@@ -81,11 +81,11 @@ def snapshot() -> dict:
     )
     pending = run_d1(
         "SELECT COUNT(*) AS n FROM ml_tasks "
-        "WHERE business_type='test_factor_validation' AND status='pending';"
+        "WHERE business_type='factor_validation' AND status='pending';"
     )[0]["n"]
     recent = run_d1(
         "SELECT COUNT(*) AS n FROM jupyter_executions "
-        "WHERE business_type='test_factor_validation' AND status='succeeded' "
+        "WHERE business_type='factor_validation' AND status='succeeded' "
         "AND completed_at > datetime('now','-1 minute');"
     )[0]["n"]
     kernels = jupyter_kernels()
@@ -98,7 +98,7 @@ def snapshot() -> dict:
         "running_count": coord.get("running_count"),
         "queue_length": coord.get("queue_length"),
         "exec_rows": exec_rows,
-        "pending_test": pending,
+        "pending_factor": pending,
         "succeeded_last_minute": recent,
         "jupyter_kernel_count": len(kernels),
         "jupyter_states": states,

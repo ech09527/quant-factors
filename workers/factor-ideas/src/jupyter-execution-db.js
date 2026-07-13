@@ -226,7 +226,7 @@ export async function listOrphanedRunningExecutions(db, serverKey = null) {
     `SELECT je.*
        FROM jupyter_executions je
        JOIN ml_tasks mt ON je.business_id = CAST(mt.id AS TEXT)
-       WHERE je.business_type IN ('factor_validation', 'test_factor_validation')
+       WHERE je.business_type = 'factor_validation'
          AND je.status = 'running'
          AND mt.status IN ('failed', 'success', 'skipped')
          ${serverClause}`

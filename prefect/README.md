@@ -31,6 +31,5 @@ Deployment 使用 **git clone** pull 模式：每次 flow run 前 worker 自动 
 | Deployment | Flow |
 |------------|------|
 | `factor-validation/production` | DuckDB 评估 + MLflow |
-| `test-factor-validation/production` | Mock 评估（可 `TEST_FACTOR_VALIDATION_SKIP_MLFLOW=1`） |
 
 Worker 侧设置 `EXECUTION_BACKEND=prefect`（见 `workers/factor-ideas/wrangler.toml`），Cron 将通过 Prefect API 触发 flow run。

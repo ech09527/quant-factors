@@ -421,7 +421,6 @@ function renderExecutionIssueBadge(issue) {
 
 function renderBusinessTypeLabel(value) {
   const text = String(value || "");
-  if (text === "test_factor_validation") return "test";
   if (text === "factor_validation") return "factor";
   return text || "-";
 }

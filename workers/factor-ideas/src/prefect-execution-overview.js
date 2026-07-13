@@ -29,8 +29,7 @@ export async function getPrefectExecutionOverview(env, options = {}) {
   const reclaim = await reclaimStalePrefectFlowRuns(env.DB, env);
 
   const activeByBusiness = {
-    factor_validation: 0,
-    test_factor_validation: 0
+    factor_validation: 0
   };
   for (const run of activeRuns) {
     const key = String(run.business_type ?? "");

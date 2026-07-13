@@ -3,7 +3,6 @@ export const IDEA_GENERATION_CRON = "*/5 * * * *";
 
 const VALIDATION_BATCH_KEY = "validation_batch_enabled";
 const FACTOR_VALIDATION_BATCH_KEY = "factor_validation_batch_enabled";
-const TEST_FACTOR_VALIDATION_BATCH_KEY = "test_factor_validation_batch_enabled";
 const KERNEL_CLEANUP_KEY = "kernel_cleanup_enabled";
 const VALIDATION_BATCH_LIMIT_KEY = "validation_batch_limit";
 
@@ -23,15 +22,6 @@ export const SYSTEM_SETTING_DEFS = [
     description: "开启后 Cron 每 1 分钟自动提交 factor_validations + ml_tasks 任务到 Prefect，由 work pool 执行评估并写入 DagsHub MLflow。",
     type: "boolean",
     envKey: "FACTOR_VALIDATION_BATCH_ENABLED",
-    defaultBoolean: false,
-    group: "workflow",
-  },
-  {
-    key: TEST_FACTOR_VALIDATION_BATCH_KEY,
-    label: "测试因子验证调度",
-    description: "开启后 Cron 每 1 分钟从 ideas×validation_profiles 自动拉取待测任务（与生产相同因子想法），由 Prefect mock flow 做端到端流程验证。",
-    type: "boolean",
-    envKey: "TEST_FACTOR_VALIDATION_BATCH_ENABLED",
     defaultBoolean: false,
     group: "workflow",
   },
@@ -225,11 +215,6 @@ export async function getValidationScheduleSettings(db, env) {
 
 export async function getFactorValidationBatchEnabled(db, env) {
   const def = SETTING_DEF_BY_KEY.get(FACTOR_VALIDATION_BATCH_KEY);
-  return readWorkflowSettingValue(db, env, def);
-}
-
-export async function getTestFactorValidationBatchEnabled(db, env) {
-  const def = SETTING_DEF_BY_KEY.get(TEST_FACTOR_VALIDATION_BATCH_KEY);
   return readWorkflowSettingValue(db, env, def);
 }
 

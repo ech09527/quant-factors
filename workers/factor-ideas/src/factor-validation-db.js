@@ -433,7 +433,8 @@ export async function reserveFactorValidationJobsForPrefect(db, jobs) {
 
     const result = await db.prepare(
       `UPDATE ml_tasks
-         SET error_reason = NULL,
+         SET status = 'pending',
+             error_reason = NULL,
              diagnostics = ?,
              submitted_at = datetime('now'),
              completed_at = NULL,
@@ -470,23 +471,29 @@ export async function markFactorValidationRunningAfterPrefect(
   { flowRunId, deploymentName }
 ) {
   const existing = await db.prepare(
-    `SELECT diagnostics FROM ml_tasks WHERE id = ? LIMIT 1`
+    `SELECT status, diagnostics FROM ml_tasks WHERE id = ? LIMIT 1`
   ).bind(taskId).first();
+  if (!existing) {
+    return { updated: 0, reason: "task_not_found" };
+  }
+  if (String(existing.status ?? "") !== "pending") {
+    return { updated: 0, reason: "not_pending" };
+  }
   const diagnostics = {
-    ...(parseJsonObject(existing?.diagnostics) ?? {}),
+    ...(parseJsonObject(existing.diagnostics) ?? {}),
     dispatch_mode: "prefect",
     prefect_flow_run_id: String(flowRunId ?? ""),
     prefect_deployment: String(deploymentName ?? "")
   };
+  delete diagnostics.prefect_dispatch_error;
   const result = await db.prepare(
     `UPDATE ml_tasks
         SET status = 'running',
             diagnostics = ?,
             submitted_at = COALESCE(submitted_at, datetime('now')),
-            completed_at = NULL,
             updated_at = datetime('now')
       WHERE id = ?
-        AND status IN ('pending', 'failed')`
+        AND status = 'pending'`
   ).bind(JSON.stringify(diagnostics), taskId).run();
   return { updated: Number(result.meta.changes ?? 0) };
 }

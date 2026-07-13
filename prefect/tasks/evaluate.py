@@ -15,10 +15,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.factor_validation_runner import (  # noqa: E402
     BUSINESS_TYPE_FACTOR_VALIDATION,
-    BUSINESS_TYPE_TEST_FACTOR_VALIDATION,
     report_items_from_run_result,
     run_factor_validation_job,
-    run_test_factor_validation_job,
 )
 
 
@@ -38,11 +36,7 @@ def _read_mlflow_config() -> dict[str, Any]:
         ),
         "experiment": (
             os.getenv("MLFLOW_EXPERIMENT_NAME", "").strip()
-            or (
-                os.getenv("MLFLOW_EXPERIMENT_TEST_FACTOR_VALIDATION", "").strip()
-                if os.getenv("QF_BUSINESS_TYPE") == BUSINESS_TYPE_TEST_FACTOR_VALIDATION
-                else os.getenv("MLFLOW_EXPERIMENT_FACTOR_VALIDATION", "factor-validation")
-            )
+            or os.getenv("MLFLOW_EXPERIMENT_FACTOR_VALIDATION", "factor-validation")
         ),
     }
 
@@ -62,15 +56,6 @@ def evaluate_validation_job(
     mlflow_slim = bool(runtime_config.get("mlflow_slim", True))
     mlflow_preinstalled = bool(runtime_config.get("mlflow_preinstalled", True))
 
-    if business_type == BUSINESS_TYPE_TEST_FACTOR_VALIDATION:
-        return run_test_factor_validation_job(
-            job,
-            mlflow_config=mlflow_config,
-            mlflow_slim=mlflow_slim,
-            mlflow_preinstalled=mlflow_preinstalled,
-            skip_mlflow=skip_mlflow,
-        )
-
     return run_factor_validation_job(
         job,
         sample_start=sample_start,
@@ -87,4 +72,8 @@ def build_report_items(
     job: dict[str, Any],
     run_result: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    return report_items_from_run_result(business_type, job, run_result)
+    return report_items_from_run_result(
+        business_type or BUSINESS_TYPE_FACTOR_VALIDATION,
+        job,
+        run_result,
+    )

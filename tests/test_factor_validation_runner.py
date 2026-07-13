@@ -10,10 +10,8 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.factor_validation_runner import (
     BUSINESS_TYPE_FACTOR_VALIDATION,
-    BUSINESS_TYPE_TEST_FACTOR_VALIDATION,
     build_report_item,
     report_items_from_run_result,
-    run_test_factor_validation_job,
 )
 
 
@@ -68,21 +66,3 @@ def test_report_items_eval_failed_single_phase():
     assert len(items) == 1
     assert items[0]["status"] == "failed"
     assert items[0]["diagnostics"]["report_phase"] == "eval"
-
-
-def test_mock_test_factor_validation_skip_mlflow():
-    job = {
-        "task_id": 99,
-        "test_factor_validation_id": 88,
-        "idea_id": 1,
-        "profile_key": "fwd_ret_1",
-        "idea": {"title": "t", "title_hash": "h", "formula_sketch": "f"},
-    }
-    result = run_test_factor_validation_job(job, skip_mlflow=True)
-    assert result["status"] == "success"
-    assert result["evaluation"]["diagnostics"]["mock"] is True
-    items = report_items_from_run_result(
-        BUSINESS_TYPE_TEST_FACTOR_VALIDATION, job, result
-    )
-    assert items[-1]["status"] == "success"
-    assert items[-1]["test_factor_validation_id"] == 88

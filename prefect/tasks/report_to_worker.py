@@ -13,9 +13,7 @@ from prefect import task
 WORKFLOW_UA = "quant-factors-prefect/1.0"
 
 
-def _report_path(business_type: str) -> str:
-    if business_type == "test_factor_validation":
-        return "/api/workflow/test-ml-tasks/report"
+def _report_path(_business_type: str) -> str:
     return "/api/workflow/ml-tasks/report"
 
 

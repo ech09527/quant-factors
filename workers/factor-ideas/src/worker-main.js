@@ -1,7 +1,5 @@
 import { dispatchFactorValidationViaCoordinator } from "./jupyter-execution-dispatch.js";
-import { dispatchTestFactorValidationViaCoordinator } from "./test-factor-validation-dispatch.js";
 import { dispatchFactorValidationViaPrefect } from "./prefect-execution-dispatch.js";
-import { dispatchTestFactorValidationViaPrefect } from "./test-prefect-execution-dispatch.js";
 import { handleJupyterExecutionCallbackApiRequest } from "./jupyter-execution-callback-api.js";
 import { registerDefaultHandlers } from "./jupyter-executor.js";
 import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
@@ -13,10 +11,7 @@ import { getJupyterKernelStatus } from "./jupyter-kernel-status.js";
 import { getMlTaskKernelStatus } from "./ml-task-kernel-status.js";
 import worker from "./index.js";
 import { handleFactorValidationApiRequest } from "./factor-validation-api.js";
-import { handleTestFactorValidationApiRequest } from "./test-factor-validation-api.js";
 import { runFactorValidationBatch } from "./factor-validation-batch.js";
-import { runTestFactorValidationBatch } from "./test-factor-validation-batch.js";
-import { resetTestFactorValidationWorkflow } from "./test-factor-validation-db.js";
 import { runKernelCleanup } from "./kernel-cleanup.js";
 import { cleanupExpiredJupyterServers } from "./jupyter-server-db.js";
 import { handleLlmApiRequest } from "./llm-api-routes.js";
@@ -36,16 +31,6 @@ function resolveFactorValidationDispatch(env, options = {}) {
     return dispatchFactorValidationViaCoordinator(env, options);
   }
   return runFactorValidationBatch(env, options);
-}
-
-function resolveTestFactorValidationDispatch(env, options = {}) {
-  if (prefectExecutionEnabled(env)) {
-    return dispatchTestFactorValidationViaPrefect(env, options);
-  }
-  if (jupyterExecutionViaDoEnabled(env)) {
-    return dispatchTestFactorValidationViaCoordinator(env, options);
-  }
-  return runTestFactorValidationBatch(env, options);
 }
 
 function isAuthorized(request, env) {
@@ -90,43 +75,26 @@ export default {
     }
 
     const factorValidationRunner = resolveFactorValidationDispatch(env);
-    const testFactorValidationRunner = resolveTestFactorValidationDispatch(env);
 
-    const maintenanceTasks = [factorValidationRunner, testFactorValidationRunner];
+    const maintenanceTasks = [factorValidationRunner];
     if (!prefectExecutionEnabled(env)) {
       maintenanceTasks.push(runKernelCleanup(env));
     }
     maintenanceTasks.push(cleanupExpiredJupyterServers(env.DB));
 
     const maintenanceResults = await Promise.allSettled(maintenanceTasks);
-    const [
-      factorValidationResult,
-      testFactorValidationResult,
-      cleanupResult,
-      jupyterServerCleanupResult
-    ] =
+    const [factorValidationResult, cleanupResult, jupyterServerCleanupResult] =
       prefectExecutionEnabled(env)
         ? [
             maintenanceResults[0],
-            maintenanceResults[1],
             { status: "fulfilled", value: { skipped: true, reason: "prefect_backend" } },
-            maintenanceResults[2]
+            maintenanceResults[1]
           ]
-        : [
-            maintenanceResults[0],
-            maintenanceResults[1],
-            maintenanceResults[2],
-            maintenanceResults[3]
-          ];
+        : [maintenanceResults[0], maintenanceResults[1], maintenanceResults[2]];
     if (factorValidationResult.status === "fulfilled") {
       console.log(JSON.stringify({ cron, factor_validation: factorValidationResult.value }));
     } else {
       console.error("factor validation cron failed:", factorValidationResult.reason);
-    }
-    if (testFactorValidationResult.status === "fulfilled") {
-      console.log(JSON.stringify({ cron, test_factor_validation: testFactorValidationResult.value }));
-    } else {
-      console.error("test factor validation cron failed:", testFactorValidationResult.reason);
     }
     if (cleanupResult.status === "fulfilled") {
       console.log(JSON.stringify({ cron, kernel_cleanup: cleanupResult.value }));
@@ -282,44 +250,6 @@ export default {
         return Response.json({ ok: false, error: message }, { status: 500 });
       }
     }
-    if (request.method === "POST" && url.pathname === "/reset-test-factor-validation") {
-      if (!isAuthorized(request, env)) {
-        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
-      }
-      try {
-        const reset = await resetTestFactorValidationWorkflow(env.DB);
-        return Response.json({ ok: true, reset });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return Response.json({ ok: false, error: message }, { status: 500 });
-      }
-    }
-    if (request.method === "POST" && url.pathname === "/run-test-factor-validation-batch") {
-      if (!isAuthorized(request, env)) {
-        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
-      }
-      try {
-        const runDispatch = async () => {
-          const result = await resolveTestFactorValidationDispatch(env, {
-            ignoreScheduleEnabled: true
-          });
-          console.log(JSON.stringify({ run_test_factor_validation_batch: result }));
-          return result;
-        };
-        const background =
-          url.searchParams.get("background") !== "0" &&
-          url.searchParams.get("background")?.toLowerCase() !== "false";
-        if (background && typeof ctx?.waitUntil === "function") {
-          ctx.waitUntil(runDispatch());
-          return Response.json({ ok: true, accepted: true, mode: "background" });
-        }
-        const result = await runDispatch();
-        return Response.json({ ok: true, ...result });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return Response.json({ ok: false, error: message }, { status: 500 });
-      }
-    }
     if (request.method === "POST" && url.pathname === "/run-factor-validation-batch") {
       if (!isAuthorized(request, env)) {
         return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -406,9 +336,7 @@ export default {
     }
     const factorValidationPaths = [
       "/api/workflow/ml-tasks/report",
-      "/api/workflow/test-ml-tasks/report",
       "/api/factor-validations",
-      "/api/test-factor-validations",
       "/api/mlflow/runs/",
       "/api/ml-tasks/",
     ];
@@ -417,16 +345,10 @@ export default {
         (prefix) => url.pathname === prefix || url.pathname.startsWith(prefix),
       ) ||
       /^\/api\/ideas\/\d+\/factor-validations$/.test(url.pathname) ||
-      /^\/api\/ideas\/\d+\/test-factor-validations$/.test(url.pathname) ||
-      /^\/api\/factor-validations\/\d+$/.test(url.pathname) ||
-      /^\/api\/test-factor-validations\/\d+$/.test(url.pathname);
+      /^\/api\/factor-validations\/\d+$/.test(url.pathname);
     if (isFactorValidationApi) {
       if (!isAuthorized(request, env)) {
         return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
-      }
-      const testResponse = await handleTestFactorValidationApiRequest(request, env, url);
-      if (testResponse) {
-        return testResponse;
       }
       const factorResponse = await handleFactorValidationApiRequest(request, env, url);
       if (factorResponse) {

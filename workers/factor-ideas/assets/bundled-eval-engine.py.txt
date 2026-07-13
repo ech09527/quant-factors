@@ -308,7 +308,6 @@ from pathlib import Path
 from typing import Any
 
 FACTOR_VALIDATION_EXPERIMENT = "factor-validation"
-TEST_FACTOR_VALIDATION_EXPERIMENT = "test-factor-validation"
 
 
 def resolve_mlflow_config(overrides: dict[str, Any] | None = None) -> dict[str, str]:
@@ -388,7 +387,6 @@ def log_factor_validation_run(
     profile_key: str,
     mlflow_config: dict[str, Any] | None = None,
     slim: bool = True,
-    business_type: str = "factor_validation",
 ) -> dict[str, Any]:
     """将单次因子验证 evaluation 写入 MLflow，返回 run 元数据。"""
     import mlflow
@@ -397,10 +395,9 @@ def log_factor_validation_run(
     _apply_mlflow_env(config)
 
     status = str(evaluation.get("status", "failed"))
-    business_type = str(business_type or "factor_validation").strip()
     validation_id = int(factor_validation_id or 0)
     tags = {
-        "business_type": business_type,
+        "business_type": "factor_validation",
         "task_id": str(task_id),
         "idea_id": str(idea_id),
         "profile_key": profile_key,
@@ -410,16 +407,10 @@ def log_factor_validation_run(
         "validation_profile_key": str(
             evaluation.get("validation_profile_key") or profile_key
         ),
+        "factor_validation_id": str(validation_id),
     }
-    if business_type == "test_factor_validation":
-        tags["test_factor_validation_id"] = str(validation_id)
-        if evaluation.get("diagnostics", {}).get("mock"):
-            tags["mock_eval"] = "1"
-    else:
-        tags["factor_validation_id"] = str(validation_id)
 
-    run_prefix = "tfv" if business_type == "test_factor_validation" else "fv"
-    run_name = f"{run_prefix}-{validation_id}-task-{task_id}"
+    run_name = f"fv-{validation_id}-task-{task_id}"
     mlflow.set_experiment(config["experiment"])
 
     with mlflow.start_run(run_name=run_name) as run:
@@ -430,11 +421,8 @@ def log_factor_validation_run(
         mlflow.log_param("task_id", task_id)
         mlflow.log_param("idea_id", idea_id)
         mlflow.log_param("profile_key", profile_key)
-        if business_type == "test_factor_validation":
-            mlflow.log_param("test_factor_validation_id", validation_id)
-        else:
-            mlflow.log_param("factor_validation_id", validation_id)
-        mlflow.log_param("business_type", business_type)
+        mlflow.log_param("factor_validation_id", validation_id)
+        mlflow.log_param("business_type", "factor_validation")
         mlflow.log_param("evaluation_type", str(evaluation.get("evaluation_type", "")))
         mlflow.log_param("engine_version", str(evaluation.get("engine_version", "")))
         mlflow.log_param("metrics_version", str(evaluation.get("metrics_version", "")))

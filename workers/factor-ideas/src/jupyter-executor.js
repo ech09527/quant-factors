@@ -10,10 +10,8 @@ export function registerHandler(businessType, handler) {
 }
 
 export function registerDefaultHandlers() {
-  for (const businessType of ["test_factor_validation", "factor_validation"]) {
-    if (!completionHandlers.has(businessType)) {
-      registerHandler(businessType, handleJupyterExecutionBusinessCompletion);
-    }
+  if (!completionHandlers.has("factor_validation")) {
+    registerHandler("factor_validation", handleJupyterExecutionBusinessCompletion);
   }
 }
 

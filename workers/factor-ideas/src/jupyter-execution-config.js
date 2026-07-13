@@ -1,5 +1,4 @@
 const FACTOR_VALIDATION_EXPERIMENT = "factor-validation";
-export const TEST_FACTOR_VALIDATION_EXPERIMENT = "test-factor-validation";
 
 export function jupyterExecutionViaDoEnabled(env) {
   const flag = String(env?.JUPYTER_EXECUTION_VIA_DO ?? "").trim().toLowerCase();
@@ -15,15 +14,7 @@ export function readJupyterExecutionTimeoutMinutes(env, fallback = 45) {
 }
 
 export function readJupyterWebSocketListenTimeoutMs(env, businessType = null) {
-  const type = String(businessType ?? "").trim();
-  const testMinutesRaw = env?.JUPYTER_WS_LISTEN_TIMEOUT_TEST_MINUTES;
-  if (type === "test_factor_validation" && testMinutesRaw != null && String(testMinutesRaw).trim() !== "") {
-    const testMinutes = Number(testMinutesRaw);
-    if (Number.isFinite(testMinutes) && testMinutes > 0) {
-      return Math.min(Math.floor(testMinutes), 180) * 60_000;
-    }
-  }
-
+  void businessType;
   const minutesRaw = env?.JUPYTER_WS_LISTEN_TIMEOUT_MINUTES;
   if (minutesRaw != null && String(minutesRaw).trim() !== "") {
     const minutes = Number(minutesRaw);
@@ -87,21 +78,6 @@ export function readMlflowConfig(env) {
     password,
     experiment: env.MLFLOW_EXPERIMENT_FACTOR_VALIDATION?.trim() || FACTOR_VALIDATION_EXPERIMENT
   };
-}
-
-export function readTestMlflowConfig(env) {
-  const base = readMlflowConfig(env);
-  return {
-    ...base,
-    experiment:
-      env.MLFLOW_EXPERIMENT_TEST_FACTOR_VALIDATION?.trim() ||
-      TEST_FACTOR_VALIDATION_EXPERIMENT
-  };
-}
-
-export function readTestFactorValidationSkipMlflow(env) {
-  const flag = String(env?.TEST_FACTOR_VALIDATION_SKIP_MLFLOW ?? "1").trim().toLowerCase();
-  return flag === "1" || flag === "true" || flag === "on" || flag === "yes";
 }
 
 export function coordinatorInternalToken(env) {

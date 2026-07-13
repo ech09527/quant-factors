@@ -1,9 +1,7 @@
 import { resolveFactorValidationTerminalStatus } from "./factor-validation-errors.js";
 import {
   readMlflowConfig,
-  readReportConfig,
-  readTestFactorValidationSkipMlflow,
-  readTestMlflowConfig
+  readReportConfig
 } from "./jupyter-execution-config.js";
 import { prefectExecutionEnabled, readPrefectDeploymentFactorValidation } from "./prefect-execution-config.js";
 import { createPrefectFlowRun } from "./prefect-client.js";
@@ -12,6 +10,7 @@ import {
   isActivePrefectFlowRun,
   upsertPrefectFlowRun
 } from "./prefect-execution-db.js";
+import { reconcilePrefectFlowRunsFromApi } from "./prefect-execution-reconcile.js";
 import {
   buildFactorValidationPrefectJobPayload,
   listPendingFactorValidationJobsForPrefect,
@@ -20,6 +19,7 @@ import {
   reportFactorValidationResults,
   reserveFactorValidationJobsForPrefect
 } from "./factor-validation-db.js";
+import { revertMlTaskPrefectDispatchToPending, updateMlTaskDiagnostics } from "./ml-task-db.js";
 import { getFactorValidationBatchEnabled, getValidationBatchLimit } from "./workflow-settings.js";
 import { hasStoredFactorSql, validateFactorSqlBasic } from "./factor-sql-validate.js";
 import { listEnabledJupyterServers } from "./validation-db.js";
@@ -95,6 +95,10 @@ export async function dispatchFactorValidationViaPrefect(env, options = {}) {
       ? Math.floor(Number(options.limit))
       : await getValidationBatchLimit(env.DB, env);
   const pendingLimit = Math.max(maxSubmit * 20, maxSubmit);
+  const reconcile = await reconcilePrefectFlowRunsFromApi(env, {
+    businessType: "factor_validation",
+    limit: pendingLimit
+  });
   const pending = await listPendingFactorValidationJobsForPrefect(env.DB, pendingLimit, env);
   if (pending.items.length === 0) {
     return { submitted: 0, reserved: 0, skipped_existing: 0, pending: 0, limit: maxSubmit };
@@ -117,6 +121,7 @@ export async function dispatchFactorValidationViaPrefect(env, options = {}) {
   let submitted = 0;
   let skippedExisting = 0;
   let skippedPreflight = 0;
+  let skippedNotPending = 0;
   let skippedUnreserved = pending.items.length - jobs.length;
   const errors = [];
 
@@ -158,9 +163,33 @@ export async function dispatchFactorValidationViaPrefect(env, options = {}) {
         skip_mlflow: false
       };
 
-      const created = await createPrefectFlowRun(env, deploymentRef, flowParameters, {
-        idempotencyKey: `factor_validation:${businessId}`,
-        tags: ["quant-factors", "factor_validation", `task:${businessId}`]
+      const marked = await markFactorValidationRunningAfterPrefect(env.DB, record.task_id, {
+        flowRunId: "",
+        deploymentName: deploymentRef
+      });
+      if (Number(marked.updated ?? 0) <= 0) {
+        skippedNotPending += 1;
+        continue;
+      }
+
+      let created;
+      try {
+        created = await createPrefectFlowRun(env, deploymentRef, flowParameters, {
+          idempotencyKey: `factor_validation:${businessId}`,
+          tags: ["quant-factors", "factor_validation", `task:${businessId}`]
+        });
+      } catch (error) {
+        await revertMlTaskPrefectDispatchToPending(
+          env.DB,
+          record.task_id,
+          error instanceof Error ? error.message : String(error)
+        );
+        throw error;
+      }
+
+      await updateMlTaskDiagnostics(env.DB, record.task_id, {
+        prefect_flow_run_id: String(created.flow_run_id ?? ""),
+        prefect_deployment: deploymentRef
       });
 
       await upsertPrefectFlowRun(env.DB, {
@@ -169,10 +198,6 @@ export async function dispatchFactorValidationViaPrefect(env, options = {}) {
         businessId,
         deploymentName: deploymentRef,
         status: "scheduled"
-      });
-      await markFactorValidationRunningAfterPrefect(env.DB, record.task_id, {
-        flowRunId: created.flow_run_id,
-        deploymentName: deploymentRef
       });
 
       submitted += 1;
@@ -187,11 +212,13 @@ export async function dispatchFactorValidationViaPrefect(env, options = {}) {
     reserved: reserveResult.reserved,
     skipped_existing: skippedExisting,
     skipped_preflight: skippedPreflight,
+    skipped_not_pending: skippedNotPending,
     skipped_unreserved: skippedUnreserved,
     pending: pending.items.length,
     limit: maxSubmit,
     deployment: deploymentRef,
     mlflow_config_present: Boolean(mlflowConfig?.tracking_uri),
+    reconcile,
     errors
   };
 }

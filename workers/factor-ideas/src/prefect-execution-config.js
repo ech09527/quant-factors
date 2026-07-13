@@ -37,13 +37,6 @@ export function readPrefectDeploymentFactorValidation(env) {
   );
 }
 
-export function readPrefectDeploymentTestFactorValidation(env) {
-  return (
-    env?.PREFECT_DEPLOYMENT_TEST_FACTOR_VALIDATION?.trim() ||
-    "test-factor-validation/production"
-  );
-}
-
 export function readPrefectStaleMinutes(env, fallback = 45) {
   const parsed = Number(env?.PREFECT_FLOW_RUN_STALE_MINUTES ?? fallback);
   if (!Number.isFinite(parsed) || parsed <= 0) {

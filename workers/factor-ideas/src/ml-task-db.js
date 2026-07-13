@@ -7,11 +7,9 @@ export const ML_TASK_STATUSES = new Set([
 ]);
 
 export const BUSINESS_TYPE_FACTOR_VALIDATION = "factor_validation";
-export const BUSINESS_TYPE_TEST_FACTOR_VALIDATION = "test_factor_validation";
 
 export const ML_VALIDATION_BUSINESS_TYPES = new Set([
-  BUSINESS_TYPE_FACTOR_VALIDATION,
-  BUSINESS_TYPE_TEST_FACTOR_VALIDATION
+  BUSINESS_TYPE_FACTOR_VALIDATION
 ]);
 
 export function isMlValidationBusinessType(businessType) {
@@ -547,6 +545,45 @@ export async function markMlTaskRunningIfPending(db, taskId, diagnosticsPatch = 
        WHERE id = ?
          AND status IN ('pending', 'failed')`
   ).bind(diagnosticsJson, taskId).run();
+  return { updated: Number(result.meta.changes ?? 0) };
+}
+
+export async function revertMlTaskPrefectDispatchToPending(
+  db,
+  taskId,
+  errorReason = "prefect flow dispatch failed"
+) {
+  const existing = await db.prepare(
+    `SELECT diagnostics
+       FROM ml_tasks
+       WHERE id = ?
+         AND status = 'running'
+       LIMIT 1`
+  ).bind(taskId).first();
+  if (!existing) {
+    return { updated: 0 };
+  }
+  const diagnostics = parseJsonObject(existing.diagnostics) ?? {};
+  if (String(diagnostics.dispatch_mode ?? "") !== "prefect") {
+    return { updated: 0, reason: "not_prefect_dispatch" };
+  }
+  delete diagnostics.prefect_flow_run_id;
+  delete diagnostics.prefect_deployment;
+  diagnostics.prefect_dispatch_error = String(errorReason ?? "").slice(0, 500);
+  const result = await db.prepare(
+    `UPDATE ml_tasks
+        SET status = 'pending',
+            error_reason = ?,
+            diagnostics = ?,
+            completed_at = NULL,
+            updated_at = datetime('now')
+      WHERE id = ?
+        AND status = 'running'`
+  ).bind(
+    String(errorReason ?? "").slice(0, 500),
+    JSON.stringify(diagnostics),
+    taskId
+  ).run();
   return { updated: Number(result.meta.changes ?? 0) };
 }
 

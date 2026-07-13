@@ -1,13 +1,7 @@
 import { buildFactorValidationEvalCode } from "./factor-validation-kernel-builder.js";
-import { buildTestFactorValidationEvalCode } from "./test-factor-validation-kernel-builder.js";
 import { buildAsyncEvalCode } from "./eval-kernel-builder.js";
 import { buildJupyterExecutionCallbackConfig, wrapJupyterExecutionCodeWithHttpCallback } from "./jupyter-execution-callback-python.js";
-import {
-  readMlflowConfig,
-  readReportConfig,
-  readTestFactorValidationSkipMlflow,
-  readTestMlflowConfig
-} from "./jupyter-execution-config.js";
+import { readMlflowConfig, readReportConfig } from "./jupyter-execution-config.js";
 
 function buildIdeaForEval(job) {
   return {
@@ -22,29 +16,7 @@ export function buildJupyterExecutionCode(env, execution, job, runtimeConfig) {
   const sampleStart = env.SAMPLE_START?.trim() || "2023-01-01";
   let innerCode;
 
-  if (execution.business_type === "test_factor_validation") {
-    const payload = {
-      jobs: [
-        {
-          task_id: Number(job.task_id),
-          test_factor_validation_id: Number(job.test_factor_validation_id),
-          idea_id: Number(job.idea_id),
-          idea: buildIdeaForEval(job),
-          factor_sql: job.factor_sql,
-          profile_key: String(job.profile_key),
-          validation_profile_key: String(job.profile_key),
-          label_kind: job.label_kind,
-          horizon_bars: job.horizon_bars
-        }
-      ],
-      runtime_config: runtimeConfig,
-      mlflow_config: readTestMlflowConfig(env),
-      mlflow_slim: runtimeConfig?.mlflow_slim !== false,
-      mlflow_preinstalled: runtimeConfig?.mlflow_preinstalled !== false,
-      skip_mlflow: readTestFactorValidationSkipMlflow(env)
-    };
-    innerCode = buildTestFactorValidationEvalCode(payload);
-  } else if (execution.business_type === "factor_validation") {
+  if (execution.business_type === "factor_validation") {
     const payload = {
       sample_start: sampleStart,
       jobs: [
@@ -93,9 +65,6 @@ export function buildJupyterExecutionCode(env, execution, job, runtimeConfig) {
 }
 
 export function jupyterExecutionReportPath(execution) {
-  if (execution.business_type === "test_factor_validation") {
-    return "/api/workflow/test-ml-tasks/report";
-  }
   if (execution.business_type === "factor_validation") {
     return "/api/workflow/ml-tasks/report";
   }

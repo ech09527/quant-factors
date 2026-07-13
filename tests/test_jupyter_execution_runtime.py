@@ -43,4 +43,3 @@ def test_jupyter_execution_runtime_uses_business_completion_handler():
     assert "applyMarkerCompletion" not in runtime
     assert "handleJupyterExecutionBusinessCompletion" in executor
     assert "handleJupyterExecutionCallbackApiRequest" in worker
-    assert "/reset-test-factor-validation" in worker

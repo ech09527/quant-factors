@@ -18,7 +18,6 @@ except ImportError:
     from mlflow_logger import log_factor_validation_run
 
 BUSINESS_TYPE_FACTOR_VALIDATION = "factor_validation"
-BUSINESS_TYPE_TEST_FACTOR_VALIDATION = "test_factor_validation"
 
 
 def _elapsed_ms(started_at: float) -> int:
@@ -94,14 +93,8 @@ def build_report_item(
         "evaluated_at": evaluated_at,
         "error_reason": error_reason,
         "diagnostics": merged_diag or None,
+        "factor_validation_id": int(job.get("factor_validation_id") or 0),
     }
-
-    if business_type == BUSINESS_TYPE_TEST_FACTOR_VALIDATION:
-        item["test_factor_validation_id"] = int(
-            job.get("test_factor_validation_id") or 0
-        )
-    else:
-        item["factor_validation_id"] = int(job.get("factor_validation_id") or 0)
 
     if isinstance(mlflow_meta, dict):
         item["mlflow_run_id"] = mlflow_meta.get("mlflow_run_id")
@@ -197,67 +190,6 @@ def report_items_from_run_result(
     return items
 
 
-def _mock_factor_sql(job: dict[str, Any]) -> dict[str, Any]:
-    existing = job.get("factor_sql")
-    if isinstance(existing, dict) and existing.get("signal_sql"):
-        return existing
-    return {
-        "version": "1",
-        "dialect": "duckdb",
-        "evaluation_type": "cross_sectional",
-        "data_source": "mock",
-        "signal_sql": "SELECT 1 AS mock_factor",
-        "postprocess": {},
-        "universe": "mock",
-    }
-
-
-def _mock_evaluation(job: dict[str, Any]) -> dict[str, Any]:
-    now = (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-    profile_key = _profile_key(job)
-    idea = _idea_from_job(job)
-    title = str(idea.get("title") or "mock-title")
-    title_hash = str(idea.get("title_hash") or ("0" * 64))
-    factor_sql = _mock_factor_sql(job)
-    return {
-        "status": "success",
-        "title": title,
-        "title_hash": title_hash,
-        "formula_hash": title_hash,
-        "expression_version": "mock",
-        "engine_version": "test-mock/1.0",
-        "metrics_version": "mock/1.0",
-        "evaluation_type": "cross_sectional",
-        "validation_profile_key": profile_key,
-        "evaluated_at": now,
-        "data_range": {"start": "2023-01-01", "end": "2023-12-31", "n_bars": 100},
-        "factor_sql": factor_sql,
-        "metrics": {
-            "mean_ic": 0.05,
-            "ic_ir": 1.2,
-            "mean_rank_ic": 0.04,
-            "rank_ic_ir": 1.0,
-            "n_periods": 100,
-            "ic_positive_ratio": 0.55,
-        },
-        "diagnostics": {"mock": True, "avg_universe_size": 120},
-        "ic_series": {
-            "period_axis": "daily",
-            "n_points": 3,
-            "points": [
-                {"t": "2023-01-01", "ic": 0.03, "rank_ic": 0.02},
-                {"t": "2023-01-02", "ic": 0.04, "rank_ic": 0.03},
-                {"t": "2023-01-03", "ic": 0.05, "rank_ic": 0.04},
-            ],
-        },
-    }
-
-
 def _ensure_mlflow(mlflow_preinstalled: bool = True) -> None:
     try:
         import mlflow  # noqa: F401
@@ -278,7 +210,6 @@ def _ensure_mlflow(mlflow_preinstalled: bool = True) -> None:
 
 def _log_mlflow(
     *,
-    business_type: str,
     evaluation: dict[str, Any],
     job: dict[str, Any],
     mlflow_config: dict[str, Any],
@@ -287,11 +218,7 @@ def _log_mlflow(
     task_id = int(job.get("task_id") or 0)
     idea_id = int(job.get("idea_id") or 0)
     profile_key = _profile_key(job)
-    validation_id = int(
-        job.get("test_factor_validation_id")
-        if business_type == BUSINESS_TYPE_TEST_FACTOR_VALIDATION
-        else job.get("factor_validation_id") or 0
-    )
+    validation_id = int(job.get("factor_validation_id") or 0)
     logging.getLogger("mlflow").setLevel(logging.ERROR)
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
         io.StringIO()
@@ -304,94 +231,7 @@ def _log_mlflow(
             profile_key=profile_key,
             mlflow_config=mlflow_config,
             slim=mlflow_slim,
-            business_type=business_type,
         )
-
-
-def run_test_factor_validation_job(
-    job: dict[str, Any],
-    *,
-    mlflow_config: dict[str, Any] | None = None,
-    mlflow_slim: bool = True,
-    mlflow_preinstalled: bool = True,
-    skip_mlflow: bool = False,
-) -> dict[str, Any]:
-    """Mock 评估 + 可选 MLflow（test_factor_validation）。"""
-    task_id = job.get("task_id")
-    test_factor_validation_id = job.get("test_factor_validation_id")
-    idea_id = int(job.get("idea_id") or 0)
-    profile_key = _profile_key(job)
-    job_started = time.perf_counter()
-    timing: dict[str, int] = {}
-
-    try:
-        if not skip_mlflow:
-            import_started = time.perf_counter()
-            _ensure_mlflow(mlflow_preinstalled)
-            timing["t_import_mlflow_ms"] = _elapsed_ms(import_started)
-
-        eval_started = time.perf_counter()
-        time.sleep(0.05)
-        evaluation = _mock_evaluation(job)
-        timing["t_eval_ms"] = _elapsed_ms(eval_started)
-        evaluation["task_id"] = task_id
-        evaluation["test_factor_validation_id"] = test_factor_validation_id
-
-        eval_status = str(evaluation.get("status", "failed"))
-        mlflow_meta = None
-        final_status = eval_status
-        error_reason = evaluation.get("error_reason")
-        diagnostics = dict(evaluation.get("diagnostics") or {})
-        diagnostics["timing"] = dict(timing)
-        diagnostics["mock_eval"] = True
-
-        if eval_status == "success":
-            if skip_mlflow:
-                diagnostics["skip_mlflow"] = True
-                final_status = "success"
-            else:
-                mlflow_started = time.perf_counter()
-                try:
-                    mlflow_meta = _log_mlflow(
-                        business_type=BUSINESS_TYPE_TEST_FACTOR_VALIDATION,
-                        evaluation=evaluation,
-                        job=job,
-                        mlflow_config=mlflow_config or {},
-                        mlflow_slim=mlflow_slim,
-                    )
-                except Exception as exc:
-                    error_reason = f"MLflow 写入失败: {exc}"
-                    diagnostics["mlflow_error"] = str(exc)
-                timing["t_mlflow_ms"] = _elapsed_ms(mlflow_started)
-                final_status = "success" if mlflow_meta else "failed"
-
-        timing["t_total_ms"] = _elapsed_ms(job_started)
-        diagnostics["timing"] = dict(timing)
-        return {
-            "task_id": task_id,
-            "test_factor_validation_id": test_factor_validation_id,
-            "status": final_status,
-            "evaluation": evaluation,
-            "mlflow": mlflow_meta,
-            "timing": timing,
-            "diagnostics": diagnostics,
-            "error_reason": error_reason,
-        }
-    except Exception as exc:
-        timing["t_total_ms"] = _elapsed_ms(job_started)
-        return {
-            "task_id": task_id,
-            "test_factor_validation_id": test_factor_validation_id,
-            "status": "failed",
-            "diagnostics": {
-                "error": str(exc),
-                "traceback": traceback.format_exc(limit=3),
-                "timing": timing,
-                "mock_eval": True,
-            },
-            "error_reason": str(exc),
-            "timing": timing,
-        }
 
 
 def run_factor_validation_job(
@@ -457,7 +297,6 @@ def run_factor_validation_job(
             mlflow_started = time.perf_counter()
             try:
                 mlflow_meta = _log_mlflow(
-                    business_type=BUSINESS_TYPE_FACTOR_VALIDATION,
                     evaluation=evaluation,
                     job=job,
                     mlflow_config=mlflow_config or {},
@@ -515,27 +354,16 @@ def run_validation_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     for job in jobs:
         if not isinstance(job, dict):
             continue
-        if business_type == BUSINESS_TYPE_TEST_FACTOR_VALIDATION:
-            results.append(
-                run_test_factor_validation_job(
-                    job,
-                    mlflow_config=mlflow_config,
-                    mlflow_slim=mlflow_slim,
-                    mlflow_preinstalled=mlflow_preinstalled,
-                    skip_mlflow=skip_mlflow,
-                )
+        results.append(
+            run_factor_validation_job(
+                job,
+                sample_start=sample_start,
+                runtime_config=runtime_config,
+                mlflow_config=mlflow_config,
+                mlflow_slim=mlflow_slim,
+                mlflow_preinstalled=mlflow_preinstalled,
             )
-        else:
-            results.append(
-                run_factor_validation_job(
-                    job,
-                    sample_start=sample_start,
-                    runtime_config=runtime_config,
-                    mlflow_config=mlflow_config,
-                    mlflow_slim=mlflow_slim,
-                    mlflow_preinstalled=mlflow_preinstalled,
-                )
-            )
+        )
     return results
 
 
@@ -557,11 +385,7 @@ def build_prefect_job_payload(
     return {
         "business_type": business_type,
         "task_id": int(job.get("task_id") or 0),
-        "validation_id": int(
-            job.get("test_factor_validation_id")
-            if business_type == BUSINESS_TYPE_TEST_FACTOR_VALIDATION
-            else job.get("factor_validation_id") or 0
-        ),
+        "validation_id": int(job.get("factor_validation_id") or 0),
         "job": enriched,
         "sample_start": sample_start,
         "runtime_config": runtime_config or {},

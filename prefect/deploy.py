@@ -154,8 +154,7 @@ def main() -> int:
         ensure_work_pool(args.work_pool, args.concurrency)
     deploy_flows(args.work_pool)
     print(
-        f"Deployed factor-validation/production and test-factor-validation/production "
-        f"on pool {args.work_pool} (git pull: {args.git_repository}@{args.git_branch})"
+        f"Deployed factor-validation/production on pool {args.work_pool} (git pull: {args.git_repository}@{args.git_branch})"
     )
     return 0
 

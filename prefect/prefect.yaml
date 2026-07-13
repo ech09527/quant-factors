@@ -16,11 +16,3 @@ deployments:
   entrypoint: flows/factor_validation.py:run_factor_validation
   work_pool:
     name: quant-factors-eval
-- name: production
-  tags:
-  - quant-factors
-  - test-factor-validation
-  description: 执行单条 test_factor_validation（默认 mock，可 skip_mlflow）。
-  entrypoint: flows/test_factor_validation.py:run_test_factor_validation
-  work_pool:
-    name: quant-factors-eval

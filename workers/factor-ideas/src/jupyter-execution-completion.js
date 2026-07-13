@@ -1,5 +1,4 @@
 import { reportFactorValidationResults } from "./factor-validation-db.js";
-import { reportTestFactorValidationResults } from "./test-factor-validation-db.js";
 
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -35,11 +34,7 @@ function mapSingleResultToReportItem(businessType, job, result) {
     mlflow_run_url: mlflow?.mlflow_run_url == null ? null : String(mlflow.mlflow_run_url)
   };
 
-  if (businessType === "test_factor_validation") {
-    item.test_factor_validation_id = Number(
-      result?.test_factor_validation_id ?? job?.test_factor_validation_id
-    );
-  } else if (businessType === "factor_validation") {
+  if (businessType === "factor_validation") {
     item.factor_validation_id = Number(result?.factor_validation_id ?? job?.factor_validation_id);
   }
 
@@ -77,10 +72,6 @@ export async function applyMarkerCompletion(env, execution, job, parsed) {
   const items = markerResultToReportItems(businessType, job, parsed);
   const terminalStatus = pickTerminalStatusFromResults(parsed?.results);
 
-  if (businessType === "test_factor_validation") {
-    const result = await reportTestFactorValidationResults(env.DB, items);
-    return { terminalStatus, result };
-  }
   if (businessType === "factor_validation") {
     const result = await reportFactorValidationResults(env.DB, items);
     return { terminalStatus, result };
