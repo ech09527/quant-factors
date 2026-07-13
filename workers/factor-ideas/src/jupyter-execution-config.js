@@ -1,5 +1,3 @@
-const FACTOR_VALIDATION_EXPERIMENT = "factor-validation";
-
 export function jupyterExecutionViaDoEnabled(env) {
   const flag = String(env?.JUPYTER_EXECUTION_VIA_DO ?? "").trim().toLowerCase();
   return flag === "1" || flag === "true" || flag === "on" || flag === "yes";
@@ -75,8 +73,7 @@ export function readMlflowConfig(env) {
   return {
     tracking_uri: trackingUri,
     username,
-    password,
-    experiment: env.MLFLOW_EXPERIMENT_FACTOR_VALIDATION?.trim() || FACTOR_VALIDATION_EXPERIMENT
+    password
   };
 }
 

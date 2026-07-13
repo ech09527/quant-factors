@@ -30,7 +30,7 @@ def resolve_mlflow_config(overrides: dict[str, Any] | None = None) -> dict[str, 
         or os.getenv("DAGSHUB_TOKEN", "").strip()
     )
     experiment = (
-        str(src.get("experiment") or "").strip()
+        os.getenv("MLFLOW_EXPERIMENT_FACTOR_VALIDATION", "").strip()
         or os.getenv("MLFLOW_EXPERIMENT_NAME", "").strip()
         or FACTOR_VALIDATION_EXPERIMENT
     )

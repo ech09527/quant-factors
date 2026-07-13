@@ -83,8 +83,6 @@ function buildMlflowFlowParameters(mlflowConfig) {
   const trackingUri = String(mlflowConfig?.tracking_uri ?? "").trim();
   const username = String(mlflowConfig?.username ?? "").trim();
   const password = String(mlflowConfig?.password ?? "").trim();
-  const experiment =
-    String(mlflowConfig?.experiment ?? "").trim() || "factor-validation";
   const configured = Boolean(trackingUri && username && password);
   return {
     skip_mlflow: !configured,
@@ -92,8 +90,7 @@ function buildMlflowFlowParameters(mlflowConfig) {
       ? {
           tracking_uri: trackingUri,
           username,
-          password,
-          experiment
+          password
         }
       : null
   };

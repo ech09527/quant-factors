@@ -5,6 +5,7 @@ import {
   listMlflowTrackingConfigs,
   resolveActiveMlflowConfig,
   backfillSuccessfulMlTasksMlflowTracking,
+  testMlflowTrackingConnection,
   updateMlflowTrackingConfig
 } from "./mlflow-tracking-config-db.js";
 
@@ -93,8 +94,7 @@ function activeConfigSummary(config) {
       source: null,
       key: null,
       tracking_uri: null,
-      username: null,
-      experiment: null
+      username: null
     };
   }
   return {
@@ -102,8 +102,7 @@ function activeConfigSummary(config) {
     source: config.source ?? null,
     key: config.key ?? null,
     tracking_uri: config.tracking_uri ?? null,
-    username: config.username ?? null,
-    experiment: config.experiment ?? null
+    username: config.username ?? null
   };
 }
 
@@ -140,6 +139,20 @@ export async function handleMlflowTrackingApiRequest(request, env) {
     try {
       const data = await backfillSuccessfulMlTasksMlflowTracking(env.DB, env);
       return wrap(env, request, jsonResponse({ ok: true, ...data }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return wrap(env, request, badRequest(message));
+    }
+  }
+
+  if (pathname === "/api/mlflow-tracking-configs/test-connection" && method === "POST") {
+    const body = await parseJsonBody(request);
+    if (!body) {
+      return wrap(env, request, badRequest("invalid JSON body"));
+    }
+    try {
+      const result = await testMlflowTrackingConnection(env.DB, env, body);
+      return wrap(env, request, jsonResponse({ ok: true, ...result }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return wrap(env, request, badRequest(message));

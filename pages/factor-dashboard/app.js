@@ -204,10 +204,10 @@ const els = {
   mlflowTrackingUriInput: document.getElementById("mlflow-tracking-uri"),
   mlflowUsernameInput: document.getElementById("mlflow-username"),
   mlflowPasswordInput: document.getElementById("mlflow-password"),
-  mlflowExperimentInput: document.getElementById("mlflow-experiment"),
   mlflowSortOrderInput: document.getElementById("mlflow-sort-order"),
   mlflowEnabledInput: document.getElementById("mlflow-enabled"),
   mlflowFormError: document.getElementById("mlflow-form-error"),
+  mlflowFormTestResult: document.getElementById("mlflow-form-test-result"),
   ideasGenerate: document.getElementById("ideas-generate"),
   ideasPromptPreview: document.getElementById("ideas-prompt-preview"),
   generateCount: document.getElementById("generate-count"),
@@ -1297,7 +1297,7 @@ function renderMlflowActiveSummary() {
     return;
   }
   const sourceLabel = active.source === "d1" ? "D1 配置" : "环境变量";
-  els.mlflowActiveSummary.textContent = `当前生效：${active.key || "-"}（${sourceLabel}）· ${active.tracking_uri} · experiment=${active.experiment}`;
+  els.mlflowActiveSummary.textContent = `当前生效：${active.key || "-"}（${sourceLabel}）· ${active.tracking_uri}`;
 }
 
 function renderMlflowTable(items) {
@@ -1305,7 +1305,7 @@ function renderMlflowTable(items) {
     return;
   }
   if (!items.length) {
-    els.mlflowBody.innerHTML = `<tr><td colspan="9" class="muted">暂无 MLflow 配置。点击「新建配置」添加。</td></tr>`;
+    els.mlflowBody.innerHTML = `<tr><td colspan="8" class="muted">暂无 MLflow 配置。点击「新建配置」添加。</td></tr>`;
     return;
   }
   els.mlflowBody.innerHTML = items
@@ -1319,7 +1319,6 @@ function renderMlflowTable(items) {
         <td>${escapeHtml(item.name)}</td>
         <td class="mono">${escapeHtml(item.tracking_uri)}</td>
         <td>${escapeHtml(item.username)}</td>
-        <td>${escapeHtml(item.experiment)}</td>
         <td>${escapeHtml(String(item.sort_order ?? 0))}</td>
         <td>${status}</td>
         <td class="muted">${escapeHtml(item.last_used_at || "-")}</td>
@@ -1345,10 +1344,26 @@ function setMlflowFormError(message = "") {
   els.mlflowFormError.classList.remove("hidden");
 }
 
+function setMlflowFormTestResult(message = "", { ok = false } = {}) {
+  if (!els.mlflowFormTestResult) {
+    return;
+  }
+  if (!message) {
+    els.mlflowFormTestResult.classList.add("hidden");
+    els.mlflowFormTestResult.textContent = "";
+    els.mlflowFormTestResult.classList.remove("auth-error");
+    return;
+  }
+  els.mlflowFormTestResult.textContent = message;
+  els.mlflowFormTestResult.classList.toggle("auth-error", !ok);
+  els.mlflowFormTestResult.classList.remove("hidden");
+}
+
 function openMlflowDialog(mode, config = null) {
   state.mlflowFormMode = mode;
   state.editingMlflowKey = config?.key ?? null;
   setMlflowFormError("");
+  setMlflowFormTestResult("");
   els.mlflowFormTitle.textContent = mode === "create" ? "新建 MLflow 配置" : "编辑 MLflow 配置";
   els.mlflowKeyInput.disabled = mode === "edit";
   els.mlflowKeyInput.value = config?.key ?? "";
@@ -1357,10 +1372,53 @@ function openMlflowDialog(mode, config = null) {
   els.mlflowUsernameInput.value = config?.username ?? "";
   els.mlflowPasswordInput.value = "";
   els.mlflowPasswordInput.required = mode === "create";
-  els.mlflowExperimentInput.value = config?.experiment ?? "factor-validation";
   els.mlflowSortOrderInput.value = String(config?.sort_order ?? 0);
   els.mlflowEnabledInput.checked = config?.enabled !== false;
   els.mlflowDialog.showModal();
+}
+
+function buildMlflowTestPayload() {
+  const payload = {
+    tracking_uri: els.mlflowTrackingUriInput.value.trim().replace(/\/$/, ""),
+    username: els.mlflowUsernameInput.value.trim(),
+  };
+  const password = els.mlflowPasswordInput.value.trim();
+  if (password) {
+    payload.password = password;
+  } else if (state.mlflowFormMode === "edit" && state.editingMlflowKey) {
+    payload.key = state.editingMlflowKey;
+  }
+  return payload;
+}
+
+async function testMlflowFormConnection() {
+  setMlflowFormError("");
+  setMlflowFormTestResult("正在测试连接…");
+  const payload = buildMlflowTestPayload();
+  if (!payload.tracking_uri || !payload.username) {
+    setMlflowFormTestResult("请填写 Tracking URI 与用户名", { ok: false });
+    return;
+  }
+  if (!payload.password && !payload.key) {
+    setMlflowFormTestResult("请填写密码，或在已保存配置下留空以使用已存密码", { ok: false });
+    return;
+  }
+  try {
+    const result = await apiPost("/api/mlflow-tracking-configs/test-connection", payload);
+    const experiments =
+      Array.isArray(result.existing_experiments) && result.existing_experiments.length
+        ? result.existing_experiments.join("、")
+        : "（无）";
+    setMlflowFormTestResult(
+      `连接成功（${result.latency_ms ?? "-"}ms）· experiment=${result.experiment} · 可见实验：${experiments} · 测试 Run：${result.test_run_id}`,
+      { ok: true },
+    );
+    showToast("MLflow 连接测试成功", "success");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setMlflowFormTestResult(message, { ok: false });
+    showToast(message);
+  }
 }
 
 async function submitMlflowForm(event) {
@@ -1369,7 +1427,6 @@ async function submitMlflowForm(event) {
     name: els.mlflowNameInput.value.trim(),
     tracking_uri: els.mlflowTrackingUriInput.value.trim().replace(/\/$/, ""),
     username: els.mlflowUsernameInput.value.trim(),
-    experiment: els.mlflowExperimentInput.value.trim() || "factor-validation",
     sort_order: Number(els.mlflowSortOrderInput.value) || 0,
     enabled: els.mlflowEnabledInput.checked,
   };
@@ -2445,6 +2502,10 @@ document.getElementById("mlflow-backfill")?.addEventListener("click", async () =
 });
 
 els.mlflowForm?.addEventListener("submit", submitMlflowForm);
+
+document.getElementById("mlflow-form-test")?.addEventListener("click", () => {
+  testMlflowFormConnection().catch(handleError);
+});
 
 document.getElementById("mlflow-form-cancel")?.addEventListener("click", () => {
   els.mlflowDialog.close();

@@ -57,8 +57,6 @@ const username =
   env.MLFLOW_TRACKING_USERNAME?.trim() || env.DAGSHUB_USER?.trim() || "";
 const password =
   env.MLFLOW_TRACKING_PASSWORD?.trim() || env.DAGSHUB_TOKEN?.trim() || "";
-const experiment =
-  env.MLFLOW_EXPERIMENT_FACTOR_VALIDATION?.trim() || "factor-validation";
 
 if (!trackingUri || !username || !password) {
   console.error(
@@ -72,15 +70,14 @@ const name = "DagsHub quant.mlflow";
 
 const sql = `
 INSERT INTO mlflow_tracking_configs
-  (key, name, tracking_uri, username, password, experiment, enabled, sort_order)
+  (key, name, tracking_uri, username, password, enabled, sort_order)
 VALUES
-  (${sqlString(key)}, ${sqlString(name)}, ${sqlString(trackingUri)}, ${sqlString(username)}, ${sqlString(password)}, ${sqlString(experiment)}, 1, 0)
+  (${sqlString(key)}, ${sqlString(name)}, ${sqlString(trackingUri)}, ${sqlString(username)}, ${sqlString(password)}, 1, 0)
 ON CONFLICT(key) DO UPDATE SET
   name = excluded.name,
   tracking_uri = excluded.tracking_uri,
   username = excluded.username,
   password = excluded.password,
-  experiment = excluded.experiment,
   enabled = 1,
   updated_at = datetime('now');
 UPDATE mlflow_tracking_configs

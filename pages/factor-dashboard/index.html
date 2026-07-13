@@ -253,7 +253,6 @@
                 <th>名称</th>
                 <th>Tracking URI</th>
                 <th>用户名</th>
-                <th>Experiment</th>
                 <th>排序</th>
                 <th>状态</th>
                 <th>最近使用</th>
@@ -506,11 +505,12 @@
           autocomplete="off"
           password-toggle
         ></sl-input>
-        <sl-input id="mlflow-experiment" name="experiment" label="Experiment" value="factor-validation"></sl-input>
         <sl-input id="mlflow-sort-order" name="sort_order" type="number" label="排序" value="0"></sl-input>
         <sl-checkbox id="mlflow-enabled" name="enabled" checked>启用（同时禁用其它配置）</sl-checkbox>
         <p id="mlflow-form-error" class="auth-error hidden"></p>
+        <p id="mlflow-form-test-result" class="field-hint hidden"></p>
         <div class="profile-form-actions">
+          <sl-button type="button" id="mlflow-form-test" size="small">测试连接</sl-button>
           <sl-button type="submit" variant="primary">保存</sl-button>
           <sl-button type="button" id="mlflow-form-cancel" size="small">取消</sl-button>
         </div>
