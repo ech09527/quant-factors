@@ -16,10 +16,15 @@ cd prefect
 uv sync
 uv run python deploy.py --work-pool quant-factors-eval --concurrency 10
 
-# 启动 worker（与 parquet 数据同机）
+# 启动 worker（与 parquet 数据同机；需已配置 GitHub deploy key 可读本仓库）
 export QUANT_DATA_PATH="/path/to/data-root"   # 实际文件: $QUANT_DATA_PATH/quant-data/futures/um/klines/1h.parquet
 uv run prefect worker start --pool quant-factors-eval
 ```
+
+Deployment 使用 **git clone** pull 模式：每次 flow run 前 worker 自动 `git clone` 仓库（默认 `git@github.com:ech09527/quant-factors.git` 的 `main` 分支），无需在机器上手工维护代码目录。可通过环境变量覆盖：
+
+- `PREFECT_DEPLOY_GIT_REPOSITORY` — SSH 或 HTTPS 仓库地址
+- `PREFECT_DEPLOY_GIT_BRANCH` — 分支名（默认 `main`）
 
 ## Flow
 

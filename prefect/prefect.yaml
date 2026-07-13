@@ -1,0 +1,26 @@
+name: quant-factors-prefect
+prefect-version: '>=3.0.0'
+pull:
+- prefect.deployments.steps.git_clone:
+    id: clone-quant-factors
+    repository: git@github.com:ech09527/quant-factors.git
+    branch: main
+- prefect.deployments.steps.set_working_directory:
+    directory: '{{ clone-quant-factors.directory }}/prefect'
+deployments:
+- name: production
+  tags:
+  - quant-factors
+  - factor-validation
+  description: 执行单条 factor_validation 并回写 Worker。
+  entrypoint: flows/factor_validation.py:run_factor_validation
+  work_pool:
+    name: quant-factors-eval
+- name: production
+  tags:
+  - quant-factors
+  - test-factor-validation
+  description: 执行单条 test_factor_validation（默认 mock，可 skip_mlflow）。
+  entrypoint: flows/test_factor_validation.py:run_test_factor_validation
+  work_pool:
+    name: quant-factors-eval

@@ -60,6 +60,7 @@ bash scripts/deploy-qf-cloudflare.sh
 因子验证与测试验证默认经 **Prefect**（`EXECUTION_BACKEND=prefect`）：
 
 - Worker Cron claim → `create_flow_run` → [prefect/flows](prefect/flows/) 在 work pool 上跑 DuckDB + MLflow
+- Prefect worker 按 deployment `pull_steps` **git clone** 仓库（`git@github.com:ech09527/quant-factors.git`），无需固定本机代码目录
 - 结果经现有 `/api/workflow/ml-tasks/report` 回写 D1
 - 账本表：`prefect_flow_runs`（见 `migrations/0013_prefect_flow_runs.sql`）
 
