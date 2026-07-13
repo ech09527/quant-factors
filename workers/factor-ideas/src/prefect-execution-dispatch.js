@@ -1,8 +1,9 @@
 import { resolveFactorValidationTerminalStatus } from "./factor-validation-errors.js";
+import { readReportConfig } from "./jupyter-execution-config.js";
 import {
-  readMlflowConfig,
-  readReportConfig
-} from "./jupyter-execution-config.js";
+  resolveActiveMlflowConfig,
+  touchMlflowTrackingConfigUsed
+} from "./mlflow-tracking-config-db.js";
 import { prefectExecutionEnabled, readPrefectDeploymentFactorValidation } from "./prefect-execution-config.js";
 import { createPrefectFlowRun } from "./prefect-client.js";
 import {
@@ -136,8 +137,11 @@ export async function dispatchFactorValidationViaPrefect(env, options = {}) {
   const runtimeConfig = await resolveRuntimeConfig(env);
   const callbackBaseUrl = readReportConfig(env, runtimeConfig).api_base_url;
   const sampleStart = env.SAMPLE_START?.trim() || "2023-01-01";
-  const mlflowConfig = readMlflowConfig(env);
+  const mlflowConfig = await resolveActiveMlflowConfig(env.DB, env);
   const mlflowFlow = buildMlflowFlowParameters(mlflowConfig);
+  if (mlflowConfig?.key) {
+    await touchMlflowTrackingConfigUsed(env.DB, mlflowConfig.key);
+  }
 
   let submitted = 0;
   let skippedExisting = 0;

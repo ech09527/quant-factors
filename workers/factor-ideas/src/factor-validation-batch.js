@@ -22,33 +22,9 @@ import {
   getFactorValidationBatchEnabled,
   getValidationBatchLimit
 } from "./workflow-settings.js";
+import { resolveActiveMlflowConfig } from "./mlflow-tracking-config-db.js";
 
 const KERNEL_CAPACITY_REASON = "jupyter kernel capacity reached";
-const FACTOR_VALIDATION_EXPERIMENT = "factor-validation";
-
-function readMlflowConfig(env) {
-  const trackingUri = (
-    env.MLFLOW_TRACKING_URI?.trim() ||
-    env.MLFLOW_TRACKING_URL?.trim() ||
-    ""
-  );
-  const username = (
-    env.MLFLOW_TRACKING_USERNAME?.trim() ||
-    env.DAGSHUB_USER?.trim() ||
-    ""
-  );
-  const password = (
-    env.MLFLOW_TRACKING_PASSWORD?.trim() ||
-    env.DAGSHUB_TOKEN?.trim() ||
-    ""
-  );
-  return {
-    tracking_uri: trackingUri,
-    username,
-    password,
-    experiment: env.MLFLOW_EXPERIMENT_FACTOR_VALIDATION?.trim() || FACTOR_VALIDATION_EXPERIMENT
-  };
-}
 
 function buildIdeaForEval(job) {
   return {
@@ -95,7 +71,7 @@ export async function runFactorValidationBatch(env, options = {}) {
   const limit = await getValidationBatchLimit(env.DB, env);
   const sampleStart = env.SAMPLE_START?.trim() || "2023-01-01";
   const preferredServerKey = env.VALIDATION_JUPYTER_SERVER_KEY?.trim() || "lynas-pub";
-  const mlflowConfig = readMlflowConfig(env);
+  const mlflowConfig = await resolveActiveMlflowConfig(env.DB, env);
 
   const pending = await listPendingFactorValidationJobs(env.DB, limit, env);
   if (pending.items.length === 0) {

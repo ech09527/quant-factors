@@ -12,6 +12,7 @@ import {
   stripKernelExecutionDiagnostics,
   updateMlTaskDiagnostics
 } from "./ml-task-db.js";
+import { resolveActiveMlflowConfig } from "./mlflow-tracking-config-db.js";
 
 const FACTOR_VALIDATION_EXPERIMENT = "factor-validation";
 
@@ -563,7 +564,13 @@ function normalizeFactorValidationReportItem(item) {
   };
 }
 
-export async function reportFactorValidationResults(db, items) {
+export async function reportFactorValidationResults(db, items, env = null) {
+  let activeMlflowKey = null;
+  if (env) {
+    const active = await resolveActiveMlflowConfig(db, env);
+    activeMlflowKey = active?.key ?? null;
+  }
+
   let updated = 0;
   const reports = [];
   for (const item of items) {
@@ -576,10 +583,23 @@ export async function reportFactorValidationResults(db, items) {
     const normalized = normalizeFactorValidationReportItem(
       coerceEvalPhaseRunningStatus(item)
     );
-    const taskReport = await reportMlTaskResults(db, [normalized]);
+    const reportPhase = String(normalized.diagnostics?.report_phase ?? "").trim();
+    const withTrackingKey =
+      activeMlflowKey &&
+      (normalized.mlflow_run_id ||
+        normalized.mlflow_run_url ||
+        reportPhase === "mlflow" ||
+        normalized.mlflow_tracking_config_key)
+        ? {
+            ...normalized,
+            mlflow_tracking_config_key:
+              normalized.mlflow_tracking_config_key ?? activeMlflowKey
+          }
+        : normalized;
+    const taskReport = await reportMlTaskResults(db, [withTrackingKey]);
     const taskUpdated = Number(taskReport.results?.[0]?.updated ?? 0);
     updated += taskUpdated;
-    reports.push({ task_id: taskId, updated: taskUpdated, normalized });
+    reports.push({ task_id: taskId, updated: taskUpdated, normalized: withTrackingKey });
 
     if (taskUpdated <= 0 || !Number.isFinite(factorValidationId) || factorValidationId <= 0) {
       continue;

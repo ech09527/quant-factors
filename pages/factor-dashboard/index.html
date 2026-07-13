@@ -42,6 +42,7 @@
         <button class="tab" data-tab="factor-validations" role="tab" aria-selected="false">验证结果</button>
         <button class="tab" data-tab="profiles" role="tab" aria-selected="false">验证配置</button>
         <button class="tab" data-tab="llm" role="tab" aria-selected="false">LLM API</button>
+        <button class="tab" data-tab="mlflow" role="tab" aria-selected="false">MLflow</button>
         <button class="tab" data-tab="operators" role="tab" aria-selected="false">自定义算子</button>
         <button class="tab" data-tab="settings" role="tab" aria-selected="false">系统配置</button>
       </nav>
@@ -229,6 +230,37 @@
               </tr>
             </thead>
             <tbody id="llm-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="panel-mlflow">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <p class="muted profile-hint" id="mlflow-active-summary">加载中…</p>
+          </div>
+          <div class="toolbar-right toolbar-actions">
+            <sl-button id="mlflow-backfill" size="small">关联历史成功任务</sl-button>
+            <sl-button id="mlflow-create" variant="primary" size="small">新建配置</sl-button>
+            <sl-button id="mlflow-refresh" size="small">刷新</sl-button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="validation-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>名称</th>
+                <th>Tracking URI</th>
+                <th>用户名</th>
+                <th>Experiment</th>
+                <th>排序</th>
+                <th>状态</th>
+                <th>最近使用</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="mlflow-body"></tbody>
           </table>
         </div>
       </section>
@@ -446,6 +478,41 @@
         <p id="llm-models-form-error" class="auth-error hidden"></p>
         <div class="profile-form-actions">
           <sl-button type="button" id="llm-models-form-close">关闭</sl-button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="mlflow-dialog">
+      <form id="mlflow-form" class="profile-form">
+        <h2 id="mlflow-form-title">新建 MLflow 配置</h2>
+        <sl-input id="mlflow-key" name="key" label="Key" pattern="[a-z][a-z0-9_-]*" required>
+          <span slot="help-text">如 dagshub-quant</span>
+        </sl-input>
+        <sl-input id="mlflow-name" name="name" label="名称" required></sl-input>
+        <sl-input
+          id="mlflow-tracking-uri"
+          name="tracking_uri"
+          type="url"
+          label="Tracking URI"
+          placeholder="https://dagshub.com/user/repo.mlflow"
+          required
+        ></sl-input>
+        <sl-input id="mlflow-username" name="username" label="用户名" required></sl-input>
+        <sl-input
+          id="mlflow-password"
+          name="password"
+          type="password"
+          label="密码 / Token"
+          autocomplete="off"
+          password-toggle
+        ></sl-input>
+        <sl-input id="mlflow-experiment" name="experiment" label="Experiment" value="factor-validation"></sl-input>
+        <sl-input id="mlflow-sort-order" name="sort_order" type="number" label="排序" value="0"></sl-input>
+        <sl-checkbox id="mlflow-enabled" name="enabled" checked>启用（同时禁用其它配置）</sl-checkbox>
+        <p id="mlflow-form-error" class="auth-error hidden"></p>
+        <div class="profile-form-actions">
+          <sl-button type="submit" variant="primary">保存</sl-button>
+          <sl-button type="button" id="mlflow-form-cancel" size="small">取消</sl-button>
         </div>
       </form>
     </dialog>

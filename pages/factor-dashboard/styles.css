@@ -585,6 +585,7 @@ tbody tr:hover {
 }
 
 #llm-dialog,
+#mlflow-dialog,
 #profile-dialog,
 #llm-route-dialog,
 #llm-models-dialog {
@@ -620,6 +621,7 @@ tbody tr:hover {
 #factor-sql-dialog::backdrop,
 #profile-dialog::backdrop,
 #llm-dialog::backdrop,
+#mlflow-dialog::backdrop,
 #llm-route-dialog::backdrop,
 #llm-models-dialog::backdrop,
 #idea-import-dialog::backdrop {

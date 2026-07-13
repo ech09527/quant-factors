@@ -1,19 +1,9 @@
-function readMlflowCredentials(env) {
-  const trackingUri = (
-    env.MLFLOW_TRACKING_URI?.trim() ||
-    env.MLFLOW_TRACKING_URL?.trim() ||
-    ""
-  ).replace(/\/$/, "");
-  const username = (
-    env.MLFLOW_TRACKING_USERNAME?.trim() ||
-    env.DAGSHUB_USER?.trim() ||
-    ""
-  );
-  const password = (
-    env.MLFLOW_TRACKING_PASSWORD?.trim() ||
-    env.DAGSHUB_TOKEN?.trim() ||
-    ""
-  );
+import { resolveActiveMlflowConfig, resolveMlflowConfigForTask } from "./mlflow-tracking-config-db.js";
+
+function mlflowCredentialsFromConfig(config) {
+  const trackingUri = String(config?.tracking_uri ?? "").replace(/\/$/, "");
+  const username = String(config?.username ?? "").trim();
+  const password = String(config?.password ?? "").trim();
   return { trackingUri, username, password };
 }
 
@@ -122,8 +112,12 @@ export function aggregateIcSeriesDaily(icSeries) {
   };
 }
 
-async function fetchArtifactText(env, runId, artifactPath) {
-  const { trackingUri, username, password } = readMlflowCredentials(env);
+async function fetchArtifactText(env, runId, artifactPath, taskId = null) {
+  const config =
+    taskId != null && Number.isFinite(Number(taskId)) && Number(taskId) > 0
+      ? await resolveMlflowConfigForTask(env.DB, env, Number(taskId))
+      : await resolveActiveMlflowConfig(env.DB, env);
+  const { trackingUri, username, password } = mlflowCredentialsFromConfig(config);
   if (!trackingUri || !username || !password) {
     throw new Error("缺少 MLflow 代理凭证（MLFLOW_TRACKING_URI/USERNAME/PASSWORD）");
   }
@@ -146,14 +140,14 @@ async function fetchArtifactText(env, runId, artifactPath) {
   throw new Error(lastError);
 }
 
-async function loadIcSeriesFromMlflow(env, runId) {
-  const raw = await fetchArtifactText(env, runId, "ic_series.json");
+async function loadIcSeriesFromMlflow(env, runId, taskId = null) {
+  const raw = await fetchArtifactText(env, runId, "ic_series.json", taskId);
   const parsed = parseJsonObject(raw);
   if (parsed && Array.isArray(parsed.points)) {
     return parsed;
   }
 
-  const evaluationRaw = await fetchArtifactText(env, runId, "evaluation.json");
+  const evaluationRaw = await fetchArtifactText(env, runId, "evaluation.json", taskId);
   const evaluation = parseJsonObject(evaluationRaw);
   const icSeries = evaluation?.ic_series;
   if (icSeries && Array.isArray(icSeries.points)) {
@@ -162,7 +156,7 @@ async function loadIcSeriesFromMlflow(env, runId) {
   throw new Error("未在 MLflow artifact 中找到 ic_series");
 }
 
-export async function getMlflowIcSeriesDaily(env, runId) {
-  const icSeries = await loadIcSeriesFromMlflow(env, runId);
+export async function getMlflowIcSeriesDaily(env, runId, taskId = null) {
+  const icSeries = await loadIcSeriesFromMlflow(env, runId, taskId);
   return aggregateIcSeriesDaily(icSeries);
 }

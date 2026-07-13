@@ -58,13 +58,14 @@ export function stripKernelExecutionDiagnostics(diagnostics) {
   return next;
 }
 
-export async function createMlTask(db, { businessType, businessId = null, mlflowExperiment }) {
+export async function createMlTask(db, { businessType, businessId = null, mlflowExperiment, mlflowTrackingConfigKey = null }) {
   const insert = await db.prepare(
     `INSERT INTO ml_tasks (
-         business_type, business_id, status, mlflow_experiment, created_at, updated_at
+         business_type, business_id, status, mlflow_experiment, mlflow_tracking_config_key,
+         created_at, updated_at
        )
-       VALUES (?, ?, 'pending', ?, datetime('now'), datetime('now'))`
-  ).bind(businessType, businessId, mlflowExperiment ?? null).run();
+       VALUES (?, ?, 'pending', ?, ?, datetime('now'), datetime('now'))`
+  ).bind(businessType, businessId, mlflowExperiment ?? null, mlflowTrackingConfigKey ?? null).run();
   const taskId = Number(insert.meta.last_row_id ?? 0);
   if (taskId <= 0) {
     throw new Error("创建 ml_tasks 失败");
@@ -76,7 +77,8 @@ export async function getMlTaskById(db, taskId) {
   const row = await db.prepare(
     `SELECT
          id, business_type, business_id, status, mlflow_experiment, mlflow_run_id,
-         error_reason, diagnostics, submitted_at, completed_at, created_at, updated_at
+         mlflow_tracking_config_key, error_reason, diagnostics, submitted_at, completed_at,
+         created_at, updated_at
        FROM ml_tasks
        WHERE id = ?
        LIMIT 1`
@@ -91,6 +93,8 @@ export async function getMlTaskById(db, taskId) {
     status: String(row.status),
     mlflow_experiment: row.mlflow_experiment == null ? null : String(row.mlflow_experiment),
     mlflow_run_id: row.mlflow_run_id == null ? null : String(row.mlflow_run_id),
+    mlflow_tracking_config_key:
+      row.mlflow_tracking_config_key == null ? null : String(row.mlflow_tracking_config_key),
     error_reason: row.error_reason == null ? null : String(row.error_reason),
     diagnostics: parseJsonObject(row.diagnostics),
     submitted_at: row.submitted_at == null ? null : String(row.submitted_at),
@@ -185,6 +189,7 @@ export async function reportMlTaskResults(db, items) {
          SET status = ?,
              mlflow_experiment = COALESCE(?, mlflow_experiment),
              mlflow_run_id = COALESCE(?, mlflow_run_id),
+             mlflow_tracking_config_key = COALESCE(?, mlflow_tracking_config_key),
              error_reason = ?,
              diagnostics = ?,
              completed_at = CASE WHEN ? = 'running' THEN NULL ELSE COALESCE(?, completed_at) END,
@@ -195,6 +200,7 @@ export async function reportMlTaskResults(db, items) {
       status,
       item.mlflow_experiment ?? null,
       item.mlflow_run_id ?? null,
+      item.mlflow_tracking_config_key ?? null,
       item.error_reason ?? null,
       Object.keys(diagnostics).length > 0 ? JSON.stringify(diagnostics) : null,
       status,

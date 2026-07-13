@@ -15,6 +15,7 @@ import { runFactorValidationBatch } from "./factor-validation-batch.js";
 import { runKernelCleanup } from "./kernel-cleanup.js";
 import { cleanupExpiredJupyterServers } from "./jupyter-server-db.js";
 import { handleLlmApiRequest } from "./llm-api-routes.js";
+import { handleMlflowTrackingApiRequest } from "./mlflow-tracking-api.js";
 import {
   getSystemSettings,
   getValidationScheduleSettings,
@@ -114,6 +115,10 @@ export default {
     const llmResponse = await handleLlmApiRequest(request, env);
     if (llmResponse) {
       return llmResponse;
+    }
+    const mlflowTrackingResponse = await handleMlflowTrackingApiRequest(request, env);
+    if (mlflowTrackingResponse) {
+      return mlflowTrackingResponse;
     }
     const jupyterCallbackResponse = await handleJupyterExecutionCallbackApiRequest(request, env, url);
     if (jupyterCallbackResponse) {

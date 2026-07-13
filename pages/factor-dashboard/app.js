@@ -113,6 +113,10 @@ const state = {
   llmFormMode: "create",
   llmRouteFormMode: "create",
   editingLlmKey: null,
+  mlflowConfigs: [],
+  mlflowActive: null,
+  mlflowFormMode: "create",
+  editingMlflowKey: null,
 };
 
 const els = {
@@ -190,6 +194,20 @@ const els = {
   llmModelsBody: document.getElementById("llm-models-body"),
   llmNewModelNameInput: document.getElementById("llm-new-model-name"),
   llmModelsFormError: document.getElementById("llm-models-form-error"),
+  mlflowBody: document.getElementById("mlflow-body"),
+  mlflowActiveSummary: document.getElementById("mlflow-active-summary"),
+  mlflowDialog: document.getElementById("mlflow-dialog"),
+  mlflowForm: document.getElementById("mlflow-form"),
+  mlflowFormTitle: document.getElementById("mlflow-form-title"),
+  mlflowKeyInput: document.getElementById("mlflow-key"),
+  mlflowNameInput: document.getElementById("mlflow-name"),
+  mlflowTrackingUriInput: document.getElementById("mlflow-tracking-uri"),
+  mlflowUsernameInput: document.getElementById("mlflow-username"),
+  mlflowPasswordInput: document.getElementById("mlflow-password"),
+  mlflowExperimentInput: document.getElementById("mlflow-experiment"),
+  mlflowSortOrderInput: document.getElementById("mlflow-sort-order"),
+  mlflowEnabledInput: document.getElementById("mlflow-enabled"),
+  mlflowFormError: document.getElementById("mlflow-form-error"),
   ideasGenerate: document.getElementById("ideas-generate"),
   ideasPromptPreview: document.getElementById("ideas-prompt-preview"),
   generateCount: document.getElementById("generate-count"),
@@ -1257,6 +1275,148 @@ async function deleteLlmModel(providerKey, modelName) {
   showToast("模型已删除", "success");
 }
 
+async function loadMlflowAdmin() {
+  const [listData, activeData] = await Promise.all([
+    apiGet("/api/mlflow-tracking-configs"),
+    apiGet("/api/workflow/mlflow-config"),
+  ]);
+  state.mlflowConfigs = listData.items || [];
+  state.mlflowActive = activeData.active || null;
+  renderMlflowActiveSummary();
+  renderMlflowTable(state.mlflowConfigs);
+}
+
+function renderMlflowActiveSummary() {
+  if (!els.mlflowActiveSummary) {
+    return;
+  }
+  const active = state.mlflowActive;
+  if (!active?.configured) {
+    els.mlflowActiveSummary.textContent =
+      "当前无启用的 MLflow 配置；验证任务将回退 Worker 环境变量。";
+    return;
+  }
+  const sourceLabel = active.source === "d1" ? "D1 配置" : "环境变量";
+  els.mlflowActiveSummary.textContent = `当前生效：${active.key || "-"}（${sourceLabel}）· ${active.tracking_uri} · experiment=${active.experiment}`;
+}
+
+function renderMlflowTable(items) {
+  if (!els.mlflowBody) {
+    return;
+  }
+  if (!items.length) {
+    els.mlflowBody.innerHTML = `<tr><td colspan="9" class="muted">暂无 MLflow 配置。点击「新建配置」添加。</td></tr>`;
+    return;
+  }
+  els.mlflowBody.innerHTML = items
+    .map((item) => {
+      const status = item.enabled
+        ? '<span class="status-pill status-pill--active">启用</span>'
+        : '<span class="status-pill">禁用</span>';
+      return `
+      <tr data-mlflow-key="${escapeHtml(item.key)}">
+        <td><code>${escapeHtml(item.key)}</code></td>
+        <td>${escapeHtml(item.name)}</td>
+        <td class="mono">${escapeHtml(item.tracking_uri)}</td>
+        <td>${escapeHtml(item.username)}</td>
+        <td>${escapeHtml(item.experiment)}</td>
+        <td>${escapeHtml(String(item.sort_order ?? 0))}</td>
+        <td>${status}</td>
+        <td class="muted">${escapeHtml(item.last_used_at || "-")}</td>
+        <td>
+          <div class="table-actions">
+            ${tableActionButton("编辑", "edit-mlflow", { "data-key": item.key })}
+            ${tableActionButton(item.enabled ? "禁用" : "启用", "toggle-mlflow", { "data-key": item.key })}
+            ${tableActionButton("删除", "delete-mlflow", { "data-key": item.key }, { danger: true })}
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
+
+function setMlflowFormError(message = "") {
+  if (!message) {
+    els.mlflowFormError.classList.add("hidden");
+    els.mlflowFormError.textContent = "";
+    return;
+  }
+  els.mlflowFormError.textContent = message;
+  els.mlflowFormError.classList.remove("hidden");
+}
+
+function openMlflowDialog(mode, config = null) {
+  state.mlflowFormMode = mode;
+  state.editingMlflowKey = config?.key ?? null;
+  setMlflowFormError("");
+  els.mlflowFormTitle.textContent = mode === "create" ? "新建 MLflow 配置" : "编辑 MLflow 配置";
+  els.mlflowKeyInput.disabled = mode === "edit";
+  els.mlflowKeyInput.value = config?.key ?? "";
+  els.mlflowNameInput.value = config?.name ?? "";
+  els.mlflowTrackingUriInput.value = config?.tracking_uri ?? "";
+  els.mlflowUsernameInput.value = config?.username ?? "";
+  els.mlflowPasswordInput.value = "";
+  els.mlflowPasswordInput.required = mode === "create";
+  els.mlflowExperimentInput.value = config?.experiment ?? "factor-validation";
+  els.mlflowSortOrderInput.value = String(config?.sort_order ?? 0);
+  els.mlflowEnabledInput.checked = config?.enabled !== false;
+  els.mlflowDialog.showModal();
+}
+
+async function submitMlflowForm(event) {
+  event.preventDefault();
+  const payload = {
+    name: els.mlflowNameInput.value.trim(),
+    tracking_uri: els.mlflowTrackingUriInput.value.trim().replace(/\/$/, ""),
+    username: els.mlflowUsernameInput.value.trim(),
+    experiment: els.mlflowExperimentInput.value.trim() || "factor-validation",
+    sort_order: Number(els.mlflowSortOrderInput.value) || 0,
+    enabled: els.mlflowEnabledInput.checked,
+  };
+  const password = els.mlflowPasswordInput.value.trim();
+  if (password) {
+    payload.password = password;
+  } else if (state.mlflowFormMode === "create") {
+    setMlflowFormError("新建配置时密码不能为空");
+    return;
+  }
+  try {
+    if (state.mlflowFormMode === "create") {
+      payload.key = els.mlflowKeyInput.value.trim();
+      await apiPost("/api/mlflow-tracking-configs", payload);
+      showToast("MLflow 配置已创建", "success");
+    } else {
+      await apiPatch(`/api/mlflow-tracking-configs/${state.editingMlflowKey}`, payload);
+      showToast("MLflow 配置已更新", "success");
+    }
+    els.mlflowDialog.close();
+    await loadMlflowAdmin();
+  } catch (error) {
+    setMlflowFormError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function toggleMlflowConfig(key, enabled) {
+  await apiPatch(`/api/mlflow-tracking-configs/${key}`, { enabled });
+  showToast(enabled ? "MLflow 配置已启用" : "MLflow 配置已禁用", "success");
+  await loadMlflowAdmin();
+}
+
+async function deleteMlflowConfig(key) {
+  await apiDelete(`/api/mlflow-tracking-configs/${key}`);
+  showToast("MLflow 配置已删除", "success");
+  await loadMlflowAdmin();
+}
+
+async function backfillMlflowTasks() {
+  const data = await apiPost("/api/workflow/mlflow-config/backfill", {});
+  showToast(
+    `已关联 ${data.updated ?? 0} 条成功任务${data.urls_patched ? `，补全 ${data.urls_patched} 条 Run URL` : ""}`,
+    "success",
+  );
+  await loadMlflowAdmin();
+}
+
 function parseMlflowRunMetrics(payload) {
   const metricsList = payload?.run?.data?.metrics;
   if (!Array.isArray(metricsList)) {
@@ -1288,27 +1448,25 @@ function factorValidationMetricsFromRow(row) {
 }
 
 async function fetchMlflowMetricsMap(items) {
-  const runIds = [
-    ...new Set(
-      items
-        .filter((row) => {
-          if (!row?.mlflow_run_id) {
-            return false;
-          }
-          const cached = factorValidationMetricsFromRow(row);
-          return !Number.isFinite(Number(cached.mean_ic)) && !Number.isFinite(Number(cached.mean_rank_ic));
-        })
-        .map((row) => String(row.mlflow_run_id).trim())
-        .filter(Boolean),
-    ),
-  ];
-  if (!runIds.length) {
+  const candidates = (items || []).filter((row) => {
+    if (!row?.mlflow_run_id) {
+      return false;
+    }
+    const cached = factorValidationMetricsFromRow(row);
+    return !Number.isFinite(Number(cached.mean_ic)) && !Number.isFinite(Number(cached.mean_rank_ic));
+  });
+  if (!candidates.length) {
     return new Map();
   }
   const entries = await Promise.all(
-    runIds.map(async (runId) => {
+    candidates.map(async (row) => {
+      const runId = String(row.mlflow_run_id).trim();
+      const taskQuery =
+        row.task_id != null && Number.isFinite(Number(row.task_id)) && Number(row.task_id) > 0
+          ? `?task_id=${encodeURIComponent(String(row.task_id))}`
+          : "";
       try {
-        const data = await apiGet(`/api/mlflow/runs/${encodeURIComponent(runId)}`);
+        const data = await apiGet(`/api/mlflow/runs/${encodeURIComponent(runId)}${taskQuery}`);
         return [runId, parseMlflowRunMetrics(data)];
       } catch {
         return [runId, null];
@@ -1408,16 +1566,23 @@ async function loadFactorValidations() {
   });
 }
 
-async function fetchIcSeriesCached(mlflowRunId) {
+async function fetchIcSeriesCached(mlflowRunId, taskId = null) {
   const runId = String(mlflowRunId || "").trim();
   if (!runId) {
     throw new Error("缺少 MLflow run id");
   }
-  if (state.icSeriesCache.has(runId)) {
-    return state.icSeriesCache.get(runId);
+  const cacheKey = taskId ? `${runId}:${taskId}` : runId;
+  if (state.icSeriesCache.has(cacheKey)) {
+    return state.icSeriesCache.get(cacheKey);
   }
-  const series = await apiGet(`/api/mlflow/runs/${encodeURIComponent(runId)}/ic-series`);
-  state.icSeriesCache.set(runId, series);
+  const taskQuery =
+    taskId != null && Number.isFinite(Number(taskId)) && Number(taskId) > 0
+      ? `?task_id=${encodeURIComponent(String(taskId))}`
+      : "";
+  const series = await apiGet(
+    `/api/mlflow/runs/${encodeURIComponent(runId)}/ic-series${taskQuery}`,
+  );
+  state.icSeriesCache.set(cacheKey, series);
   return series;
 }
 
@@ -1474,7 +1639,7 @@ async function showFactorValidationDensityChart(factorValidationId, kind) {
   els.densityDialog.showModal();
 
   try {
-    const series = await fetchIcSeriesCached(item.mlflow_run_id);
+    const series = await fetchIcSeriesCached(item.mlflow_run_id, item.task_id);
     const samples = densitySamplesFromSeries(series, kind);
     const metrics = factorValidationMetricsFromRow(item);
     const referenceValue =
@@ -1519,7 +1684,13 @@ async function showFactorValidationDetail(factorValidationId) {
     !Number.isFinite(Number(metrics.mean_rank_ic));
   if (needsMlflowMetrics) {
     try {
-      const mlflow = await apiGet(`/api/mlflow/runs/${encodeURIComponent(item.mlflow_run_id)}`);
+      const taskQuery =
+        item.task_id != null && Number.isFinite(Number(item.task_id)) && Number(item.task_id) > 0
+          ? `?task_id=${encodeURIComponent(String(item.task_id))}`
+          : "";
+      const mlflow = await apiGet(
+        `/api/mlflow/runs/${encodeURIComponent(item.mlflow_run_id)}${taskQuery}`,
+      );
       metrics = parseMlflowRunMetrics(mlflow);
     } catch (error) {
       mlflowNote = `<p class="auth-error">MLflow 读取失败：${escapeHtml(String(error.message || error))}</p>`;
@@ -1572,7 +1743,7 @@ async function showFactorValidationDetail(factorValidationId) {
     return;
   }
   try {
-    const series = await fetchIcSeriesCached(item.mlflow_run_id);
+    const series = await fetchIcSeriesCached(item.mlflow_run_id, item.task_id);
     state.icSeriesChartDispose = mountIcSeriesChart(chartHost, series);
   } catch (error) {
     chartHost.innerHTML = `<p class="auth-error">IC 序列加载失败：${escapeHtml(String(error.message || error))}</p>`;
@@ -1793,12 +1964,13 @@ function switchTab(tab) {
   document.getElementById("panel-factor-validations").classList.toggle("hidden", tab !== "factor-validations");
   document.getElementById("panel-profiles").classList.toggle("hidden", tab !== "profiles");
   document.getElementById("panel-llm").classList.toggle("hidden", tab !== "llm");
+  document.getElementById("panel-mlflow").classList.toggle("hidden", tab !== "mlflow");
   document.getElementById("panel-operators").classList.toggle("hidden", tab !== "operators");
   document.getElementById("panel-settings").classList.toggle("hidden", tab !== "settings");
   els.appLayout.classList.toggle(
     "layout-wide",
     tab === "factor-validations" ||
-      tab === "profiles" || tab === "llm" || tab === "settings",
+      tab === "profiles" || tab === "llm" || tab === "mlflow" || tab === "settings",
   );
   if (tab === "factor-validations") {
     loadEnabledProfileOptionsForFactorValidations()
@@ -1808,6 +1980,8 @@ function switchTab(tab) {
     loadValidationProfilesAdmin().catch(handleError);
   } else if (tab === "llm") {
     loadLlmAdmin().catch(handleError);
+  } else if (tab === "mlflow") {
+    loadMlflowAdmin().catch(handleError);
   } else if (tab === "settings") {
     loadSystemSettings().catch(handleError);
   }
@@ -2245,6 +2419,56 @@ els.llmBody.addEventListener("click", async (event) => {
     if (action === "delete-llm") {
       if (!window.confirm(`确定删除 LLM Provider ${key}？`)) return;
       await deleteLlmProvider(key);
+    }
+  } catch (error) {
+    handleError(error);
+  }
+});
+
+document.getElementById("mlflow-create")?.addEventListener("click", () => {
+  openMlflowDialog("create");
+});
+
+document.getElementById("mlflow-refresh")?.addEventListener("click", () => {
+  loadMlflowAdmin().catch(handleError);
+});
+
+document.getElementById("mlflow-backfill")?.addEventListener("click", async () => {
+  if (!window.confirm("将把所有已成功且有 MLflow Run 的任务关联到当前启用的配置，并尝试补全 Run URL。继续？")) {
+    return;
+  }
+  try {
+    await backfillMlflowTasks();
+  } catch (error) {
+    handleError(error);
+  }
+});
+
+els.mlflowForm?.addEventListener("submit", submitMlflowForm);
+
+document.getElementById("mlflow-form-cancel")?.addEventListener("click", () => {
+  els.mlflowDialog.close();
+});
+
+els.mlflowBody?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-action]");
+  if (!button) return;
+  const key = button.getAttribute("data-key");
+  const action = button.getAttribute("data-action");
+  try {
+    if (action === "edit-mlflow") {
+      const config = state.mlflowConfigs.find((item) => item.key === key);
+      if (config) openMlflowDialog("edit", config);
+      return;
+    }
+    if (action === "toggle-mlflow") {
+      const config = state.mlflowConfigs.find((item) => item.key === key);
+      if (config) await toggleMlflowConfig(key, !config.enabled);
+      return;
+    }
+    if (action === "delete-mlflow") {
+      if (!window.confirm(`确定删除 MLflow 配置 ${key}？`)) return;
+      await deleteMlflowConfig(key);
     }
   } catch (error) {
     handleError(error);

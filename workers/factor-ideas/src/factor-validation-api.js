@@ -9,6 +9,7 @@ import {
 import { notifyCoordinatorExecutionReported } from "./jupyter-execution-dispatch.js";
 import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
 import { syncPrefectFlowRunsAfterReports } from "./prefect-execution-sync.js";
+import { resolveActiveMlflowConfig, resolveMlflowConfigForTask } from "./mlflow-tracking-config-db.js";
 
 function parsePositiveInt(value, fallback, max) {
   const parsed = Number(value);
@@ -53,27 +54,14 @@ export function shouldNotifyCoordinatorForReport(item) {
   return status !== "running";
 }
 
-function readMlflowCredentials(env) {
-  const trackingUri = (
-    env.MLFLOW_TRACKING_URI?.trim() ||
-    env.MLFLOW_TRACKING_URL?.trim() ||
-    ""
-  ).replace(/\/$/, "");
-  const username = (
-    env.MLFLOW_TRACKING_USERNAME?.trim() ||
-    env.DAGSHUB_USER?.trim() ||
-    ""
-  );
-  const password = (
-    env.MLFLOW_TRACKING_PASSWORD?.trim() ||
-    env.DAGSHUB_TOKEN?.trim() ||
-    ""
-  );
-  return { trackingUri, username, password };
-}
-
-async function proxyMlflowRun(env, runId) {
-  const { trackingUri, username, password } = readMlflowCredentials(env);
+async function proxyMlflowRun(env, runId, taskId = null) {
+  const config =
+    taskId != null && Number.isFinite(Number(taskId)) && Number(taskId) > 0
+      ? await resolveMlflowConfigForTask(env.DB, env, Number(taskId))
+      : await resolveActiveMlflowConfig(env.DB, env);
+  const trackingUri = String(config?.tracking_uri ?? "").replace(/\/$/, "");
+  const username = String(config?.username ?? "").trim();
+  const password = String(config?.password ?? "").trim();
   if (!trackingUri || !username || !password) {
     throw new Error("缺少 MLflow 代理凭证（MLFLOW_TRACKING_URI/USERNAME/PASSWORD）");
   }
@@ -120,7 +108,7 @@ export async function handleFactorValidationApiRequest(request, env, url) {
             item.task_id > 0 &&
             ML_TASK_STATUSES.has(item.status)
         );
-      const result = await reportFactorValidationResults(env.DB, parsed);
+      const result = await reportFactorValidationResults(env.DB, parsed, env);
       await syncPrefectFlowRunsAfterReports(env, "factor_validation", result.reports ?? []);
       for (const report of result.reports ?? []) {
         if (report.updated <= 0) {
@@ -249,7 +237,10 @@ export async function handleFactorValidationApiRequest(request, env, url) {
   const mlflowRunMatch = pathname.match(/^\/api\/mlflow\/runs\/([a-zA-Z0-9-]+)$/);
   if (method === "GET" && mlflowRunMatch) {
     try {
-      const data = await proxyMlflowRun(env, mlflowRunMatch[1]);
+      const taskIdParam = url.searchParams.get("task_id");
+      const taskId =
+        taskIdParam == null || taskIdParam === "" ? null : Number(taskIdParam);
+      const data = await proxyMlflowRun(env, mlflowRunMatch[1], taskId);
       return jsonResponse(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -260,7 +251,10 @@ export async function handleFactorValidationApiRequest(request, env, url) {
   const mlflowIcSeriesMatch = pathname.match(/^\/api\/mlflow\/runs\/([a-zA-Z0-9-]+)\/ic-series$/);
   if (method === "GET" && mlflowIcSeriesMatch) {
     try {
-      const data = await getMlflowIcSeriesDaily(env, mlflowIcSeriesMatch[1]);
+      const taskIdParam = url.searchParams.get("task_id");
+      const taskId =
+        taskIdParam == null || taskIdParam === "" ? null : Number(taskIdParam);
+      const data = await getMlflowIcSeriesDaily(env, mlflowIcSeriesMatch[1], taskId);
       return jsonResponse(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
