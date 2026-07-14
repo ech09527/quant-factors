@@ -471,10 +471,21 @@ async function mlflowGetExperimentByName(trackingUri, auth, experimentName) {
 }
 
 async function mlflowCreateExperiment(trackingUri, auth, experimentName) {
-  const payload = await mlflowApiFetch(trackingUri, auth, "/api/2.0/mlflow/experiments/create", {
-    method: "POST",
-    body: { name: experimentName }
-  });
+  // Prefer proxied artifact store so remote Prefect workers can upload/download via HTTP.
+  // Fall back without artifact_location if the server rejects it.
+  const artifactLocation = `mlflow-artifacts:/${experimentName}`;
+  let payload;
+  try {
+    payload = await mlflowApiFetch(trackingUri, auth, "/api/2.0/mlflow/experiments/create", {
+      method: "POST",
+      body: { name: experimentName, artifact_location: artifactLocation }
+    });
+  } catch {
+    payload = await mlflowApiFetch(trackingUri, auth, "/api/2.0/mlflow/experiments/create", {
+      method: "POST",
+      body: { name: experimentName }
+    });
+  }
   const experimentId = String(payload?.experiment_id ?? "").trim();
   if (!experimentId) {
     throw new Error(`创建 experiment 失败: ${experimentName}`);

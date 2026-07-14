@@ -86,6 +86,24 @@ def test_slim_ic_series_for_artifact_drops_n_field():
     assert "n" not in slim["points"][0]
 
 
+def test_artifact_proxy_relative_path_local_and_mlflow_artifacts():
+    from scripts.mlflow_logger import artifact_proxy_relative_path
+
+    local = artifact_proxy_relative_path(
+        "/mlflow_data/artifacts/5/abc123/artifacts",
+        "abc123",
+        "ic_series.json",
+    )
+    assert local == "5/abc123/artifacts/ic_series.json"
+
+    proxied = artifact_proxy_relative_path(
+        "mlflow-artifacts:/factor-validation-proxy/abc123/artifacts",
+        "abc123",
+        "ic_series.json",
+    )
+    assert proxied == "factor-validation-proxy/abc123/artifacts/ic_series.json"
+
+
 def test_prefect_flow_and_dispatch_pass_mlflow_config():
     root = Path(__file__).resolve().parent.parent
     flow_src = (root / "prefect/flows/factor_validation.py").read_text(encoding="utf-8")

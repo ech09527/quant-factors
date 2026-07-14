@@ -112,6 +112,109 @@ export function aggregateIcSeriesDaily(icSeries) {
   };
 }
 
+/**
+ * Build path segments for /api/2.0/mlflow-artifacts/artifacts/<path>.
+ * Supports:
+ * - mlflow-artifacts:/<root>/<run_id>/artifacts
+ * - local/server paths ending in /<exp_or_root>/<run_id>/artifacts
+ */
+export function artifactProxyRelativePath(artifactUri, runId, artifactPath) {
+  const uri = String(artifactUri ?? "").trim().replace(/\/+$/, "");
+  const run = String(runId ?? "").trim();
+  const file = String(artifactPath ?? "").replace(/^\/+/, "");
+  if (!uri || !run || !file) {
+    return null;
+  }
+
+  let root = uri;
+  if (root.startsWith("mlflow-artifacts:")) {
+    root = root.slice("mlflow-artifacts:".length);
+  } else if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(root)) {
+    try {
+      const parsed = new URL(root);
+      root = parsed.pathname || "";
+    } catch {
+      return null;
+    }
+  }
+  root = root.replace(/^\/+/, "").replace(/\/+$/, "");
+
+  const match = root.match(new RegExp(`(?:^|/)([^/]+)/${run.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/artifacts$`));
+  if (!match) {
+    return null;
+  }
+  return `${match[1]}/${run}/artifacts/${file}`;
+}
+
+function buildArtifactFetchUrls(trackingUri, runId, artifactPath, artifactUri, experimentId) {
+  const base = String(trackingUri ?? "").replace(/\/$/, "");
+  const run = String(runId ?? "").trim();
+  const file = String(artifactPath ?? "").replace(/^\/+/, "");
+  const urls = [];
+
+  if (!base || !run || !file) {
+    return urls;
+  }
+
+  urls.push(
+    `${base}/get-artifact?path=${encodeURIComponent(file)}&run_uuid=${encodeURIComponent(run)}`
+  );
+
+  const proxyPath = artifactProxyRelativePath(artifactUri, run, file);
+  if (proxyPath) {
+    urls.push(`${base}/api/2.0/mlflow-artifacts/artifacts/${proxyPath.split("/").map(encodeURIComponent).join("/")}`);
+  }
+
+  const exp = String(experimentId ?? "").trim();
+  if (exp) {
+    const byExp = `${exp}/${run}/artifacts/${file}`;
+    if (byExp !== proxyPath) {
+      urls.push(
+        `${base}/api/2.0/mlflow-artifacts/artifacts/${byExp.split("/").map(encodeURIComponent).join("/")}`
+      );
+    }
+  }
+
+  urls.push(
+    `${base}/api/2.0/mlflow-artifacts/get?path=${encodeURIComponent(file)}&run_id=${encodeURIComponent(run)}`
+  );
+  urls.push(
+    `${base}/api/2.0/mlflow/artifacts/get?path=${encodeURIComponent(file)}&run_id=${encodeURIComponent(run)}`
+  );
+
+  return [...new Set(urls)];
+}
+
+async function fetchRunInfo(trackingUri, auth, runId) {
+  const response = await fetch(
+    `${trackingUri}/api/2.0/mlflow/runs/get?run_id=${encodeURIComponent(runId)}`,
+    { headers: { Authorization: `Basic ${auth}` } }
+  );
+  if (!response.ok) {
+    return null;
+  }
+  const payload = await response.json();
+  const info = payload?.run?.info;
+  if (!info) {
+    return null;
+  }
+  return {
+    artifact_uri: info.artifact_uri ?? null,
+    experiment_id: info.experiment_id ?? null,
+  };
+}
+
+function summarizeArtifactError(status, bodyText) {
+  const text = String(bodyText ?? "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return `MLflow artifact ${status}`;
+  }
+  if (text.startsWith("<!doctype") || text.startsWith("<html")) {
+    return `MLflow artifact ${status}: tracking server returned HTML (endpoint missing or artifact store not proxied)`;
+  }
+  return `MLflow artifact ${status}: ${text.slice(0, 200)}`;
+}
+
 async function fetchArtifactText(env, runId, artifactPath, taskId = null) {
   const config =
     taskId != null && Number.isFinite(Number(taskId)) && Number(taskId) > 0
@@ -122,10 +225,14 @@ async function fetchArtifactText(env, runId, artifactPath, taskId = null) {
     throw new Error("缺少 MLflow 代理凭证（MLFLOW_TRACKING_URI/USERNAME/PASSWORD）");
   }
   const auth = btoa(`${username}:${password}`);
-  const urls = [
-    `${trackingUri}/get-artifact?path=${encodeURIComponent(artifactPath)}&run_uuid=${encodeURIComponent(runId)}`,
-    `${trackingUri}/api/2.0/mlflow-artifacts/get?path=${encodeURIComponent(artifactPath)}&run_id=${encodeURIComponent(runId)}`
-  ];
+  const runInfo = await fetchRunInfo(trackingUri, auth, runId);
+  const urls = buildArtifactFetchUrls(
+    trackingUri,
+    runId,
+    artifactPath,
+    runInfo?.artifact_uri,
+    runInfo?.experiment_id
+  );
 
   let lastError = "artifact fetch failed";
   for (const url of urls) {
@@ -135,7 +242,7 @@ async function fetchArtifactText(env, runId, artifactPath, taskId = null) {
     if (response.ok) {
       return response.text();
     }
-    lastError = `MLflow artifact ${response.status}: ${(await response.text()).slice(0, 200)}`;
+    lastError = summarizeArtifactError(response.status, await response.text());
   }
   throw new Error(lastError);
 }
