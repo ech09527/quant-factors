@@ -236,12 +236,17 @@ async function getSaturatedPatterns(db, limit = 5) {
 }
 __name(getSaturatedPatterns, "getSaturatedPatterns");
 async function listIdeas(db, options) {
-  const { limit, offset, source } = options;
+  const { limit, offset, source, title } = options;
   const filters = [];
   const binds = [];
   if (source) {
     filters.push("source = ?");
     binds.push(source);
+  }
+  const titleQuery = title != null && String(title).trim() ? String(title).trim() : null;
+  if (titleQuery) {
+    filters.push("instr(lower(title), lower(?)) > 0");
+    binds.push(titleQuery);
   }
   const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
   const countRow = await db.prepare(`SELECT COUNT(*) AS total FROM ideas ${where}`).bind(...binds).first();
@@ -259,7 +264,8 @@ async function listIdeas(db, options) {
     total: Number(countRow?.total ?? 0),
     limit,
     offset,
-    source: source || null
+    source: source || null,
+    title: titleQuery
   };
 }
 __name(listIdeas, "listIdeas");
@@ -1511,7 +1517,9 @@ async function handleApiGet(request, env, pathname, url) {
     const offset = parsePositiveInt(url.searchParams.get("offset"), 0);
     const sourceParam = url.searchParams.get("source");
     const source = sourceParam == null || sourceParam === "" ? null : sourceParam.trim() || null;
-    const data = await listIdeas(env.DB, { limit, offset, source });
+    const titleParam = url.searchParams.get("title");
+    const title = titleParam == null || titleParam === "" ? null : titleParam.trim() || null;
+    const data = await listIdeas(env.DB, { limit, offset, source, title });
     return wrap(env, request, jsonResponse(data));
   }
   const ideaMatch = pathname.match(/^\/api\/ideas\/(\d+)$/);

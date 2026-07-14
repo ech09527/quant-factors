@@ -166,6 +166,8 @@ export async function handleFactorValidationApiRequest(request, env, url) {
       .split(",")
       .map((key) => key.trim())
       .filter(Boolean);
+    const titleParam = url.searchParams.get("title");
+    const title = titleParam == null || titleParam === "" ? null : titleParam.trim() || null;
     const sort = url.searchParams.get("sort")?.trim() || void 0;
     const orderParam = url.searchParams.get("order")?.trim().toLowerCase();
     const order = orderParam === "asc" || orderParam === "desc" ? orderParam : void 0;
@@ -178,6 +180,7 @@ export async function handleFactorValidationApiRequest(request, env, url) {
       ideaId: Number.isFinite(ideaId) && ideaId > 0 ? ideaId : null,
       status,
       profileKeys: profileKeys.length > 0 ? profileKeys : null,
+      title,
       sort,
       order,
       abs,

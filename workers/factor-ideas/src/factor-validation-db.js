@@ -651,6 +651,7 @@ function buildFactorValidationListQuery({
   ideaId = null,
   status = null,
   profileKeys = null,
+  title = null,
   sort = null,
   order = null,
   abs = true,
@@ -684,6 +685,11 @@ function buildFactorValidationListQuery({
     clauses.push(`fv.profile_key IN (${keys.map(() => "?").join(", ")})`);
     binds.push(...keys);
   }
+  const titleQuery = title != null && String(title).trim() ? String(title).trim() : null;
+  if (titleQuery) {
+    clauses.push("instr(lower(i.title), lower(?)) > 0");
+    binds.push(titleQuery);
+  }
 
   let orderExpr;
   if (sortField === "updated_at") {
@@ -709,12 +715,14 @@ function buildFactorValidationListQuery({
     where,
     binds,
     orderSql,
+    ideasJoin: titleQuery ? "JOIN ideas i ON i.id = fv.idea_id" : "",
     sort: sortField,
     order: orderDir,
     abs: useAbs,
     limit: safeLimit,
     offset: safeOffset,
-    status: statusFilter
+    status: statusFilter,
+    title: titleQuery
   };
 }
 
@@ -724,6 +732,7 @@ export async function listFactorValidations(
     ideaId = null,
     status = null,
     profileKeys = null,
+    title = null,
     sort = null,
     order = null,
     abs = true,
@@ -735,6 +744,7 @@ export async function listFactorValidations(
     ideaId,
     status,
     profileKeys,
+    title,
     sort,
     order,
     abs,
@@ -773,6 +783,7 @@ export async function listFactorValidations(
     `SELECT COUNT(*) AS total
        FROM factor_validations fv
        JOIN ml_tasks mt ON mt.id = fv.task_id
+       ${query.ideasJoin}
        ${query.where}`
   ).bind(...query.binds).first();
 
@@ -784,7 +795,8 @@ export async function listFactorValidations(
     sort: query.sort,
     order: query.order,
     abs: query.abs,
-    status: query.status
+    status: query.status,
+    title: query.title
   };
 }
 

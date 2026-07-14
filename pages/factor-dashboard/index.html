@@ -38,13 +38,13 @@
       </header>
 
       <nav class="tabs" role="tablist">
-        <button class="tab active" data-tab="ideas" role="tab" aria-selected="true">因子想法</button>
-        <button class="tab" data-tab="factor-validations" role="tab" aria-selected="false">验证结果</button>
-        <button class="tab" data-tab="profiles" role="tab" aria-selected="false">验证配置</button>
-        <button class="tab" data-tab="llm" role="tab" aria-selected="false">LLM API</button>
-        <button class="tab" data-tab="mlflow" role="tab" aria-selected="false">MLflow</button>
-        <button class="tab" data-tab="operators" role="tab" aria-selected="false">自定义算子</button>
-        <button class="tab" data-tab="settings" role="tab" aria-selected="false">系统配置</button>
+        <a class="tab active" href="#ideas" data-tab="ideas" role="tab" aria-selected="true">因子想法</a>
+        <a class="tab" href="#factor-validations" data-tab="factor-validations" role="tab" aria-selected="false">验证结果</a>
+        <a class="tab" href="#profiles" data-tab="profiles" role="tab" aria-selected="false">验证配置</a>
+        <a class="tab" href="#llm" data-tab="llm" role="tab" aria-selected="false">LLM API</a>
+        <a class="tab" href="#mlflow" data-tab="mlflow" role="tab" aria-selected="false">MLflow</a>
+        <a class="tab" href="#operators" data-tab="operators" role="tab" aria-selected="false">自定义算子</a>
+        <a class="tab" href="#settings" data-tab="settings" role="tab" aria-selected="false">系统配置</a>
       </nav>
 
       <section class="panel" id="panel-ideas">
@@ -55,6 +55,10 @@
               <sl-select id="ideas-source" size="small" value="" hoist>
                 <sl-option value="">全部</sl-option>
               </sl-select>
+            </label>
+            <label class="filter-cell filter-cell--wide">
+              <span class="filter-label">标题</span>
+              <sl-input id="ideas-title" size="small" clearable placeholder="搜索标题"></sl-input>
             </label>
             <label class="filter-cell filter-cell--narrow">
               <span class="filter-label">生成数量</span>
@@ -89,6 +93,10 @@
         </p>
         <div class="toolbar validations-toolbar">
           <div class="filter-grid">
+            <label class="filter-cell filter-cell--wide">
+              <span class="filter-label">标题</span>
+              <sl-input id="factor-validations-title" size="small" clearable placeholder="搜索因子标题"></sl-input>
+            </label>
             <label class="filter-cell">
               <span class="filter-label">排序指标</span>
               <sl-select id="factor-validations-sort" size="small" value="mean_rank_ic" hoist>

@@ -21,6 +21,27 @@ const DENSITY_CHART_CONFIG = {
 
 const PAGE_SIZE = 20;
 const AUTH_STORAGE_KEY = "qf_auth_token";
+const DASHBOARD_TABS = [
+  "ideas",
+  "factor-validations",
+  "profiles",
+  "llm",
+  "mlflow",
+  "operators",
+  "settings",
+];
+const DASHBOARD_TAB_SET = new Set(DASHBOARD_TABS);
+const DEFAULT_DASHBOARD_TAB = "ideas";
+
+const DASHBOARD_TAB_TITLES = {
+  ideas: "因子想法",
+  "factor-validations": "验证结果",
+  profiles: "验证配置",
+  llm: "LLM API",
+  mlflow: "MLflow",
+  operators: "自定义算子",
+  settings: "系统配置",
+};
 
 const IDEA_IMPORT_EXAMPLE = `{
   "ideas": [
@@ -49,7 +70,43 @@ const IDEA_IMPORT_EXAMPLE = `{
   ]
 }`;
 
-/** API 前缀：默认跟随地址栏同源；?api= 可覆盖（本地调试） */
+function normalizeDashboardTab(tab) {
+  const value = String(tab ?? "").trim();
+  return DASHBOARD_TAB_SET.has(value) ? value : DEFAULT_DASHBOARD_TAB;
+}
+
+function readDashboardTabFromUrl() {
+  const hash = window.location.hash.replace(/^#\/?/, "").trim();
+  if (!hash) {
+    return DEFAULT_DASHBOARD_TAB;
+  }
+  if (hash.startsWith("tab=")) {
+    return normalizeDashboardTab(decodeURIComponent(hash.slice(4)));
+  }
+  return normalizeDashboardTab(decodeURIComponent(hash));
+}
+
+function syncDashboardTabToUrl(tab, { replace = false } = {}) {
+  const normalized = normalizeDashboardTab(tab);
+  const nextHash = normalized === DEFAULT_DASHBOARD_TAB ? "" : `#${normalized}`;
+  const nextUrl = `${window.location.pathname}${window.location.search}${nextHash}`;
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextUrl === currentUrl) {
+    return;
+  }
+  if (replace) {
+    history.replaceState({ tab: normalized }, "", nextUrl);
+    return;
+  }
+  history.pushState({ tab: normalized }, "", nextUrl);
+}
+
+function updateDashboardDocumentTitle(tab) {
+  const label = DASHBOARD_TAB_TITLES[normalizeDashboardTab(tab)] ?? "控制台";
+  document.title = tab === DEFAULT_DASHBOARD_TAB
+    ? "Quant Factors 控制台"
+    : `${label} · Quant Factors`;
+}
 function apiPrefix() {
   const override = new URLSearchParams(window.location.search).get("api");
   if (override) {
@@ -87,7 +144,7 @@ const IDEA_SOURCE_LABELS = {
 const state = {
   validationById: {},
   tab: "ideas",
-  ideas: { offset: 0, source: "" },
+  ideas: { offset: 0, source: "", title: "" },
   ideaSources: [],
   operators: { offset: 0, status: "" },
   factorValidations: {
@@ -98,6 +155,7 @@ const state = {
     offset: 0,
     status: "success",
     profile_keys: [],
+    title: "",
   },
   factorValidationById: {},
   icSeriesChartDispose: null,
@@ -141,6 +199,7 @@ const els = {
   factorValidationsLimit: document.getElementById("factor-validations-limit"),
   factorValidationsStatus: document.getElementById("factor-validations-status"),
   factorValidationsProfile: document.getElementById("factor-validations-profile"),
+  factorValidationsTitle: document.getElementById("factor-validations-title"),
   factorValidationsCharts: document.getElementById("factor-validations-charts"),
   settingsWorkflowBody: document.getElementById("settings-workflow-body"),
   settingsSchedulesBody: document.getElementById("settings-schedules-body"),
@@ -149,6 +208,7 @@ const els = {
   settingsRunCleanup: document.getElementById("settings-run-cleanup"),
   settingsRunForceCleanup: document.getElementById("settings-run-force-cleanup"),
   ideasSource: document.getElementById("ideas-source"),
+  ideasTitle: document.getElementById("ideas-title"),
   profilesBody: document.getElementById("profiles-body"),
   profileDialog: document.getElementById("profile-dialog"),
   profileForm: document.getElementById("profile-form"),
@@ -581,6 +641,9 @@ function syncFactorValidationControlsFromState() {
   if (els.factorValidationsProfile) {
     els.factorValidationsProfile.value = state.factorValidations.profile_keys;
   }
+  if (els.factorValidationsTitle) {
+    els.factorValidationsTitle.value = state.factorValidations.title;
+  }
 }
 
 function readFactorValidationControlsToState() {
@@ -595,10 +658,11 @@ function readFactorValidationControlsToState() {
   state.factorValidations.profile_keys = Array.isArray(els.factorValidationsProfile?.value)
     ? els.factorValidationsProfile.value.map(String).filter(Boolean)
     : [];
+  state.factorValidations.title = String(els.factorValidationsTitle?.value ?? "").trim();
 }
 
 function buildFactorValidationQueryParams() {
-  const { sort, order, abs, limit, offset, status, profile_keys } = state.factorValidations;
+  const { sort, order, abs, limit, offset, status, profile_keys, title } = state.factorValidations;
   const params = new URLSearchParams({
     sort,
     order,
@@ -611,6 +675,9 @@ function buildFactorValidationQueryParams() {
   }
   if (profile_keys.length) {
     params.set("profile_keys", profile_keys.join(","));
+  }
+  if (title) {
+    params.set("title", title);
   }
   return params.toString();
 }
@@ -639,7 +706,8 @@ function factorValidationQueryHint(data) {
     ? data.profile_keys
     : state.factorValidations.profile_keys;
   const profileLabel = profileKeys.length ? `，配置=${formatProfileKeysLabel(profileKeys)}` : "";
-  return `${absLabel}${metricLabel} ${data.order === "desc" ? "降序" : "升序"} Top ${data.limit}${statusLabel}${profileLabel} · 共 ${data.total} 条`;
+  const titleLabel = data.title ? `，标题含「${data.title}」` : "";
+  return `${absLabel}${metricLabel} ${data.order === "desc" ? "降序" : "升序"} Top ${data.limit}${statusLabel}${profileLabel}${titleLabel} · 共 ${data.total} 条`;
 }
 
 async function loadValidationProfiles(includeDisabled = false) {
@@ -1958,13 +2026,17 @@ async function loadStats() {
 }
 
 async function loadIdeas() {
-  const { offset, source } = state.ideas;
+  const { offset, source, title } = state.ideas;
   const params = new URLSearchParams({
     limit: String(PAGE_SIZE),
     offset: String(offset),
   });
   if (source) params.set("source", source);
+  if (title) params.set("title", title);
   els.ideasSource.value = source || "";
+  if (els.ideasTitle) {
+    els.ideasTitle.value = title || "";
+  }
 
   const data = await apiGet(`/api/ideas?${params}`);
   els.ideasBody.innerHTML = data.items
@@ -2015,36 +2087,41 @@ async function loadOperators() {
   });
 }
 
-function switchTab(tab) {
-  state.tab = tab;
+function switchTab(tab, { updateUrl = true, replaceUrl = false } = {}) {
+  const normalized = normalizeDashboardTab(tab);
+  state.tab = normalized;
   document.querySelectorAll(".tab").forEach((button) => {
-    const active = button.dataset.tab === tab;
+    const active = button.dataset.tab === normalized;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
   });
-  document.getElementById("panel-ideas").classList.toggle("hidden", tab !== "ideas");
-  document.getElementById("panel-factor-validations").classList.toggle("hidden", tab !== "factor-validations");
-  document.getElementById("panel-profiles").classList.toggle("hidden", tab !== "profiles");
-  document.getElementById("panel-llm").classList.toggle("hidden", tab !== "llm");
-  document.getElementById("panel-mlflow").classList.toggle("hidden", tab !== "mlflow");
-  document.getElementById("panel-operators").classList.toggle("hidden", tab !== "operators");
-  document.getElementById("panel-settings").classList.toggle("hidden", tab !== "settings");
+  document.getElementById("panel-ideas").classList.toggle("hidden", normalized !== "ideas");
+  document.getElementById("panel-factor-validations").classList.toggle("hidden", normalized !== "factor-validations");
+  document.getElementById("panel-profiles").classList.toggle("hidden", normalized !== "profiles");
+  document.getElementById("panel-llm").classList.toggle("hidden", normalized !== "llm");
+  document.getElementById("panel-mlflow").classList.toggle("hidden", normalized !== "mlflow");
+  document.getElementById("panel-operators").classList.toggle("hidden", normalized !== "operators");
+  document.getElementById("panel-settings").classList.toggle("hidden", normalized !== "settings");
   els.appLayout.classList.toggle(
     "layout-wide",
-    tab === "factor-validations" ||
-      tab === "profiles" || tab === "llm" || tab === "mlflow" || tab === "settings",
+    normalized === "factor-validations" ||
+      normalized === "profiles" || normalized === "llm" || normalized === "mlflow" || normalized === "settings",
   );
-  if (tab === "factor-validations") {
+  updateDashboardDocumentTitle(normalized);
+  if (updateUrl) {
+    syncDashboardTabToUrl(normalized, { replace: replaceUrl });
+  }
+  if (normalized === "factor-validations") {
     loadEnabledProfileOptionsForFactorValidations()
       .then(() => loadFactorValidations())
       .catch(handleError);
-  } else if (tab === "profiles") {
+  } else if (normalized === "profiles") {
     loadValidationProfilesAdmin().catch(handleError);
-  } else if (tab === "llm") {
+  } else if (normalized === "llm") {
     loadLlmAdmin().catch(handleError);
-  } else if (tab === "mlflow") {
+  } else if (normalized === "mlflow") {
     loadMlflowAdmin().catch(handleError);
-  } else if (tab === "settings") {
+  } else if (normalized === "settings") {
     loadSystemSettings().catch(handleError);
   }
 }
@@ -2205,8 +2282,31 @@ async function submitIdeaImport(event) {
   }
 }
 
+async function bootDashboard(initialTab = readDashboardTabFromUrl()) {
+  switchTab(initialTab, { updateUrl: false });
+  syncDashboardTabToUrl(initialTab, { replace: true });
+  await Promise.all([loadStats(), loadIdeaSourceOptions(), loadIdeas(), loadOperators()]);
+}
+
 document.querySelectorAll(".tab").forEach((button) => {
-  button.addEventListener("click", () => switchTab(button.dataset.tab));
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    switchTab(button.dataset.tab);
+  });
+});
+
+window.addEventListener("hashchange", () => {
+  const tab = readDashboardTabFromUrl();
+  if (tab !== state.tab) {
+    switchTab(tab, { updateUrl: false });
+  }
+});
+
+window.addEventListener("popstate", () => {
+  const tab = readDashboardTabFromUrl();
+  if (tab !== state.tab) {
+    switchTab(tab, { updateUrl: false });
+  }
 });
 
 document.getElementById("ideas-refresh").addEventListener("click", () => {
@@ -2216,8 +2316,27 @@ document.getElementById("ideas-refresh").addEventListener("click", () => {
 
 document.getElementById("ideas-apply").addEventListener("click", () => {
   state.ideas.source = els.ideasSource.value;
+  state.ideas.title = String(els.ideasTitle?.value ?? "").trim();
   state.ideas.offset = 0;
   loadIdeas().catch(handleError);
+});
+
+els.ideasTitle?.addEventListener("sl-input", (event) => {
+  if (event.detail?.source === "clear") {
+    state.ideas.title = "";
+    state.ideas.offset = 0;
+    loadIdeas().catch(handleError);
+  }
+});
+
+els.ideasTitle?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    state.ideas.source = els.ideasSource.value;
+    state.ideas.title = String(els.ideasTitle?.value ?? "").trim();
+    state.ideas.offset = 0;
+    loadIdeas().catch(handleError);
+  }
 });
 
 els.ideasGenerate.addEventListener("click", () => {
@@ -2249,6 +2368,23 @@ document.getElementById("factor-validations-apply")?.addEventListener("click", (
   readFactorValidationControlsToState();
   state.factorValidations.offset = 0;
   loadFactorValidations().catch(handleError);
+});
+
+els.factorValidationsTitle?.addEventListener("sl-input", (event) => {
+  if (event.detail?.source === "clear") {
+    readFactorValidationControlsToState();
+    state.factorValidations.offset = 0;
+    loadFactorValidations().catch(handleError);
+  }
+});
+
+els.factorValidationsTitle?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    readFactorValidationControlsToState();
+    state.factorValidations.offset = 0;
+    loadFactorValidations().catch(handleError);
+  }
 });
 
 document.getElementById("factor-validations-refresh")?.addEventListener("click", () => {
@@ -2646,7 +2782,7 @@ async function verifyAuthAndBoot() {
   try {
     await apiGet("/api/auth/check");
     hideAuthGate();
-    await Promise.all([loadStats(), loadIdeaSourceOptions(), loadIdeas(), loadOperators()]);
+    await bootDashboard();
   } catch {
     showAuthGate();
   }
@@ -2664,7 +2800,7 @@ els.authForm.addEventListener("submit", async (event) => {
   try {
     await apiGet("/api/auth/check");
     hideAuthGate();
-    await Promise.all([loadStats(), loadIdeaSourceOptions(), loadIdeas(), loadOperators()]);
+    await bootDashboard();
   } catch (err) {
     clearAuthToken();
     const msg = err?.message || "";
