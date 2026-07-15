@@ -4,8 +4,8 @@
 - title, hypothesis, data_sources（如 ["yhydev97/quant-data"]）
 - formula_sketch, expected_signal, risks（字符串数组）
 - formula_sketch / expected_signal 可为字符串，或多行字符串数组（导入时会自动合并）
-- factor_expr：Qlib DSL，字段 `$` 前缀，须用白名单字段
-- factor_sql：DuckDB 翻译结果（含 signal_sql、postprocess、universe），与 formula_sketch 语义一致
+- factor_expr：Qlib DSL，字段 `$` 前缀，须用白名单字段（可含 Div/Mean/Ref/CSRank 等）
+- factor_sql：DuckDB 翻译结果（含 signal_sql、postprocess、universe），与 formula_sketch 语义一致；**signal_sql 禁止残留 DSL 函数名**
 
 可选：custom_ops（使用非内置算子时，每项含 name, signature, description）
 

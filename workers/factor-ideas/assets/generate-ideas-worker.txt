@@ -9,13 +9,15 @@
 3. 避开下方饱和模式；标题简洁、互不重复。
 4. 非内置算子须在 `custom_ops` 注明 name / signature / description。
 5. 每条 idea **必须同时输出** `factor_sql`（含可执行的 `signal_sql`），与 `formula_sketch` / `factor_expr` 一致。
-6. 输出须符合下方格式说明。
+6. **双语分离**：`factor_expr` 用 DSL；`signal_sql` 必须是可执行的 DuckDB（用 `/` `LN` `LAG` `AVG` `STDDEV_SAMP`），**禁止**把 `Div/Add/Mean/Ref/CSRank/...` 原样抄进 `signal_sql`（这是最常见的跳过原因）。
+7. `universe.dropna` 只用原始 OHLCV 列，不要写 `log_ret_1`/`ret_24h`/`vol_24h`。
+8. 输出须符合下方格式说明。
 
 {{OUTPUT_SPEC}}
 
 {{FACTOR_SQL_RULES}}
 
-## 内置算子
+## 内置算子（仅用于 factor_expr）
 
 Ref, Mean, Std, Sum, Max, Min, Delta, Rank, Med, Quantile, Corr, Abs, Sign, Log, Neg, Add, Sub, Mul, Div, CSRank, CSZScore
 
@@ -27,4 +29,4 @@ Ref, Mean, Std, Sum, Max, Min, Delta, Rank, Med, Quantile, Corr, Abs, Sign, Log,
 
 {{DATASETS_SECTION}}
 
-请一次生成 {{MIN_IDEAS}}～{{MAX_BATCH}} 条互不重复的新想法。
+请一次生成 {{MIN_IDEAS}}～{{MAX_BATCH}} 条互不重复的新想法。写完后自检：每条 `signal_sql` 是否不含 DSL 函数名、且 `dropna` 不含预计算列。
