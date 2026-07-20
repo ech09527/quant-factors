@@ -38,6 +38,14 @@
       "type": "string",
       "description": "验证配置 key，如 fwd_ret_1 / fwd_vol_24"
     },
+    "neutralization_key": {
+      "type": "string",
+      "description": "中性化配置 key，如 none / liq_mom / auto / 指纹"
+    },
+    "neutralization_spec": {
+      "type": "object",
+      "description": "中性化规格（exposures 配置），优先于仅用 key 解析"
+    },
     "evaluated_at": { "type": "string", "format": "date-time" },
     "skipped_reason": { "type": "string" },
     "data_range": {
@@ -81,6 +89,7 @@
         "n_periods": { "type": "integer", "minimum": 0 },
         "ic_positive_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
         "validation_profile_key": { "type": "string" },
+        "neutralization_key": { "type": "string" },
         "label_kind": { "type": "string" },
         "horizon_bars": { "type": "integer", "minimum": 1 }
       }

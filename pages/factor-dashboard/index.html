@@ -133,6 +133,15 @@
               <sl-select id="factor-validations-profile" size="small" multiple clearable placeholder="全部" hoist>
               </sl-select>
             </label>
+            <label class="filter-cell">
+              <span class="filter-label">中性化</span>
+              <sl-select id="factor-validations-neutralization" size="small" value="" hoist>
+                <sl-option value="">全部</sl-option>
+                <sl-option value="none">原始</sl-option>
+                <sl-option value="auto">中性化 (auto)</sl-option>
+                <sl-option value="liq_mom">中性化 (liq_mom)</sl-option>
+              </sl-select>
+            </label>
             <label class="filter-cell filter-cell--checkbox">
               <span class="filter-label">选项</span>
               <sl-checkbox id="factor-validations-abs" checked>按绝对值</sl-checkbox>

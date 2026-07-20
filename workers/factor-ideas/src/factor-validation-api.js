@@ -109,7 +109,15 @@ export async function handleFactorValidationApiRequest(request, env, url) {
             ML_TASK_STATUSES.has(item.status)
         );
       const result = await reportFactorValidationResults(env.DB, parsed, env);
-      await syncPrefectFlowRunsAfterReports(env, "factor_validation", result.reports ?? []);
+      for (const report of result.reports ?? []) {
+        if (Number(report?.updated ?? 0) <= 0) {
+          continue;
+        }
+        const taskId = Number(report.task_id);
+        const task = await getMlTaskById(env.DB, taskId);
+        const businessType = String(task?.business_type ?? "factor_validation");
+        await syncPrefectFlowRunsAfterReports(env, businessType, [report]);
+      }
       for (const report of result.reports ?? []) {
         if (report.updated <= 0) {
           continue;
@@ -168,6 +176,11 @@ export async function handleFactorValidationApiRequest(request, env, url) {
       .filter(Boolean);
     const titleParam = url.searchParams.get("title");
     const title = titleParam == null || titleParam === "" ? null : titleParam.trim() || null;
+    const neutralizationKeyParam = url.searchParams.get("neutralization_key");
+    const neutralizationKey =
+      neutralizationKeyParam == null || neutralizationKeyParam === ""
+        ? null
+        : neutralizationKeyParam.trim() || null;
     const sort = url.searchParams.get("sort")?.trim() || void 0;
     const orderParam = url.searchParams.get("order")?.trim().toLowerCase();
     const order = orderParam === "asc" || orderParam === "desc" ? orderParam : void 0;
@@ -180,6 +193,7 @@ export async function handleFactorValidationApiRequest(request, env, url) {
       ideaId: Number.isFinite(ideaId) && ideaId > 0 ? ideaId : null,
       status,
       profileKeys: profileKeys.length > 0 ? profileKeys : null,
+      neutralizationKey,
       title,
       sort,
       order,

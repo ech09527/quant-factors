@@ -3,6 +3,10 @@ export const IDEA_GENERATION_CRON = "*/5 * * * *";
 
 const VALIDATION_BATCH_KEY = "validation_batch_enabled";
 const FACTOR_VALIDATION_BATCH_KEY = "factor_validation_batch_enabled";
+const NEUTRAL_VALIDATION_BATCH_KEY = "neutral_validation_batch_enabled";
+const NEUTRAL_VALIDATION_MIN_ABS_MEAN_RANK_IC_KEY = "neutral_validation_min_abs_mean_rank_ic";
+const NEUTRAL_VALIDATION_BATCH_LIMIT_KEY = "neutral_validation_batch_limit";
+const NEUTRAL_VALIDATION_KEY_SETTING = "neutral_validation_key";
 const KERNEL_CLEANUP_KEY = "kernel_cleanup_enabled";
 const VALIDATION_BATCH_LIMIT_KEY = "validation_batch_limit";
 
@@ -23,6 +27,46 @@ export const SYSTEM_SETTING_DEFS = [
     type: "boolean",
     envKey: "FACTOR_VALIDATION_BATCH_ENABLED",
     defaultBoolean: false,
+    group: "workflow",
+  },
+  {
+    key: NEUTRAL_VALIDATION_BATCH_KEY,
+    label: "因子中性化二次验证调度",
+    description: "开启后由 Prefect 定时 deployment（neutral_validation/production）拉取优秀因子并完成中性化二次验证；Worker Cron 不再触发。",
+    type: "boolean",
+    envKey: "NEUTRAL_VALIDATION_BATCH_ENABLED",
+    defaultBoolean: false,
+    group: "workflow",
+  },
+  {
+    key: NEUTRAL_VALIDATION_MIN_ABS_MEAN_RANK_IC_KEY,
+    label: "二次验证 Rank IC 阈值",
+    description: "一次验证 |mean_rank_ic| 不低于该值才进入中性化二次验证队列。",
+    type: "number",
+    envKey: "NEUTRAL_VALIDATION_MIN_ABS_MEAN_RANK_IC",
+    defaultNumber: 0.01,
+    min: 0.0001,
+    max: 1,
+    group: "workflow",
+  },
+  {
+    key: NEUTRAL_VALIDATION_BATCH_LIMIT_KEY,
+    label: "每批二次验证上限",
+    description: "每次调度最多提交的中性化验证任务数。",
+    type: "integer",
+    envKey: "NEUTRAL_VALIDATION_BATCH_LIMIT",
+    defaultInt: 10,
+    min: 1,
+    max: 30,
+    group: "workflow",
+  },
+  {
+    key: NEUTRAL_VALIDATION_KEY_SETTING,
+    label: "中性化配置",
+    description: "二次验证中性化模式：auto=AI 选 exposures；或命名别名 none/liq_mom/liquidity/short_term_return/liquidity_volatility。",
+    type: "string",
+    envKey: "NEUTRAL_VALIDATION_KEY",
+    defaultString: "auto",
     group: "workflow",
   },
   {
@@ -71,6 +115,19 @@ function parsePositiveInt(value, fallback, min, max) {
   return Math.min(Math.max(Math.floor(parsed), min), max);
 }
 
+function parsePositiveNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function parseStringSetting(value, fallback) {
+  const text = value == null ? "" : String(value).trim();
+  return text || fallback;
+}
+
 async function readWorkflowSettingRow(db, key) {
   return db.prepare(
     `SELECT value, updated_at
@@ -85,6 +142,12 @@ function readEnvFallback(env, def) {
   if (def.type === "boolean") {
     return parseEnabledFlag(raw, def.defaultBoolean);
   }
+  if (def.type === "number") {
+    return parsePositiveNumber(raw, def.defaultNumber, def.min, def.max);
+  }
+  if (def.type === "string") {
+    return parseStringSetting(raw, def.defaultString);
+  }
   return parsePositiveInt(raw, def.defaultInt, def.min, def.max);
 }
 
@@ -94,13 +157,26 @@ async function readWorkflowSettingValue(db, env, def) {
     if (def.type === "boolean") {
       return parseEnabledFlag(row.value, def.defaultBoolean);
     }
+    if (def.type === "number") {
+      return parsePositiveNumber(row.value, def.defaultNumber, def.min, def.max);
+    }
+    if (def.type === "string") {
+      return parseStringSetting(row.value, def.defaultString);
+    }
     return parsePositiveInt(row.value, def.defaultInt, def.min, def.max);
   }
   return readEnvFallback(env, def);
 }
 
 async function writeWorkflowSettingValue(db, def, value) {
-  const stored = def.type === "boolean" ? (value ? "1" : "0") : String(value);
+  let stored;
+  if (def.type === "boolean") {
+    stored = value ? "1" : "0";
+  } else if (def.type === "string") {
+    stored = String(value ?? def.defaultString).trim() || def.defaultString;
+  } else {
+    stored = String(value);
+  }
   await db.prepare(
     `INSERT INTO workflow_settings (key, value, updated_at)
        VALUES (?, ?, datetime('now'))
@@ -118,7 +194,7 @@ function serializeSettingItem(def, value, row) {
     type: def.type,
     group: def.group,
     value,
-    ...(def.type === "integer" ? { min: def.min, max: def.max } : {}),
+    ...(def.type === "integer" || def.type === "number" ? { min: def.min, max: def.max } : {}),
     updated_at: row?.updated_at ?? null,
     source: row ? "database" : "default",
   };
@@ -131,7 +207,11 @@ export async function getSystemSettings(db, env) {
     const value = row?.value != null && row.value !== ""
       ? (def.type === "boolean"
         ? parseEnabledFlag(row.value, def.defaultBoolean)
-        : parsePositiveInt(row.value, def.defaultInt, def.min, def.max))
+        : def.type === "number"
+          ? parsePositiveNumber(row.value, def.defaultNumber, def.min, def.max)
+          : def.type === "string"
+            ? parseStringSetting(row.value, def.defaultString)
+            : parsePositiveInt(row.value, def.defaultInt, def.min, def.max))
       : readEnvFallback(env, def);
     items.push(serializeSettingItem(def, value, row));
   }
@@ -170,6 +250,16 @@ export async function patchSystemSettings(db, env, patch) {
         throw new Error(`${key} must be boolean`);
       }
       value = rawValue;
+    } else if (def.type === "number") {
+      value = parsePositiveNumber(rawValue, NaN, def.min, def.max);
+      if (!Number.isFinite(value)) {
+        throw new Error(`${key} must be number between ${def.min} and ${def.max}`);
+      }
+    } else if (def.type === "string") {
+      value = parseStringSetting(rawValue, "");
+      if (!value) {
+        throw new Error(`${key} must be non-empty string`);
+      }
     } else {
       value = parsePositiveInt(rawValue, NaN, def.min, def.max);
       if (!Number.isFinite(value)) {
@@ -215,6 +305,26 @@ export async function getValidationScheduleSettings(db, env) {
 
 export async function getFactorValidationBatchEnabled(db, env) {
   const def = SETTING_DEF_BY_KEY.get(FACTOR_VALIDATION_BATCH_KEY);
+  return readWorkflowSettingValue(db, env, def);
+}
+
+export async function getNeutralValidationBatchEnabled(db, env) {
+  const def = SETTING_DEF_BY_KEY.get(NEUTRAL_VALIDATION_BATCH_KEY);
+  return readWorkflowSettingValue(db, env, def);
+}
+
+export async function getNeutralValidationMinAbsMeanRankIc(db, env) {
+  const def = SETTING_DEF_BY_KEY.get(NEUTRAL_VALIDATION_MIN_ABS_MEAN_RANK_IC_KEY);
+  return readWorkflowSettingValue(db, env, def);
+}
+
+export async function getNeutralValidationBatchLimit(db, env) {
+  const def = SETTING_DEF_BY_KEY.get(NEUTRAL_VALIDATION_BATCH_LIMIT_KEY);
+  return readWorkflowSettingValue(db, env, def);
+}
+
+export async function getNeutralValidationKey(db, env) {
+  const def = SETTING_DEF_BY_KEY.get(NEUTRAL_VALIDATION_KEY_SETTING);
   return readWorkflowSettingValue(db, env, def);
 }
 

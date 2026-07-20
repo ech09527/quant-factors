@@ -18,6 +18,18 @@ except ImportError:
     from mlflow_logger import log_factor_validation_run
 
 BUSINESS_TYPE_FACTOR_VALIDATION = "factor_validation"
+BUSINESS_TYPE_FACTOR_NEUTRAL_VALIDATION = "factor_neutral_validation"
+
+
+def _neutralization_key(job: dict[str, Any]) -> str:
+    return str(job.get("neutralization_key") or "none").strip() or "none"
+
+
+def _neutralization_spec(job: dict[str, Any]) -> dict[str, Any] | None:
+    spec = job.get("neutralization_spec")
+    if isinstance(spec, dict):
+        return spec
+    return None
 
 
 def _elapsed_ms(started_at: float) -> int:
@@ -285,6 +297,8 @@ def evaluate_factor_validation_sql(
     idea = _idea_from_job(job)
     factor_sql = job.get("factor_sql") or {}
     profile_key = _profile_key(job)
+    neutralization_key = _neutralization_key(job)
+    neutralization_spec = _neutralization_spec(job)
     started = time.perf_counter()
     evaluation = evaluate_factor_sql(
         factor_sql,
@@ -296,6 +310,8 @@ def evaluate_factor_validation_sql(
         validation_profile_key=profile_key,
         label_kind=job.get("label_kind"),
         horizon_bars=job.get("horizon_bars"),
+        neutralization_key=neutralization_key,
+        neutralization_spec=neutralization_spec,
     )
     evaluation["task_id"] = job.get("task_id")
     evaluation["factor_validation_id"] = job.get("factor_validation_id")
@@ -491,6 +507,8 @@ def build_prefect_job_payload(
         **job,
         "idea": idea,
         "validation_profile_key": _profile_key(job),
+        "neutralization_key": _neutralization_key(job),
+        "neutralization_spec": _neutralization_spec(job),
     }
     return {
         "business_type": business_type,

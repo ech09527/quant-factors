@@ -190,6 +190,7 @@ export async function runFactorValidationBatch(env, options = {}) {
       factor_sql: factorSql,
       profile_key: profileKey,
       validation_profile_key: profileKey,
+      neutralization_key: "none",
       label_kind: job.label_kind,
       horizon_bars: job.horizon_bars
     };

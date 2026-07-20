@@ -1,5 +1,10 @@
 import { dispatchFactorValidationViaCoordinator } from "./jupyter-execution-dispatch.js";
 import { dispatchFactorValidationViaPrefect } from "./prefect-execution-dispatch.js";
+import {
+  claimFactorNeutralValidationBatch,
+  attachFactorNeutralValidationFlowRun,
+  dispatchFactorNeutralValidationViaPrefect
+} from "./prefect-neutral-execution-dispatch.js";
 import { handleJupyterExecutionCallbackApiRequest } from "./jupyter-execution-callback-api.js";
 import { registerDefaultHandlers } from "./jupyter-executor.js";
 import { jupyterExecutionViaDoEnabled } from "./jupyter-execution-config.js";
@@ -78,20 +83,21 @@ export default {
     const factorValidationRunner = resolveFactorValidationDispatch(env);
 
     const maintenanceTasks = [factorValidationRunner];
+    // 中性化二次验证定时改由 Prefect deployment schedule 触发，Worker Cron 不再 create_flow_run
     if (!prefectExecutionEnabled(env)) {
       maintenanceTasks.push(runKernelCleanup(env));
     }
     maintenanceTasks.push(cleanupExpiredJupyterServers(env.DB));
 
     const maintenanceResults = await Promise.allSettled(maintenanceTasks);
-    const [factorValidationResult, cleanupResult, jupyterServerCleanupResult] =
+    const factorValidationResult = maintenanceResults[0];
+    const cleanupResult =
       prefectExecutionEnabled(env)
-        ? [
-            maintenanceResults[0],
-            { status: "fulfilled", value: { skipped: true, reason: "prefect_backend" } },
-            maintenanceResults[1]
-          ]
-        : [maintenanceResults[0], maintenanceResults[1], maintenanceResults[2]];
+        ? { status: "fulfilled", value: { skipped: true, reason: "prefect_backend" } }
+        : maintenanceResults[1];
+    const jupyterServerCleanupResult = prefectExecutionEnabled(env)
+      ? maintenanceResults[1]
+      : maintenanceResults[2];
     if (factorValidationResult.status === "fulfilled") {
       console.log(JSON.stringify({ cron, factor_validation: factorValidationResult.value }));
     } else {
@@ -249,6 +255,75 @@ export default {
           url.searchParams.get("force") === "1" ||
           url.searchParams.get("force")?.toLowerCase() === "true";
         const result = await runKernelCleanup(env, { force });
+        return Response.json({ ok: true, ...result });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return Response.json({ ok: false, error: message }, { status: 500 });
+      }
+    }
+    if (request.method === "POST" && url.pathname === "/api/workflow/factor-neutral-validations/claim-batch") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      }
+      try {
+        let body = {};
+        const contentType = request.headers.get("Content-Type") ?? "";
+        if (contentType.includes("application/json")) {
+          try {
+            body = await request.json();
+          } catch {
+            return Response.json({ ok: false, error: "invalid json body" }, { status: 400 });
+          }
+        }
+        const limit =
+          body.limit != null && Number.isFinite(Number(body.limit)) && Number(body.limit) > 0
+            ? Math.floor(Number(body.limit))
+            : null;
+        const result = await claimFactorNeutralValidationBatch(env, {
+          ignoreScheduleEnabled: body.ignore_schedule_enabled === true,
+          ...(limit != null ? { limit } : {})
+        });
+        return Response.json({ ok: true, ...result });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return Response.json({ ok: false, error: message }, { status: 500 });
+      }
+    }
+    if (request.method === "POST" && url.pathname === "/api/workflow/factor-neutral-validations/attach-flow-run") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      }
+      try {
+        let body = {};
+        try {
+          body = await request.json();
+        } catch {
+          return Response.json({ ok: false, error: "invalid json body" }, { status: 400 });
+        }
+        const result = await attachFactorNeutralValidationFlowRun(env, {
+          taskId: body.task_id,
+          flowRunId: body.flow_run_id,
+          deploymentName: body.deployment_name ?? body.deployment ?? null
+        });
+        return Response.json({ ok: true, ...result });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return Response.json({ ok: false, error: message }, { status: 500 });
+      }
+    }
+    if (request.method === "POST" && url.pathname === "/run-factor-neutral-validation-batch") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      }
+      try {
+        const limitParam = url.searchParams.get("limit");
+        const parsedLimit = limitParam == null || limitParam === "" ? null : Number(limitParam);
+        const limit =
+          parsedLimit != null && Number.isFinite(parsedLimit) && parsedLimit > 0
+            ? Math.floor(parsedLimit)
+            : null;
+        const dispatchOptions = { ignoreScheduleEnabled: true, ...(limit != null ? { limit } : {}) };
+        const result = await dispatchFactorNeutralValidationViaPrefect(env, dispatchOptions);
         return Response.json({ ok: true, ...result });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

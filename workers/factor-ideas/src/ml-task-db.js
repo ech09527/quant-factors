@@ -7,9 +7,11 @@ export const ML_TASK_STATUSES = new Set([
 ]);
 
 export const BUSINESS_TYPE_FACTOR_VALIDATION = "factor_validation";
+export const BUSINESS_TYPE_FACTOR_NEUTRAL_VALIDATION = "factor_neutral_validation";
 
 export const ML_VALIDATION_BUSINESS_TYPES = new Set([
-  BUSINESS_TYPE_FACTOR_VALIDATION
+  BUSINESS_TYPE_FACTOR_VALIDATION,
+  BUSINESS_TYPE_FACTOR_NEUTRAL_VALIDATION
 ]);
 
 export function isMlValidationBusinessType(businessType) {
@@ -104,11 +106,15 @@ export async function getMlTaskById(db, taskId) {
   };
 }
 
-export async function updateMlTaskDiagnostics(db, taskId, patch = {}) {
+export async function updateMlTaskDiagnostics(db, taskId, patch = {}, { allowPending = false } = {}) {
+  const statusGuard = allowPending
+    ? "AND status IN ('running', 'pending')"
+    : "AND status = 'running'";
   const existing = await db.prepare(
     `SELECT diagnostics
        FROM ml_tasks
-       WHERE id = ? AND status = 'running'
+       WHERE id = ?
+         ${statusGuard}
        LIMIT 1`
   ).bind(taskId).first();
   if (!existing) {
@@ -122,7 +128,8 @@ export async function updateMlTaskDiagnostics(db, taskId, patch = {}) {
     `UPDATE ml_tasks
        SET diagnostics = ?,
            updated_at = datetime('now')
-       WHERE id = ? AND status = 'running'`
+       WHERE id = ?
+         ${statusGuard}`
   ).bind(JSON.stringify(diagnostics), taskId).run();
   return { updated: Number(result.meta.changes ?? 0) };
 }

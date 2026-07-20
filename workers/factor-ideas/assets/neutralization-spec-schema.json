@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ech09527/quant-factors/schemas/neutralization-spec-schema.json",
+  "title": "NeutralizationSpec",
+  "description": "因子中性化规格：固定引擎按 exposures 做截面顺序 OLS 残差（类比 signal_sql 的受控片段）",
+  "type": "object",
+  "required": ["version", "method", "exposures"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1"
+    },
+    "method": {
+      "type": "string",
+      "enum": ["sequential_ols"],
+      "description": "每个 open_time 截面上，按 exposures 顺序一元 OLS 取残差"
+    },
+    "exposures": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["field", "transform"],
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "quote_volume",
+              "volume",
+              "count",
+              "log_ret_1",
+              "ret_24h",
+              "vol_24h",
+              "taker_buy_volume",
+              "taker_buy_quote_volume",
+              "open",
+              "high",
+              "low",
+              "close"
+            ]
+          },
+          "transform": {
+            "type": "string",
+            "enum": ["identity", "ln"]
+          }
+        }
+      }
+    }
+  }
+}

@@ -8,6 +8,7 @@ export async function onRequest(context) {
     pathname === "/generate" ||
     pathname === "/run-validation-batch" ||
     pathname === "/run-factor-validation-batch" ||
+    pathname === "/run-factor-neutral-validation-batch" ||
     pathname === "/run-kernel-cleanup"
   ) {
     if (!env.FACTOR_IDEAS) {

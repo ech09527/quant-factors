@@ -141,6 +141,15 @@ const IDEA_SOURCE_LABELS = {
   manual: "手动导入",
 };
 
+const NEUTRALIZATION_LABELS = {
+  none: "原始",
+  liq_mom: "中性化",
+  auto: "中性化(自动)",
+  liquidity: "仅流动性",
+  short_term_return: "仅短收益",
+  liquidity_volatility: "流动性+波动",
+};
+
 const state = {
   validationById: {},
   tab: "ideas",
@@ -156,6 +165,7 @@ const state = {
     status: "success",
     profile_keys: [],
     title: "",
+    neutralization_key: "",
   },
   factorValidationById: {},
   icSeriesChartDispose: null,
@@ -200,6 +210,7 @@ const els = {
   factorValidationsStatus: document.getElementById("factor-validations-status"),
   factorValidationsProfile: document.getElementById("factor-validations-profile"),
   factorValidationsTitle: document.getElementById("factor-validations-title"),
+  factorValidationsNeutralization: document.getElementById("factor-validations-neutralization"),
   factorValidationsCharts: document.getElementById("factor-validations-charts"),
   settingsWorkflowBody: document.getElementById("settings-workflow-body"),
   settingsSchedulesBody: document.getElementById("settings-schedules-body"),
@@ -533,10 +544,35 @@ function formatMetricCell(value) {
   return `<span class="fv-metric-value ${signClass}">${num.toFixed(4)}</span>`;
 }
 
+function formatNeutralizationLabel(key) {
+  const normalized = String(key || "none").trim() || "none";
+  return NEUTRALIZATION_LABELS[normalized] || normalized;
+}
+
+function factorValidationNeutralizationBadge(key) {
+  const normalized = String(key || "none").trim() || "none";
+  const label = formatNeutralizationLabel(normalized);
+  const variant = normalized === "none" ? "neutral" : "primary";
+  return `<sl-badge variant="${variant}" pill>${escapeHtml(label)}</sl-badge>`;
+}
+
+function formatMetricDelta(primaryValue, neutralValue) {
+  const primary = Number(primaryValue);
+  const neutral = Number(neutralValue);
+  if (!Number.isFinite(primary) || !Number.isFinite(neutral)) {
+    return `<span class="muted">-</span>`;
+  }
+  const delta = neutral - primary;
+  const signClass = delta >= 0 ? "fv-metric-positive" : "fv-metric-negative";
+  const prefix = delta > 0 ? "+" : "";
+  return `<span class="fv-metric-value ${signClass}" title="中性化 − 原始">${prefix}${delta.toFixed(4)}</span>`;
+}
+
 function factorValidationFactorCell(row, errHtml = "") {
   const title = escapeHtml(row.idea_title || `#${row.idea_id}`);
   const profile = escapeHtml(row.profile_name || row.profile_key);
   const statusBadge = row.status !== "success" ? validationStatusBadge(row.status) : "";
+  const neutralBadge = factorValidationNeutralizationBadge(row.neutralization_key);
   return `
     <div class="fv-factor-cell">
       <button type="button" class="fv-idea-link idea-link" data-id="${row.idea_id}" data-kind="idea" title="${title}">${title}</button>
@@ -544,6 +580,8 @@ function factorValidationFactorCell(row, errHtml = "") {
         <span>#${row.id}</span>
         <span class="fv-meta-sep">·</span>
         <span class="fv-meta-profile" title="${profile}">${profile}</span>
+        <span class="fv-meta-sep">·</span>
+        ${neutralBadge}
         ${statusBadge ? `<span class="fv-meta-sep">·</span>${statusBadge}` : ""}
       </div>
       ${errHtml}
@@ -644,6 +682,9 @@ function syncFactorValidationControlsFromState() {
   if (els.factorValidationsTitle) {
     els.factorValidationsTitle.value = state.factorValidations.title;
   }
+  if (els.factorValidationsNeutralization) {
+    els.factorValidationsNeutralization.value = state.factorValidations.neutralization_key;
+  }
 }
 
 function readFactorValidationControlsToState() {
@@ -659,10 +700,14 @@ function readFactorValidationControlsToState() {
     ? els.factorValidationsProfile.value.map(String).filter(Boolean)
     : [];
   state.factorValidations.title = String(els.factorValidationsTitle?.value ?? "").trim();
+  state.factorValidations.neutralization_key = String(
+    els.factorValidationsNeutralization?.value ?? "",
+  ).trim();
 }
 
 function buildFactorValidationQueryParams() {
-  const { sort, order, abs, limit, offset, status, profile_keys, title } = state.factorValidations;
+  const { sort, order, abs, limit, offset, status, profile_keys, title, neutralization_key } =
+    state.factorValidations;
   const params = new URLSearchParams({
     sort,
     order,
@@ -678,6 +723,9 @@ function buildFactorValidationQueryParams() {
   }
   if (title) {
     params.set("title", title);
+  }
+  if (neutralization_key) {
+    params.set("neutralization_key", neutralization_key);
   }
   return params.toString();
 }
@@ -707,7 +755,12 @@ function factorValidationQueryHint(data) {
     : state.factorValidations.profile_keys;
   const profileLabel = profileKeys.length ? `，配置=${formatProfileKeysLabel(profileKeys)}` : "";
   const titleLabel = data.title ? `，标题含「${data.title}」` : "";
-  return `${absLabel}${metricLabel} ${data.order === "desc" ? "降序" : "升序"} Top ${data.limit}${statusLabel}${profileLabel}${titleLabel} · 共 ${data.total} 条`;
+  const neutralLabel = data.neutralization_key
+    ? `，中性化=${formatNeutralizationLabel(data.neutralization_key)}`
+    : state.factorValidations.neutralization_key
+      ? `，中性化=${formatNeutralizationLabel(state.factorValidations.neutralization_key)}`
+      : "";
+  return `${absLabel}${metricLabel} ${data.order === "desc" ? "降序" : "升序"} Top ${data.limit}${statusLabel}${profileLabel}${titleLabel}${neutralLabel} · 共 ${data.total} 条`;
 }
 
 async function loadValidationProfiles(includeDisabled = false) {
@@ -1899,6 +1952,73 @@ function renderIdeaFactorValidationsTable(data) {
   if (!items.length) {
     return `<p class="muted">尚未创建因子验证任务。</p>`;
   }
+
+  const byProfile = new Map();
+  for (const row of items) {
+    const key = String(row.profile_key);
+    if (!byProfile.has(key)) {
+      byProfile.set(key, { primary: null, neutral: null, others: [] });
+    }
+    const bucket = byProfile.get(key);
+    const neutralKey = String(row.neutralization_key || "none");
+    if (neutralKey === "none") {
+      bucket.primary = row;
+    } else if (neutralKey !== "none" && !bucket.neutral) {
+      bucket.neutral = row;
+    } else {
+      bucket.others.push(row);
+    }
+  }
+
+  const rows = [];
+  for (const [profileKey, bucket] of byProfile.entries()) {
+    const profile = state.validationProfiles.find((item) => item.key === profileKey);
+    const profileName = escapeHtml(profile?.name || profileKey);
+    if (bucket.primary && bucket.neutral) {
+      const primaryMetrics = factorValidationMetricsFromRow(bucket.primary);
+      const neutralMetrics = factorValidationMetricsFromRow(bucket.neutral);
+      rows.push(`
+        <tr class="fv-compare-row">
+          <td class="fv-col-factor" colspan="6">
+            <div class="fv-compare-header">
+              <strong>${profileName}</strong>
+              <span class="muted">一次 vs 中性化</span>
+            </div>
+            <div class="fv-compare-grid">
+              <div><span class="muted">Rank IC</span> ${formatMetricCell(primaryMetrics.mean_rank_ic)} → ${formatMetricCell(neutralMetrics.mean_rank_ic)} ${formatMetricDelta(primaryMetrics.mean_rank_ic, neutralMetrics.mean_rank_ic)}</div>
+              <div><span class="muted">IC</span> ${formatMetricCell(primaryMetrics.mean_ic)} → ${formatMetricCell(neutralMetrics.mean_ic)} ${formatMetricDelta(primaryMetrics.mean_ic, neutralMetrics.mean_ic)}</div>
+              <div><span class="muted">IR</span> ${formatMetricCell(primaryMetrics.ic_ir)} → ${formatMetricCell(neutralMetrics.ic_ir)}</div>
+            </div>
+          </td>
+        </tr>
+      `);
+    }
+    for (const row of [bucket.primary, bucket.neutral, ...bucket.others].filter(Boolean)) {
+      const metrics = factorValidationMetricsFromRow(row);
+      const evaluated = formatTableTime(row.evaluated_at || row.updated_at);
+      rows.push(`
+        <tr data-factor-validation-id="${row.id}" data-task-id="${row.task_id}" class="clickable-row">
+          <td class="fv-col-factor">
+            <div class="fv-factor-cell">
+              <span class="fv-profile-label" title="${profileName}">${profileName}</span>
+              <div class="fv-row-meta muted">
+                <span>#${row.id}</span>
+                <span class="fv-meta-sep">·</span>
+                ${factorValidationNeutralizationBadge(row.neutralization_key)}
+                ${row.status !== "success" ? `<span class="fv-meta-sep">·</span>${validationStatusBadge(row.status)}` : ""}
+              </div>
+            </div>
+          </td>
+          <td class="fv-col-metric">${formatMetricCell(metrics.mean_ic)}</td>
+          <td class="fv-col-metric">${formatMetricCell(metrics.mean_rank_ic)}</td>
+          <td class="fv-col-metric">${formatMetricCell(metrics.ic_ir)}</td>
+          <td class="fv-col-actions">${factorValidationChartCell(row)}</td>
+          <td class="fv-col-time" title="${escapeHtml(evaluated.title)}">${evaluated.text}</td>
+        </tr>
+      `);
+    }
+  }
+
   return `
     <table class="validation-table factor-validations-table factor-validations-table--compact">
       <thead>
@@ -1911,33 +2031,7 @@ function renderIdeaFactorValidationsTable(data) {
           <th class="fv-col-time">评估</th>
         </tr>
       </thead>
-      <tbody>
-        ${items
-          .map((row) => {
-            const metrics = factorValidationMetricsFromRow(row);
-            const evaluated = formatTableTime(row.evaluated_at || row.updated_at);
-            const profile = escapeHtml(row.profile_name || row.profile_key);
-            return `
-              <tr data-factor-validation-id="${row.id}" data-task-id="${row.task_id}" class="clickable-row">
-                <td class="fv-col-factor">
-                  <div class="fv-factor-cell">
-                    <span class="fv-profile-label" title="${profile}">${profile}</span>
-                    <div class="fv-row-meta muted">
-                      <span>#${row.id}</span>
-                      ${row.status !== "success" ? `<span class="fv-meta-sep">·</span>${validationStatusBadge(row.status)}` : ""}
-                    </div>
-                  </div>
-                </td>
-                <td class="fv-col-metric">${formatMetricCell(metrics.mean_ic)}</td>
-                <td class="fv-col-metric">${formatMetricCell(metrics.mean_rank_ic)}</td>
-                <td class="fv-col-metric">${formatMetricCell(metrics.ic_ir)}</td>
-                <td class="fv-col-actions">${factorValidationChartCell(row)}</td>
-                <td class="fv-col-time" title="${escapeHtml(evaluated.title)}">${evaluated.text}</td>
-              </tr>
-            `;
-          })
-          .join("")}
-      </tbody>
+      <tbody>${rows.join("")}</tbody>
     </table>
   `;
 }

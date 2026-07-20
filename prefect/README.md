@@ -30,7 +30,15 @@ Deployment 使用 **git clone** pull 模式：每次 flow run 前 worker 自动 
 
 | Deployment | Flow |
 |------------|------|
-| `factor-validation/production` | DuckDB 评估 + MLflow |
+| `factor-validation/production` | 一次因子验证（DuckDB + MLflow） |
+| `neutral_validation/production` | 中性化二次验证（claim + LLM + 评估 + 回写） |
+
+`neutral_validation` 跑在独立 work pool `neutral_validation` 上；评估代码复用 `scripts/factor_validation_runner.py`，但不复用 `factor-validation` deployment。
+
+```bash
+uv run prefect worker start --pool quant-factors-eval
+uv run prefect worker start --pool neutral_validation
+```
 
 Flow 在 Prefect UI 中按 task 拆分阶段，便于查看各步耗时：
 

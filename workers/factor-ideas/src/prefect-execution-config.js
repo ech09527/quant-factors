@@ -37,6 +37,13 @@ export function readPrefectDeploymentFactorValidation(env) {
   );
 }
 
+export function readPrefectDeploymentNeutralValidation(env) {
+  return (
+    env?.PREFECT_DEPLOYMENT_NEUTRAL_VALIDATION?.trim() ||
+    "neutral_validation/production"
+  );
+}
+
 export function readPrefectStaleMinutes(env, fallback = 45) {
   const parsed = Number(env?.PREFECT_FLOW_RUN_STALE_MINUTES ?? fallback);
   if (!Number.isFinite(parsed) || parsed <= 0) {

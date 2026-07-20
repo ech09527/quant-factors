@@ -4,6 +4,7 @@ import { readPrefectStaleMinutes } from "./prefect-execution-config.js";
 import { reclaimStalePrefectFlowRuns } from "./prefect-execution-db.js";
 import {
   BUSINESS_TYPE_FACTOR_VALIDATION,
+  BUSINESS_TYPE_FACTOR_NEUTRAL_VALIDATION,
   createMlTask,
   parseJsonObject,
   reclaimStaleMlTasks,
@@ -15,6 +16,15 @@ import {
 import { resolveActiveMlflowConfig } from "./mlflow-tracking-config-db.js";
 
 const FACTOR_VALIDATION_EXPERIMENT = "factor-validation";
+const FACTOR_NEUTRAL_VALIDATION_EXPERIMENT = "factor-neutral-validation";
+const PRIMARY_NEUTRALIZATION_KEY = "none";
+
+function businessTypeForNeutralization(neutralizationKey) {
+  const key = String(neutralizationKey ?? PRIMARY_NEUTRALIZATION_KEY).trim() || PRIMARY_NEUTRALIZATION_KEY;
+  return key === PRIMARY_NEUTRALIZATION_KEY
+    ? BUSINESS_TYPE_FACTOR_VALIDATION
+    : BUSINESS_TYPE_FACTOR_NEUTRAL_VALIDATION;
+}
 
 function readStaleRunningMinutes(env, fallback = 5) {
   const parsed = Number(env?.VALIDATION_STALE_RUNNING_MINUTES ?? fallback);
@@ -29,7 +39,9 @@ function buildFactorValidationJobFrom(staleRunningMinutes) {
     FROM ideas i
     CROSS JOIN validation_profiles vp
     LEFT JOIN factor_validations fv
-      ON fv.idea_id = i.id AND fv.profile_key = vp.key
+      ON fv.idea_id = i.id
+     AND fv.profile_key = vp.key
+     AND fv.neutralization_key = '${PRIMARY_NEUTRALIZATION_KEY}'
     LEFT JOIN ml_tasks mt
       ON mt.id = fv.task_id
     WHERE vp.enabled = 1
@@ -49,7 +61,9 @@ function buildFactorValidationJobFromForPrefect(staleMinutes) {
     FROM ideas i
     CROSS JOIN validation_profiles vp
     LEFT JOIN factor_validations fv
-      ON fv.idea_id = i.id AND fv.profile_key = vp.key
+      ON fv.idea_id = i.id
+     AND fv.profile_key = vp.key
+     AND fv.neutralization_key = '${PRIMARY_NEUTRALIZATION_KEY}'
     LEFT JOIN ml_tasks mt
       ON mt.id = fv.task_id
     WHERE vp.enabled = 1
@@ -75,7 +89,7 @@ function buildFactorValidationJobFromForPrefect(staleMinutes) {
       AND NOT EXISTS (
         SELECT 1
           FROM prefect_flow_runs pfr
-         WHERE pfr.business_type = 'factor_validation'
+         WHERE pfr.business_type = '${BUSINESS_TYPE_FACTOR_VALIDATION}'
            AND pfr.business_id = CAST(COALESCE(fv.task_id, 0) AS TEXT)
            AND pfr.status IN ('scheduled', 'pending', 'running')
       )`;
@@ -121,6 +135,8 @@ function rowToFactorValidationJob(row) {
     task_id: Number(row.task_id),
     idea_id: Number(row.idea_id),
     profile_key: String(row.profile_key),
+    neutralization_key: String(row.neutralization_key ?? PRIMARY_NEUTRALIZATION_KEY),
+    neutralization_spec: parseJsonObject(row.neutralization_spec),
     profile_name: String(row.profile_name),
     label_kind: normalizeWorkflowLabelKind(row.label_kind),
     horizon_bars: normalizeWorkflowHorizonBars(row.horizon_bars),
@@ -146,6 +162,8 @@ export function rowToFactorValidationItem(row) {
     id: Number(row.id),
     idea_id: Number(row.idea_id),
     profile_key: String(row.profile_key),
+    neutralization_key: String(row.neutralization_key ?? PRIMARY_NEUTRALIZATION_KEY),
+    neutralization_spec: parseJsonObject(row.neutralization_spec),
     profile_name: row.profile_name == null ? null : String(row.profile_name),
     task_id: Number(row.task_id),
     status: String(row.status),
@@ -172,6 +190,7 @@ export async function listPendingFactorValidationJobs(db, limit = null, env = nu
          COALESCE(fv.task_id, 0) AS task_id,
          i.id AS idea_id,
          vp.key AS profile_key,
+         '${PRIMARY_NEUTRALIZATION_KEY}' AS neutralization_key,
          COALESCE(mt.status, 'queued') AS status,
          vp.name AS profile_name,
          vp.label_kind,
@@ -204,32 +223,67 @@ export async function listPendingFactorValidationJobs(db, limit = null, env = nu
   };
 }
 
-export async function ensureFactorValidationRecords(db, ideaId, profileKey) {
+export async function ensureFactorValidationRecords(
+  db,
+  ideaId,
+  profileKey,
+  neutralizationKey = PRIMARY_NEUTRALIZATION_KEY,
+  neutralizationSpec = null
+) {
+  const neutralKey = String(neutralizationKey ?? PRIMARY_NEUTRALIZATION_KEY).trim() || PRIMARY_NEUTRALIZATION_KEY;
   const existing = await db.prepare(
-    `SELECT fv.id, fv.task_id, mt.status
+    `SELECT fv.id, fv.task_id, fv.neutralization_spec, mt.status
        FROM factor_validations fv
        JOIN ml_tasks mt ON mt.id = fv.task_id
-       WHERE fv.idea_id = ? AND fv.profile_key = ?
+       WHERE fv.idea_id = ? AND fv.profile_key = ? AND fv.neutralization_key = ?
        LIMIT 1`
-  ).bind(ideaId, profileKey).first();
+  ).bind(ideaId, profileKey, neutralKey).first();
 
   if (existing) {
+    if (neutralizationSpec && typeof neutralizationSpec === "object") {
+      await db.prepare(
+        `UPDATE factor_validations
+            SET neutralization_spec = ?,
+                updated_at = datetime('now')
+          WHERE id = ?
+            AND (neutralization_spec IS NULL OR TRIM(neutralization_spec) = '')`
+      ).bind(JSON.stringify(neutralizationSpec), Number(existing.id)).run();
+    }
     return {
       factor_validation_id: Number(existing.id),
       task_id: Number(existing.task_id),
-      status: String(existing.status)
+      status: String(existing.status),
+      neutralization_key: neutralKey,
+      neutralization_spec:
+        neutralizationSpec ?? parseJsonObject(existing.neutralization_spec)
     };
   }
 
+  const businessType =
+    neutralKey === PRIMARY_NEUTRALIZATION_KEY
+      ? BUSINESS_TYPE_FACTOR_VALIDATION
+      : BUSINESS_TYPE_FACTOR_NEUTRAL_VALIDATION;
+  const mlflowExperiment =
+    neutralKey === PRIMARY_NEUTRALIZATION_KEY
+      ? FACTOR_VALIDATION_EXPERIMENT
+      : FACTOR_NEUTRAL_VALIDATION_EXPERIMENT;
+
   const taskId = await createMlTask(db, {
-    businessType: BUSINESS_TYPE_FACTOR_VALIDATION,
-    mlflowExperiment: FACTOR_VALIDATION_EXPERIMENT
+    businessType,
+    mlflowExperiment
   });
 
+  const specJson =
+    neutralizationSpec && typeof neutralizationSpec === "object"
+      ? JSON.stringify(neutralizationSpec)
+      : null;
+
   const insert = await db.prepare(
-    `INSERT INTO factor_validations (idea_id, profile_key, task_id, created_at, updated_at)
-       VALUES (?, ?, ?, datetime('now'), datetime('now'))`
-  ).bind(ideaId, profileKey, taskId).run();
+    `INSERT INTO factor_validations (
+         idea_id, profile_key, neutralization_key, neutralization_spec, task_id, created_at, updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+  ).bind(ideaId, profileKey, neutralKey, specJson, taskId).run();
   const factorValidationId = Number(insert.meta.last_row_id ?? 0);
   if (factorValidationId <= 0) {
     throw new Error("创建 factor_validations 失败");
@@ -244,7 +298,9 @@ export async function ensureFactorValidationRecords(db, ideaId, profileKey) {
   return {
     factor_validation_id: factorValidationId,
     task_id: taskId,
-    status: "pending"
+    status: "pending",
+    neutralization_key: neutralKey,
+    neutralization_spec: neutralizationSpec
   };
 }
 
@@ -257,11 +313,19 @@ export async function claimFactorValidationJobs(db, jobs, env = null) {
   for (const job of jobs) {
     const ideaId = Number(job.idea_id);
     const profileKey = String(job.profile_key ?? "").trim();
+    const neutralizationKey = String(job.neutralization_key ?? PRIMARY_NEUTRALIZATION_KEY).trim()
+      || PRIMARY_NEUTRALIZATION_KEY;
     if (!Number.isFinite(ideaId) || ideaId <= 0 || !profileKey) {
       continue;
     }
 
-    const record = await ensureFactorValidationRecords(db, ideaId, profileKey);
+    const record = await ensureFactorValidationRecords(
+      db,
+      ideaId,
+      profileKey,
+      neutralizationKey,
+      job.neutralization_spec ?? null
+    );
     const { factor_validation_id: factorValidationId, task_id: taskId } = record;
 
     const existing = await db.prepare(
@@ -329,7 +393,8 @@ export async function claimFactorValidationJobs(db, jobs, env = null) {
       task_id: taskId,
       factor_validation_id: factorValidationId,
       idea_id: ideaId,
-      profile_key: profileKey
+      profile_key: profileKey,
+      neutralization_key: record.neutralization_key
     });
   }
 
@@ -339,11 +404,13 @@ export async function claimFactorValidationJobs(db, jobs, env = null) {
 export function mergeClaimedFactorValidationJobs(pendingItems, claimedJobs) {
   const claimMap = new Map();
   for (const item of claimedJobs) {
-    claimMap.set(`${item.idea_id}:${item.profile_key}`, item);
+    const neutralKey = String(item.neutralization_key ?? PRIMARY_NEUTRALIZATION_KEY);
+    claimMap.set(`${item.idea_id}:${item.profile_key}:${neutralKey}`, item);
   }
   return pendingItems
     .map((job) => {
-      const claimed = claimMap.get(`${job.idea_id}:${job.profile_key}`);
+      const neutralKey = String(job.neutralization_key ?? PRIMARY_NEUTRALIZATION_KEY);
+      const claimed = claimMap.get(`${job.idea_id}:${job.profile_key}:${neutralKey}`);
       if (!claimed) {
         return null;
       }
@@ -366,6 +433,7 @@ export async function listPendingFactorValidationJobsForPrefect(db, limit = null
          COALESCE(fv.task_id, 0) AS task_id,
          i.id AS idea_id,
          vp.key AS profile_key,
+         '${PRIMARY_NEUTRALIZATION_KEY}' AS neutralization_key,
          COALESCE(mt.status, 'queued') AS status,
          vp.name AS profile_name,
          vp.label_kind,
@@ -402,11 +470,19 @@ export async function reserveFactorValidationJobsForPrefect(db, jobs) {
   for (const job of jobs) {
     const ideaId = Number(job.idea_id);
     const profileKey = String(job.profile_key ?? "").trim();
+    const neutralizationKey = String(job.neutralization_key ?? PRIMARY_NEUTRALIZATION_KEY).trim()
+      || PRIMARY_NEUTRALIZATION_KEY;
     if (!Number.isFinite(ideaId) || ideaId <= 0 || !profileKey) {
       continue;
     }
 
-    const record = await ensureFactorValidationRecords(db, ideaId, profileKey);
+    const record = await ensureFactorValidationRecords(
+      db,
+      ideaId,
+      profileKey,
+      neutralizationKey,
+      job.neutralization_spec ?? null
+    );
     const { factor_validation_id: factorValidationId, task_id: taskId } = record;
 
     const existing = await db.prepare(
@@ -432,6 +508,8 @@ export async function reserveFactorValidationJobsForPrefect(db, jobs) {
     delete diagnostics.report_phase;
     delete diagnostics.timing;
 
+    const businessType = businessTypeForNeutralization(neutralizationKey);
+
     const result = await db.prepare(
       `UPDATE ml_tasks
          SET status = 'pending',
@@ -445,11 +523,11 @@ export async function reserveFactorValidationJobsForPrefect(db, jobs) {
            AND NOT EXISTS (
              SELECT 1
                FROM prefect_flow_runs pfr
-              WHERE pfr.business_type = 'factor_validation'
+              WHERE pfr.business_type = ?
                 AND pfr.business_id = CAST(ml_tasks.id AS TEXT)
                 AND pfr.status IN ('scheduled', 'pending', 'running')
            )`
-    ).bind(JSON.stringify(diagnostics), taskId).run();
+    ).bind(JSON.stringify(diagnostics), taskId, businessType).run();
     if (Number(result.meta.changes ?? 0) === 0) {
       continue;
     }
@@ -459,7 +537,8 @@ export async function reserveFactorValidationJobsForPrefect(db, jobs) {
       task_id: taskId,
       factor_validation_id: factorValidationId,
       idea_id: ideaId,
-      profile_key: profileKey
+      profile_key: profileKey,
+      neutralization_key: record.neutralization_key
     });
   }
 
@@ -513,6 +592,11 @@ export function buildFactorValidationPrefectJobPayload(job) {
     factor_sql: job.factor_sql,
     profile_key: job.profile_key,
     validation_profile_key: job.profile_key,
+    neutralization_key: String(job.neutralization_key ?? PRIMARY_NEUTRALIZATION_KEY),
+    neutralization_spec:
+      job.neutralization_spec && typeof job.neutralization_spec === "object"
+        ? job.neutralization_spec
+        : null,
     label_kind: job.label_kind,
     horizon_bars: job.horizon_bars
   };
@@ -521,11 +605,13 @@ export function buildFactorValidationPrefectJobPayload(job) {
 export function mergeReservedFactorValidationJobs(pendingItems, reservedJobs) {
   const map = new Map();
   for (const item of reservedJobs) {
-    map.set(`${item.idea_id}:${item.profile_key}`, item);
+    const neutralKey = String(item.neutralization_key ?? PRIMARY_NEUTRALIZATION_KEY);
+    map.set(`${item.idea_id}:${item.profile_key}:${neutralKey}`, item);
   }
   return pendingItems
     .map((job) => {
-      const reserved = map.get(`${job.idea_id}:${job.profile_key}`);
+      const neutralKey = String(job.neutralization_key ?? PRIMARY_NEUTRALIZATION_KEY);
+      const reserved = map.get(`${job.idea_id}:${job.profile_key}:${neutralKey}`);
       if (!reserved) {
         return null;
       }
@@ -651,6 +737,7 @@ function buildFactorValidationListQuery({
   ideaId = null,
   status = null,
   profileKeys = null,
+  neutralizationKey = null,
   title = null,
   sort = null,
   order = null,
@@ -684,6 +771,10 @@ function buildFactorValidationListQuery({
   if (keys.length > 0) {
     clauses.push(`fv.profile_key IN (${keys.map(() => "?").join(", ")})`);
     binds.push(...keys);
+  }
+  if (neutralizationKey != null && String(neutralizationKey).trim()) {
+    clauses.push("fv.neutralization_key = ?");
+    binds.push(String(neutralizationKey).trim());
   }
   const titleQuery = title != null && String(title).trim() ? String(title).trim() : null;
   if (titleQuery) {
@@ -732,6 +823,7 @@ export async function listFactorValidations(
     ideaId = null,
     status = null,
     profileKeys = null,
+    neutralizationKey = null,
     title = null,
     sort = null,
     order = null,
@@ -744,6 +836,7 @@ export async function listFactorValidations(
     ideaId,
     status,
     profileKeys,
+    neutralizationKey,
     title,
     sort,
     order,
@@ -757,6 +850,8 @@ export async function listFactorValidations(
          fv.id,
          fv.idea_id,
          fv.profile_key,
+         fv.neutralization_key,
+         fv.neutralization_spec,
          vp.name AS profile_name,
          fv.task_id,
          mt.status,
@@ -796,7 +891,8 @@ export async function listFactorValidations(
     order: query.order,
     abs: query.abs,
     status: query.status,
-    title: query.title
+    title: query.title,
+    neutralization_key: neutralizationKey
   };
 }
 
@@ -806,6 +902,8 @@ export async function getFactorValidationById(db, factorValidationId) {
          fv.id,
          fv.idea_id,
          fv.profile_key,
+         fv.neutralization_key,
+         fv.neutralization_spec,
          vp.name AS profile_name,
          fv.task_id,
          mt.status,
@@ -828,6 +926,105 @@ export async function getFactorValidationById(db, factorValidationId) {
   ).bind(factorValidationId).first();
   return row ? rowToFactorValidationItem(row) : null;
 }
+
+function buildNeutralValidationJobFromForPrefect(staleMinutes, neutralizationKey, minAbsMeanRankIc) {
+  const metricExpr = factorValidationMetricExpr("mean_rank_ic");
+  return `
+    FROM factor_validations fv_primary
+    JOIN ml_tasks mt_primary ON mt_primary.id = fv_primary.task_id
+    JOIN ideas i ON i.id = fv_primary.idea_id
+    JOIN validation_profiles vp ON vp.key = fv_primary.profile_key AND vp.enabled = 1
+    LEFT JOIN factor_validations fv
+      ON fv.idea_id = fv_primary.idea_id
+     AND fv.profile_key = fv_primary.profile_key
+     AND fv.neutralization_key = '${neutralizationKey}'
+    LEFT JOIN ml_tasks mt ON mt.id = fv.task_id
+    WHERE fv_primary.neutralization_key = '${PRIMARY_NEUTRALIZATION_KEY}'
+      AND mt_primary.status = 'success'
+      AND i.factor_sql IS NOT NULL
+      AND TRIM(i.factor_sql) != ''
+      AND TRIM(i.factor_sql) != 'null'
+      AND ABS(${metricExpr.replaceAll("mt.", "mt_primary.")}) >= ${minAbsMeanRankIc}
+      AND (fv.id IS NULL OR mt.status NOT IN ('success', 'skipped'))
+      AND (
+        fv.id IS NULL
+        OR mt.status NOT IN ('running', 'pending')
+        OR (
+          mt.status = 'running'
+          AND mt.updated_at < datetime('now', '-${staleMinutes} minutes')
+        )
+        OR (
+          mt.status = 'pending'
+          AND (
+            mt.submitted_at IS NULL
+            OR mt.submitted_at < datetime('now', '-${staleMinutes} minutes')
+          )
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1
+          FROM prefect_flow_runs pfr
+         WHERE pfr.business_type = '${BUSINESS_TYPE_FACTOR_NEUTRAL_VALIDATION}'
+           AND pfr.business_id = CAST(COALESCE(fv.task_id, 0) AS TEXT)
+           AND pfr.status IN ('scheduled', 'pending', 'running')
+      )`;
+}
+
+export async function listPendingFactorNeutralValidationJobsForPrefect(
+  db,
+  limit = null,
+  env = null,
+  { neutralizationKey = "auto", minAbsMeanRankIc = 0.01 } = {}
+) {
+  const staleMinutes = readPrefectStaleMinutes(env);
+  await reclaimStalePrefectFlowRuns(db, env);
+  await reclaimStaleMlTasks(db, staleMinutes);
+  const neutralKey = String(neutralizationKey ?? "auto").trim() || "auto";
+  const threshold = Number(minAbsMeanRankIc);
+  const minIc = Number.isFinite(threshold) && threshold > 0 ? threshold : 0.01;
+  const hasLimit = limit != null && Number.isFinite(Number(limit)) && Number(limit) > 0;
+  const sql = `SELECT
+         COALESCE(fv.id, 0) AS factor_validation_id,
+         COALESCE(fv.task_id, 0) AS task_id,
+         i.id AS idea_id,
+         vp.key AS profile_key,
+         '${neutralKey}' AS neutralization_key,
+         COALESCE(mt.status, 'queued') AS status,
+         vp.name AS profile_name,
+         vp.label_kind,
+         vp.horizon_bars,
+         i.title,
+         i.title_hash,
+         i.factor_expr,
+         i.hypothesis,
+         i.formula_sketch,
+         i.expected_signal,
+         i.data_sources,
+         i.factor_sql,
+         ABS(${factorValidationMetricExpr("mean_rank_ic").replaceAll("mt.", "mt_primary.")}) AS primary_abs_mean_rank_ic
+       ${buildNeutralValidationJobFromForPrefect(staleMinutes, neutralKey, minIc)}
+       ORDER BY primary_abs_mean_rank_ic DESC,
+         fv_primary.idea_id ASC,
+         vp.sort_order ASC,
+         vp.key ASC${hasLimit ? " LIMIT ?" : ""}`;
+  const result = hasLimit
+    ? await db.prepare(sql).bind(Number(limit)).all()
+    : await db.prepare(sql).all();
+  return { items: (result.results ?? []).map(rowToFactorValidationJob), neutralization_key: neutralKey };
+}
+
+export async function reserveFactorNeutralValidationJobsForPrefect(db, jobs, neutralizationKey = "auto") {
+  const jobsWithNeutral = jobs.map((job) => ({
+    ...job,
+    neutralization_key: String(job.neutralization_key ?? neutralizationKey).trim() || neutralizationKey
+  }));
+  return reserveFactorValidationJobsForPrefect(db, jobsWithNeutral);
+}
+
+export {
+  BUSINESS_TYPE_FACTOR_NEUTRAL_VALIDATION,
+  PRIMARY_NEUTRALIZATION_KEY
+};
 
 export {
   releaseMlTaskClaims as releaseFactorValidationClaims,

@@ -16,3 +16,17 @@ deployments:
   entrypoint: flows/factor_validation.py:run_factor_validation
   work_pool:
     name: quant-factors-eval
+- name: production
+  tags:
+  - quant-factors
+  - neutral-validation
+  description: 中性化二次验证（claim + LLM 选型 + 评估 + 回写 D1）。
+  entrypoint: flows/neutral_validation.py:run_neutral_validation
+  work_pool:
+    name: neutral_validation
+  parameters:
+    ignore_schedule_enabled: false
+  schedules:
+  - cron: '*/5 * * * *'
+    timezone: Asia/Shanghai
+    active: true

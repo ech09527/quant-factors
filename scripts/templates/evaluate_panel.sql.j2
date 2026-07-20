@@ -83,6 +83,8 @@ signal AS (
   WINDOW w AS (PARTITION BY symbol ORDER BY open_time)
 ),
 
+{{ neutralization_cte }}
+
 postprocessed AS (
   SELECT
     symbol,
@@ -90,7 +92,7 @@ postprocessed AS (
     close,
     log_ret_1,
     {{ postprocess_expr }} AS factor
-  FROM signal
+  FROM neutralized
 ),
 
 labeled AS (

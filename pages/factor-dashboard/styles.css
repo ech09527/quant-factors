@@ -457,6 +457,23 @@ tbody tr:hover {
   border-color: rgba(142, 192, 255, 0.35);
 }
 
+.fv-compare-row td {
+  background: color-mix(in srgb, var(--sl-color-neutral-200) 35%, transparent);
+}
+
+.fv-compare-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.fv-compare-grid {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.92rem;
+}
+
 .fv-chart-icon-btn--mean_rank_ic {
   color: #f0a05a;
   border-color: rgba(240, 160, 90, 0.35);

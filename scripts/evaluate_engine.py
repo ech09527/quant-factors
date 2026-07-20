@@ -53,13 +53,30 @@ ALLOWED_COLUMNS = frozenset(
     }
 )
 
+try:
+    from scripts.neutralization_spec import (
+        build_neutralization_cte_sql,
+        neutralization_audit_payload,
+        resolve_neutralization_spec,
+        spec_storage_key,
+    )
+except ImportError:
+    from neutralization_spec import (
+        build_neutralization_cte_sql,
+        neutralization_audit_payload,
+        resolve_neutralization_spec,
+        spec_storage_key,
+    )
+
+DEFAULT_NEUTRALIZATION_KEY = "none"
+
 POSTPROCESS_EXPR = {
-    "cs_rank": "PERCENT_RANK() OVER (PARTITION BY open_time ORDER BY raw_signal)",
+    "cs_rank": "PERCENT_RANK() OVER (PARTITION BY open_time ORDER BY neutral_signal)",
     "cs_zscore": (
-        "(raw_signal - AVG(raw_signal) OVER (PARTITION BY open_time)) "
-        "/ (STDDEV_SAMP(raw_signal) OVER (PARTITION BY open_time) + 1e-8)"
+        "(neutral_signal - AVG(neutral_signal) OVER (PARTITION BY open_time)) "
+        "/ (STDDEV_SAMP(neutral_signal) OVER (PARTITION BY open_time) + 1e-8)"
     ),
-    "none": "raw_signal",
+    "none": "neutral_signal",
 }
 
 
@@ -148,10 +165,20 @@ def render_panel_sql(
     validation_profile_key: str | None = None,
     label_kind: str | None = None,
     horizon_bars: int | None = None,
+    neutralization_key: str | None = None,
+    neutralization_spec: dict[str, Any] | None = None,
 ) -> str:
     validate_postprocess(factor_sql)
+    resolved_spec = resolve_neutralization_spec(
+        neutralization_key=neutralization_key,
+        neutralization_spec=neutralization_spec,
+    )
     postprocess = factor_sql["postprocess"]
     postprocess_expr = POSTPROCESS_EXPR[postprocess]
+    neutralization_cte = build_neutralization_cte_sql(
+        neutralization_key=None,
+        neutralization_spec=resolved_spec,
+    )
     static_universe_sql, enriched_exprs, window_filters = build_universe_parts(
         factor_sql.get("universe") or {}
     )
@@ -171,6 +198,7 @@ def render_panel_sql(
         window_universe_sql=window_universe_sql,
         needs_window_universe=needs_window_universe,
         signal_sql=factor_sql["signal_sql"],
+        neutralization_cte=neutralization_cte,
         postprocess_expr=postprocess_expr,
         label_expr=label_expr,
     )
@@ -254,6 +282,8 @@ def run_panel_query(
     validation_profile_key: str | None = None,
     label_kind: str | None = None,
     horizon_bars: int | None = None,
+    neutralization_key: str | None = None,
+    neutralization_spec: dict[str, Any] | None = None,
     connection: duckdb.DuckDBPyConnection | None = None,
 ) -> pd.DataFrame:
     sql = render_panel_sql(
@@ -263,6 +293,8 @@ def run_panel_query(
         validation_profile_key=validation_profile_key,
         label_kind=label_kind,
         horizon_bars=horizon_bars,
+        neutralization_key=neutralization_key,
+        neutralization_spec=neutralization_spec,
     )
     con = connection or duckdb.connect()
     try:
@@ -296,10 +328,25 @@ def evaluate_factor_sql(
     validation_profile_key: str | None = None,
     label_kind: str | None = None,
     horizon_bars: int | None = None,
+    neutralization_key: str | None = None,
+    neutralization_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """执行完整评估并返回 evaluation 字典。"""
     evaluation_type = factor_sql["evaluation_type"]
     evaluated_at = datetime.now(timezone.utc).isoformat()
+    resolved_spec = resolve_neutralization_spec(
+        neutralization_key=neutralization_key,
+        neutralization_spec=neutralization_spec,
+    )
+    storage_key = spec_storage_key(
+        resolved_spec,
+        preferred_key=neutralization_key,
+    )
+    neutralization_meta = neutralization_audit_payload(
+        key=storage_key,
+        spec=resolved_spec,
+        source="engine",
+    )
     _label_expr, validation_profile = resolve_label_expr(
         validation_profile_key=validation_profile_key,
         label_kind=label_kind,
@@ -317,6 +364,8 @@ def evaluate_factor_sql(
             "metrics_version": METRICS_VERSION,
             "evaluation_type": evaluation_type,
             "validation_profile_key": validation_profile["key"],
+            "neutralization_key": storage_key,
+            "neutralization_spec": resolved_spec,
             "evaluated_at": evaluated_at,
             "skipped_reason": "time_series_not_supported_in_mvp",
             "data_range": {"start": sample_start, "end": sample_start, "n_bars": 0},
@@ -338,6 +387,7 @@ def evaluate_factor_sql(
         validation_profile_key=validation_profile["key"],
         label_kind=validation_profile.get("label_kind"),
         horizon_bars=validation_profile.get("horizon_bars"),
+        neutralization_spec=resolved_spec,
     )
     if save_panel_path is not None:
         save_panel_path.parent.mkdir(parents=True, exist_ok=True)
@@ -361,12 +411,15 @@ def evaluate_factor_sql(
         "metrics_version": METRICS_VERSION,
         "evaluation_type": evaluation_type,
         "validation_profile_key": validation_profile["key"],
+        "neutralization_key": storage_key,
+        "neutralization_spec": resolved_spec,
         "evaluated_at": evaluated_at,
         "data_range": summarize_data_range(panel, sample_start),
         "factor_sql": factor_sql,
         "ic_series": ic_series,
         "metrics": {
             "validation_profile_key": validation_profile["key"],
+            "neutralization_key": storage_key,
             "label_kind": validation_profile["label_kind"],
             "horizon_bars": validation_profile["horizon_bars"],
             "mean_ic": metrics["mean_ic"],
@@ -376,7 +429,10 @@ def evaluate_factor_sql(
             "n_periods": metrics["n_periods"],
             "ic_positive_ratio": metrics["ic_positive_ratio"],
         },
-        "diagnostics": diagnostics,
+        "diagnostics": {
+            **diagnostics,
+            "neutralization": neutralization_meta,
+        },
     }
 
 
