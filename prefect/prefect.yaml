@@ -26,6 +26,11 @@ deployments:
     name: neutral_validation
   parameters:
     ignore_schedule_enabled: false
+    callback_base_url: https://quant-factors-dashboard.pages.dev
+  job_variables:
+    env:
+      FACTOR_API_BASE_URL: https://quant-factors-dashboard.pages.dev
+      VALIDATION_API_BASE_URL: https://quant-factors-dashboard.pages.dev
   schedules:
   - cron: '*/5 * * * *'
     timezone: Asia/Shanghai
