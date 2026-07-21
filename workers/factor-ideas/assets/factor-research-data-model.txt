@@ -1,0 +1,54 @@
+# 因子研究助手 — 受控数据模型说明（只读）
+
+## 核心表
+
+### ideas（因子想法）
+- id INTEGER PK
+- title TEXT
+- hypothesis TEXT
+- formula_sketch TEXT
+- factor_expr TEXT
+- expected_signal TEXT
+- risks TEXT（JSON 数组字符串）
+- data_sources TEXT（JSON 数组字符串）
+- factor_sql TEXT（JSON，DuckDB signal_sql 等）
+- source TEXT
+- created_at / updated_at
+
+### factor_validations（验证记录，一次验证与中性化二次验证共用）
+- id INTEGER PK
+- idea_id → ideas.id
+- profile_key TEXT（如 fwd_ret_24）
+- neutralization_key TEXT
+  - none：一次验证（原始因子）
+  - auto / liq_mom 等：中性化二次验证
+- neutralization_spec TEXT（JSON exposures）
+- task_id → ml_tasks.id
+- factor_sql / evaluated_at / created_at / updated_at
+
+### ml_tasks（任务状态与指标）
+- id INTEGER PK（= factor_validations.task_id）
+- status：pending | running | success | failed | skipped
+- business_type：factor_validation | factor_neutral_validation
+- diagnostics TEXT（JSON）
+  - diagnostics.metrics 内常用指标：
+    - mean_ic
+    - mean_rank_ic
+    - ic_ir
+    - rank_ic_ir
+    - n_periods
+    - ic_positive_ratio
+- error_reason / mlflow_run_id / mlflow_experiment
+
+### validation_profiles
+- key / name / label_kind / horizon_bars / enabled
+
+## 查询建议
+- 「Rank IC 大于/绝对值大于」→ 优先用 query_factor_validations（metric=mean_rank_ic）
+- 「一次 vs 中性化」→ get_idea_bundle(idea_id)，比较 neutralization_key=none 与其它
+- 复杂筛选 → run_readonly_sql，仅允许 SELECT 白名单表
+
+## 表白名单（run_readonly_sql / describe_table）
+ideas, factor_validations, ml_tasks, validation_profiles
+
+禁止查询：llm_providers、llm_usage_routes、workflow_settings 等含密钥/内部配置的表。

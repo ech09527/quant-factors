@@ -102,6 +102,7 @@ const USAGE_LABELS = {
   [LLM_USAGE_KEYS.IDEA_GENERATION]: "因子想法生成",
   [LLM_USAGE_KEYS.VALIDATION_TRANSLATION]: "验证 SQL 翻译",
   [LLM_USAGE_KEYS.NEUTRALIZATION_SELECTION]: "中性化暴露选择",
+  [LLM_USAGE_KEYS.FACTOR_RESEARCH_AGENT]: "因子研究助手",
 };
 
 function flattenWorkflowConfig(usage, routes) {

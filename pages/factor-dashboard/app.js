@@ -300,6 +300,11 @@ const els = {
   factorSqlMeta: document.getElementById("factor-sql-meta"),
   factorSqlSignal: document.getElementById("factor-sql-signal"),
   factorSqlJson: document.getElementById("factor-sql-json"),
+  factorResearchOpen: document.getElementById("factor-research-open"),
+  factorResearchDialog: document.getElementById("factor-research-chat-dialog"),
+  factorResearchFrame: document.getElementById("factor-research-frame"),
+  factorResearchOpenTab: document.getElementById("factor-research-open-tab"),
+  factorResearchClose: document.getElementById("factor-research-close"),
   toast: document.getElementById("toast"),
 };
 
@@ -744,6 +749,8 @@ function factorValidationQueryHint(data) {
   const metricLabel = {
     mean_ic: "Mean IC",
     mean_rank_ic: "Mean Rank IC",
+    ic_ir: "IC IR",
+    rank_ic_ir: "Rank IC IR",
     evaluated_at: "评估时间",
     updated_at: "更新时间",
   }[data.sort] || data.sort;
@@ -1727,6 +1734,7 @@ async function loadFactorValidations() {
           <td class="fv-col-factor">${factorValidationFactorCell(row, err)}</td>
           <td class="fv-col-metric">${formatMetricCell(metrics.mean_ic)}</td>
           <td class="fv-col-metric">${formatMetricCell(metrics.mean_rank_ic)}</td>
+          <td class="fv-col-metric">${formatMetricCell(metrics.rank_ic_ir)}</td>
           <td class="fv-col-metric">${formatMetricCell(metrics.ic_ir)}</td>
           <td class="fv-col-actions">${factorValidationChartCell(row)}</td>
           <td class="fv-col-time" title="${escapeHtml(evaluated.title)}">${evaluated.text}</td>
@@ -1736,7 +1744,7 @@ async function loadFactorValidations() {
     .join("");
 
   if (!(data.items || []).length) {
-    els.factorValidationsBody.innerHTML = `<tr><td colspan="6" class="muted">暂无因子验证记录。</td></tr>`;
+    els.factorValidationsBody.innerHTML = `<tr><td colspan="7" class="muted">暂无因子验证记录。</td></tr>`;
     if (els.factorValidationsCharts) {
       els.factorValidationsCharts.classList.add("hidden");
       els.factorValidationsCharts.innerHTML = "";
@@ -1979,15 +1987,16 @@ function renderIdeaFactorValidationsTable(data) {
       const neutralMetrics = factorValidationMetricsFromRow(bucket.neutral);
       rows.push(`
         <tr class="fv-compare-row">
-          <td class="fv-col-factor" colspan="6">
+          <td class="fv-col-factor" colspan="7">
             <div class="fv-compare-header">
               <strong>${profileName}</strong>
               <span class="muted">一次 vs 中性化</span>
             </div>
             <div class="fv-compare-grid">
               <div><span class="muted">Rank IC</span> ${formatMetricCell(primaryMetrics.mean_rank_ic)} → ${formatMetricCell(neutralMetrics.mean_rank_ic)} ${formatMetricDelta(primaryMetrics.mean_rank_ic, neutralMetrics.mean_rank_ic)}</div>
+              <div><span class="muted">Rank IC IR</span> ${formatMetricCell(primaryMetrics.rank_ic_ir)} → ${formatMetricCell(neutralMetrics.rank_ic_ir)} ${formatMetricDelta(primaryMetrics.rank_ic_ir, neutralMetrics.rank_ic_ir)}</div>
               <div><span class="muted">IC</span> ${formatMetricCell(primaryMetrics.mean_ic)} → ${formatMetricCell(neutralMetrics.mean_ic)} ${formatMetricDelta(primaryMetrics.mean_ic, neutralMetrics.mean_ic)}</div>
-              <div><span class="muted">IR</span> ${formatMetricCell(primaryMetrics.ic_ir)} → ${formatMetricCell(neutralMetrics.ic_ir)}</div>
+              <div><span class="muted">IC IR</span> ${formatMetricCell(primaryMetrics.ic_ir)} → ${formatMetricCell(neutralMetrics.ic_ir)} ${formatMetricDelta(primaryMetrics.ic_ir, neutralMetrics.ic_ir)}</div>
             </div>
           </td>
         </tr>
@@ -2011,6 +2020,7 @@ function renderIdeaFactorValidationsTable(data) {
           </td>
           <td class="fv-col-metric">${formatMetricCell(metrics.mean_ic)}</td>
           <td class="fv-col-metric">${formatMetricCell(metrics.mean_rank_ic)}</td>
+          <td class="fv-col-metric">${formatMetricCell(metrics.rank_ic_ir)}</td>
           <td class="fv-col-metric">${formatMetricCell(metrics.ic_ir)}</td>
           <td class="fv-col-actions">${factorValidationChartCell(row)}</td>
           <td class="fv-col-time" title="${escapeHtml(evaluated.title)}">${evaluated.text}</td>
@@ -2026,7 +2036,8 @@ function renderIdeaFactorValidationsTable(data) {
           <th class="fv-col-factor">验证配置</th>
           <th class="fv-col-metric">IC</th>
           <th class="fv-col-metric">Rank IC</th>
-          <th class="fv-col-metric">IR</th>
+          <th class="fv-col-metric">Rank IC IR</th>
+          <th class="fv-col-metric">IC IR</th>
           <th class="fv-col-actions">操作</th>
           <th class="fv-col-time">评估</th>
         </tr>
@@ -2490,6 +2501,10 @@ document.getElementById("factor-validations-preset-rank-ic")?.addEventListener("
   applyFactorValidationPreset({ sort: "mean_rank_ic" });
 });
 
+document.getElementById("factor-validations-preset-rank-ic-ir")?.addEventListener("click", () => {
+  applyFactorValidationPreset({ sort: "rank_ic_ir" });
+});
+
 document.getElementById("factor-validations-preset-mean-ic")?.addEventListener("click", () => {
   applyFactorValidationPreset({ sort: "mean_ic" });
 });
@@ -2867,6 +2882,53 @@ document.body.addEventListener("click", async (event) => {
   }
 });
 
+function researchChatUrl({ embed = true } = {}) {
+  const url = new URL("/research-chat/", window.location.origin);
+  if (embed) {
+    url.searchParams.set("embed", "1");
+  }
+  const token = getAuthToken();
+  if (token) {
+    url.searchParams.set("token", token);
+  }
+  return url.toString();
+}
+
+function openFactorResearchDialog() {
+  if (els.factorResearchFrame) {
+    els.factorResearchFrame.src = researchChatUrl({ embed: true });
+  }
+  els.factorResearchDialog?.showModal();
+}
+
+async function handleResearchChatMessage(event) {
+  if (event.origin !== window.location.origin) {
+    return;
+  }
+  const data = event.data;
+  if (!data || typeof data !== "object") {
+    return;
+  }
+  if (data.type === "qf-research-chat-ready") {
+    const token = getAuthToken();
+    if (token && els.factorResearchFrame?.contentWindow) {
+      els.factorResearchFrame.contentWindow.postMessage(
+        { type: "qf-auth", token },
+        window.location.origin,
+      );
+    }
+    return;
+  }
+  if (data.type === "qf-open-idea" && Number.isFinite(Number(data.ideaId))) {
+    try {
+      const response = await apiGet(`/api/ideas/${Number(data.ideaId)}`);
+      await renderIdeaDetail(response.item);
+    } catch (error) {
+      handleError(error);
+    }
+  }
+}
+
 async function verifyAuthAndBoot() {
   const token = getAuthToken();
   if (!token) {
@@ -2904,6 +2966,22 @@ els.authForm.addEventListener("submit", async (event) => {
       showAuthGate("密码错误");
     }
   }
+});
+
+els.factorResearchOpen?.addEventListener("click", () => {
+  openFactorResearchDialog();
+});
+
+els.factorResearchClose?.addEventListener("click", () => {
+  els.factorResearchDialog?.close();
+});
+
+els.factorResearchOpenTab?.addEventListener("click", () => {
+  window.open(researchChatUrl({ embed: false }), "_blank", "noopener");
+});
+
+window.addEventListener("message", (event) => {
+  handleResearchChatMessage(event).catch(handleError);
 });
 
 els.detailDialog?.addEventListener("close", () => {

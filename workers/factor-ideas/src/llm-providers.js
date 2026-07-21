@@ -4,6 +4,7 @@ export const LLM_USAGE_KEYS = {
   IDEA_GENERATION: "idea_generation",
   VALIDATION_TRANSLATION: "validation_translation",
   NEUTRALIZATION_SELECTION: "neutralization_selection",
+  FACTOR_RESEARCH_AGENT: "factor_research_agent",
 };
 
 const VALID_USAGE_KEYS = new Set(Object.values(LLM_USAGE_KEYS));
@@ -12,6 +13,7 @@ const DEFAULT_TEMPERATURE = {
   [LLM_USAGE_KEYS.IDEA_GENERATION]: null,
   [LLM_USAGE_KEYS.VALIDATION_TRANSLATION]: 0.1,
   [LLM_USAGE_KEYS.NEUTRALIZATION_SELECTION]: 0.1,
+  [LLM_USAGE_KEYS.FACTOR_RESEARCH_AGENT]: 0.2,
 };
 
 const KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
@@ -262,6 +264,14 @@ export async function createLlmProvider(db, input) {
       model_name: models[0],
       priority: 0,
       temperature: 0.1,
+      enabled: true,
+    });
+    await createUsageRoute(db, {
+      usage_key: LLM_USAGE_KEYS.FACTOR_RESEARCH_AGENT,
+      provider_key: key,
+      model_name: models[0],
+      priority: 0,
+      temperature: 0.2,
       enabled: true,
     });
   }

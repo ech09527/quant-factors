@@ -35,6 +35,9 @@
             <strong id="stat-active-ops">-</strong>
           </span>
         </div>
+        <div class="header-actions">
+          <sl-button id="factor-research-open" size="small" variant="primary">研究助手</sl-button>
+        </div>
       </header>
 
       <nav class="tabs" role="tablist">
@@ -89,7 +92,7 @@
 
       <section class="panel hidden" id="panel-factor-validations">
         <p class="muted profile-hint factor-validations-source-hint">
-          点击行查看详情；操作列图标分别为 IC 序列、Mean Rank IC 密度、Rank IC 密度、MLflow。
+          点击行查看详情；列表含 IC / Rank IC / Rank IC IR / IC IR；操作列图标分别为 IC 序列、Mean Rank IC 密度、Rank IC 密度、MLflow。
         </p>
         <div class="toolbar validations-toolbar">
           <div class="filter-grid">
@@ -101,7 +104,9 @@
               <span class="filter-label">排序指标</span>
               <sl-select id="factor-validations-sort" size="small" value="mean_rank_ic" hoist>
                 <sl-option value="mean_rank_ic">Mean Rank IC</sl-option>
+                <sl-option value="rank_ic_ir">Rank IC IR</sl-option>
                 <sl-option value="mean_ic">Mean IC</sl-option>
+                <sl-option value="ic_ir">IC IR</sl-option>
                 <sl-option value="evaluated_at">评估时间</sl-option>
                 <sl-option value="updated_at">更新时间</sl-option>
               </sl-select>
@@ -149,6 +154,7 @@
           </div>
           <div class="toolbar-actions validations-actions">
             <sl-button id="factor-validations-preset-rank-ic" size="small">Rank IC · Top 30</sl-button>
+            <sl-button id="factor-validations-preset-rank-ic-ir" size="small">Rank IC IR · Top 30</sl-button>
             <sl-button id="factor-validations-preset-mean-ic" size="small">Mean IC · Top 30</sl-button>
             <sl-button id="factor-validations-apply" variant="primary" size="small">查询</sl-button>
             <sl-button id="factor-validations-refresh" size="small">刷新</sl-button>
@@ -163,7 +169,8 @@
                 <th class="fv-col-factor">因子</th>
                 <th class="fv-col-metric" data-sort="mean_ic">IC</th>
                 <th class="fv-col-metric" data-sort="mean_rank_ic">Rank IC</th>
-                <th class="fv-col-metric">IR</th>
+                <th class="fv-col-metric" data-sort="rank_ic_ir">Rank IC IR</th>
+                <th class="fv-col-metric" data-sort="ic_ir">IC IR</th>
                 <th class="fv-col-actions">操作</th>
                 <th class="fv-col-time" data-sort="evaluated_at">评估</th>
               </tr>
@@ -349,6 +356,25 @@
       </form>
     </dialog>
 
+    <dialog id="factor-research-chat-dialog">
+      <article class="factor-research-chat factor-research-chat--frame">
+        <header class="factor-research-chat-header">
+          <h2>研究助手</h2>
+          <p class="muted">React 流式对话（Markdown）；也可单独打开 /research-chat/</p>
+        </header>
+        <iframe
+          id="factor-research-frame"
+          class="factor-research-frame"
+          title="因子研究助手"
+          src="about:blank"
+        ></iframe>
+        <div class="factor-research-form-actions">
+          <sl-button type="button" id="factor-research-open-tab" size="small">新标签打开</sl-button>
+          <sl-button type="button" id="factor-research-close" size="small">关闭</sl-button>
+        </div>
+      </article>
+    </dialog>
+
     <dialog id="density-dialog">
       <article class="density-dialog-content">
         <h2 id="density-dialog-title">密度图</h2>
@@ -448,6 +474,8 @@
         <sl-select id="llm-route-usage" label="用途" value="idea_generation" hoist required>
           <sl-option value="idea_generation">因子想法生成</sl-option>
           <sl-option value="validation_translation">验证 SQL 翻译</sl-option>
+          <sl-option value="neutralization_selection">中性化暴露选择</sl-option>
+          <sl-option value="factor_research_agent">因子研究助手</sl-option>
         </sl-select>
         <sl-select id="llm-route-provider" label="Provider" hoist required></sl-select>
         <sl-select id="llm-route-model" label="模型" hoist required></sl-select>

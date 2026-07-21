@@ -1,0 +1,40 @@
+{
+  "name": "factor-ideas",
+  "version": "1.0.0",
+  "description": "验证批处理由 **factor-ideas Worker Cron** 驱动，不再依赖 GHA 队列。",
+  "main": "index.js",
+  "dependencies": {
+    "@ai-sdk/openai": "^4.0.16",
+    "ai": "^7.0.32",
+    "blake3-wasm": "^2.1.5",
+    "cookie": "^1.1.1",
+    "detect-libc": "^2.1.2",
+    "error-stack-parser-es": "^1.0.5",
+    "esbuild": "^0.28.1",
+    "kleur": "^4.1.5",
+    "miniflare": "^4.20260701.0",
+    "path-to-regexp": "^6.3.0",
+    "pathe": "^2.0.3",
+    "semver": "^7.8.5",
+    "sharp": "^0.34.5",
+    "supports-color": "^10.2.2",
+    "tsx": "^4.23.0",
+    "typescript": "^5.7.3",
+    "undici": "^7.28.0",
+    "undici-types": "^6.21.0",
+    "unenv": "^2.0.0-rc.24",
+    "workerd": "^1.20260701.1",
+    "wrangler": "^4.107.0",
+    "ws": "^8.21.0",
+    "youch": "^4.1.0-beta.10",
+    "youch-core": "^0.3.3",
+    "zod": "^4.4.3"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}

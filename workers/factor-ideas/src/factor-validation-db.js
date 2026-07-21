@@ -725,6 +725,8 @@ export async function enqueueFactorValidations(db, ideaId, profileKeys) {
 const FACTOR_VALIDATION_SORT_FIELDS = {
   mean_ic: "mean_ic",
   mean_rank_ic: "mean_rank_ic",
+  ic_ir: "ic_ir",
+  rank_ic_ir: "rank_ic_ir",
   evaluated_at: "evaluated_at",
   updated_at: "updated_at"
 };
@@ -743,7 +745,8 @@ function buildFactorValidationListQuery({
   order = null,
   abs = true,
   limit = 30,
-  offset = 0
+  offset = 0,
+  metricFilter = null
 } = {}) {
   const sortRaw = sort?.trim() || "mean_rank_ic";
   const sortField =
@@ -780,6 +783,46 @@ function buildFactorValidationListQuery({
   if (titleQuery) {
     clauses.push("instr(lower(i.title), lower(?)) > 0");
     binds.push(titleQuery);
+  }
+
+  const filterMetric = String(metricFilter?.metric ?? "").trim();
+  const filterOp = String(metricFilter?.op ?? "").trim();
+  const filterValue = Number(metricFilter?.value);
+  if (
+    filterMetric &&
+    filterMetric in FACTOR_VALIDATION_SORT_FIELDS &&
+    FACTOR_VALIDATION_SORT_FIELDS[filterMetric] !== "evaluated_at" &&
+    FACTOR_VALIDATION_SORT_FIELDS[filterMetric] !== "updated_at" &&
+    Number.isFinite(filterValue)
+  ) {
+    const metricExpr = factorValidationMetricExpr(filterMetric);
+    clauses.push(`${metricExpr} IS NOT NULL`);
+    const absExpr = `ABS(${metricExpr})`;
+    if (filterOp === "gt") {
+      clauses.push(`${metricExpr} > ?`);
+      binds.push(filterValue);
+    } else if (filterOp === "gte") {
+      clauses.push(`${metricExpr} >= ?`);
+      binds.push(filterValue);
+    } else if (filterOp === "lt") {
+      clauses.push(`${metricExpr} < ?`);
+      binds.push(filterValue);
+    } else if (filterOp === "lte") {
+      clauses.push(`${metricExpr} <= ?`);
+      binds.push(filterValue);
+    } else if (filterOp === "abs_gt") {
+      clauses.push(`${absExpr} > ?`);
+      binds.push(filterValue);
+    } else if (filterOp === "abs_gte") {
+      clauses.push(`${absExpr} >= ?`);
+      binds.push(filterValue);
+    } else if (filterOp === "abs_lt") {
+      clauses.push(`${absExpr} < ?`);
+      binds.push(filterValue);
+    } else if (filterOp === "abs_lte") {
+      clauses.push(`${absExpr} <= ?`);
+      binds.push(filterValue);
+    }
   }
 
   let orderExpr;
@@ -829,7 +872,8 @@ export async function listFactorValidations(
     order = null,
     abs = true,
     limit = 30,
-    offset = 0
+    offset = 0,
+    metricFilter = null
   } = {}
 ) {
   const query = buildFactorValidationListQuery({
@@ -842,7 +886,8 @@ export async function listFactorValidations(
     order,
     abs,
     limit,
-    offset
+    offset,
+    metricFilter
   });
 
   const result = await db.prepare(

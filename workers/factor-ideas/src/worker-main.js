@@ -16,6 +16,7 @@ import { getJupyterKernelStatus } from "./jupyter-kernel-status.js";
 import { getMlTaskKernelStatus } from "./ml-task-kernel-status.js";
 import worker from "./index.js";
 import { handleFactorValidationApiRequest } from "./factor-validation-api.js";
+import { handleFactorResearchChatRequest } from "./factor-research-agent.js";
 import { runFactorValidationBatch } from "./factor-validation-batch.js";
 import { runKernelCleanup } from "./kernel-cleanup.js";
 import { cleanupExpiredJupyterServers } from "./jupyter-server-db.js";
@@ -413,6 +414,12 @@ export default {
         const message = error instanceof Error ? error.message : String(error);
         return Response.json({ ok: false, error: message }, { status: 500 });
       }
+    }
+    if (url.pathname === "/api/factor-research-chat" && request.method === "POST") {
+      if (!isAuthorized(request, env)) {
+        return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      }
+      return handleFactorResearchChatRequest(request, env);
     }
     const factorValidationPaths = [
       "/api/workflow/ml-tasks/report",

@@ -40,6 +40,9 @@ PREFECT_FLOW_RUN_STALE_MINUTES = "45"
 PREFECT_API_URL = "https://prefect.longyin-tech.com/api"
 JUPYTER_EXECUTION_VIA_DO = "0"
 
+[limits]
+cpu_ms = 60000
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["JupyterServerCoordinator"]

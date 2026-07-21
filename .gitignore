@@ -9,3 +9,11 @@ workers/factor-ideas-cron/node_modules/
 workers/factor-ideas-cron/.wrangler/
 workers/factor-evaluation-batch-cron/node_modules/
 workers/factor-evaluation-batch-cron/.wrangler/
+pages/factor-research-chat/node_modules/
+pages/factor-dashboard/node_modules/
+pages/factor-dashboard/.wrangler/
+workers/factor-ideas/node_modules/
+workers/factor-ideas/.wrangler/
+workers/factor-ideas/.dev.vars
+workers/factor-ideas/.env
+
